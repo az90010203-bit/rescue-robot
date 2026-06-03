@@ -79,6 +79,29 @@ test("appends long-lived event and telemetry batches", async () => {
   store.close();
 });
 
+test("saves, lists, and deletes arm teach tracks", async () => {
+  const store = await openTempStore();
+  const project = store.getCurrentProject();
+  const track = {
+    id: "track-1",
+    name: "Pick route",
+    createdAt: 10,
+    updatedAt: 20,
+    durationMs: 100,
+    sampleIntervalMs: 100,
+    jointIds: ["base"],
+    servoIds: [22],
+    samples: [{ tMs: 0, joints: [{ jointId: "base", servoId: 22, logicalAngleDeg: 45, physicalAngleDeg: 45, positionRaw: 512 }] }],
+    metadata: { source: "hardware-drag", notes: "demo" }
+  };
+
+  assert.deepEqual(store.saveArmTeachTrack(project.id, track), track);
+  assert.deepEqual(store.listArmTeachTracks(project.id), [track]);
+  assert.deepEqual(store.deleteArmTeachTrack(track.id), { deleted: true });
+  assert.deepEqual(store.listArmTeachTracks(project.id), []);
+  store.close();
+});
+
 async function openTempStore() {
   const dir = await mkdtemp(path.join(tmpdir(), "rescue-robot-db-test-"));
   cleanupPaths.push(dir);

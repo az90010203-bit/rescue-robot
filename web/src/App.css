@@ -64,7 +64,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -74,7 +75,8 @@ button {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(20, 86, 240, 0.18);
   outline-offset: 2px;
 }
@@ -98,11 +100,11 @@ select:focus-visible {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 520px);
   align-items: center;
-  gap: 18px;
-  border-radius: 20px;
-  padding: 18px;
+  gap: 16px;
+  border-radius: 16px;
+  padding: 14px 16px;
 }
 
 .topbar::after {
@@ -121,17 +123,17 @@ select:focus-visible {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 12px;
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   border: 1px solid rgba(10, 10, 10, 0.88);
-  border-radius: 14px;
+  border-radius: 12px;
   color: #ffffff;
   background:
     linear-gradient(135deg, rgba(61, 174, 255, 0.34), transparent 42%),
@@ -148,7 +150,7 @@ select:focus-visible {
 }
 
 .eyebrow {
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   color: var(--steel);
   font-size: 0.74rem;
   font-weight: 700;
@@ -168,9 +170,9 @@ h2 {
 
 h1 {
   color: var(--ink);
-  font-size: 2.02rem;
+  font-size: 1.68rem;
   font-weight: 680;
-  line-height: 1.08;
+  line-height: 1.06;
 }
 
 h2 {
@@ -180,27 +182,27 @@ h2 {
 }
 
 .system-line {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--slate);
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   font-weight: 520;
 }
 
 .system-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
 }
 
 .status-card {
-  min-height: 54px;
+  min-height: 44px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  padding: 9px 11px;
+  gap: 8px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--panel);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
@@ -231,12 +233,12 @@ h2 {
 .status-copy {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 1px;
 }
 
 .status-copy small {
   color: var(--steel);
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -244,7 +246,7 @@ h2 {
 .status-copy strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.94rem;
+  font-size: 0.84rem;
   font-weight: 720;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -743,7 +745,8 @@ label span,
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 40px;
   border: 1px solid var(--line);
@@ -760,7 +763,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--blue-dark);
   background: var(--panel);
   box-shadow:
@@ -874,6 +878,194 @@ select:focus {
   box-shadow:
     inset 0 0 0 1px rgba(20, 86, 240, 0.06),
     inset 4px 0 0 var(--blue);
+}
+
+textarea {
+  min-height: 92px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.platform-panel {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.platform-device-list,
+.platform-event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.platform-device-list {
+  max-height: 330px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.platform-device-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.platform-device-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.platform-device-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.platform-chip,
+.platform-status-pill {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-chip {
+  color: var(--blue-dark);
+  border: 1px solid rgba(20, 86, 240, 0.12);
+  background: var(--blue-soft);
+}
+
+.platform-status-pill {
+  align-self: start;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  text-transform: uppercase;
+}
+
+.platform-status-pill.online {
+  color: var(--success);
+  border-color: rgba(27, 166, 115, 0.18);
+  background: var(--success-soft);
+}
+
+.platform-status-pill.standby {
+  color: var(--warning);
+  border-color: rgba(201, 119, 0, 0.18);
+  background: rgba(201, 119, 0, 0.08);
+}
+
+.platform-status-pill.error {
+  color: var(--red);
+  border-color: rgba(212, 86, 86, 0.18);
+  background: rgba(212, 86, 86, 0.08);
+}
+
+.platform-state-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.platform-state-grid {
+  margin-top: 10px;
+}
+
+.platform-control-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.platform-control-summary,
+.platform-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.platform-control-grid label {
+  min-width: 0;
+}
+
+.platform-control-toggle {
+  grid-column: 1 / -1;
+  min-height: 42px;
+  align-items: center;
+  justify-content: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel-soft);
+}
+
+.platform-control-actions {
+  margin-top: 2px;
+}
+
+.platform-event {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+  padding: 8px 9px;
+  background: var(--panel-soft);
+}
+
+.platform-event.warn {
+  border-left-color: var(--warning);
+}
+
+.platform-event.error {
+  border-left-color: var(--red);
+}
+
+.platform-event span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.platform-event strong,
+.platform-event small,
+.platform-event code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.platform-event strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.platform-event small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.platform-event code {
+  color: var(--steel);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
 }
 
 .servo-device-row {
@@ -1398,6 +1590,69 @@ select:focus {
   min-width: 150px;
 }
 
+.arm-teach-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.panel-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.panel-heading-row h3 {
+  margin: 2px 0 0;
+  font-size: 16px;
+}
+
+.teach-status {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--slate);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.teach-status.recording,
+.teach-status.preparing {
+  border-color: rgba(201, 119, 0, 0.35);
+  color: var(--warning);
+  background: rgba(201, 119, 0, 0.08);
+}
+
+.teach-status.playing {
+  border-color: rgba(20, 86, 240, 0.28);
+  color: var(--blue);
+  background: rgba(20, 86, 240, 0.08);
+}
+
+.teach-status.error {
+  border-color: rgba(212, 86, 86, 0.35);
+  color: var(--danger);
+  background: rgba(212, 86, 86, 0.08);
+}
+
+.arm-teach-grid {
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1.2fr);
+}
+
+.arm-teach-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.arm-teach-actions {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
 .servo-linkage-config {
   display: grid;
   gap: 10px;
@@ -1789,6 +2044,200 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.pi-remote-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.pi-remote-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.1fr) minmax(320px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.pi-remote-stack,
+.pi-remote-output,
+.pi-remote-section {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.pi-remote-section,
+.pi-remote-output {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pi-remote-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pi-remote-wide {
+  grid-column: 1 / -1;
+}
+
+.pi-wizard-section {
+  background:
+    linear-gradient(135deg, rgba(232, 255, 234, 0.52), transparent 42%),
+    rgba(255, 255, 255, 0.68);
+}
+
+.pi-wizard-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.pi-wizard-step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.pi-wizard-step > strong {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--primary);
+  font-size: 0.8rem;
+}
+
+.pi-auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pi-step-action {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pi-step-action > span {
+  color: var(--slate);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.pi-run-card {
+  display: grid;
+  gap: 12px;
+}
+
+.pi-run-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pi-advanced-toggle {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 9px 12px;
+  color: var(--slate);
+  background: rgba(255, 255, 255, 0.68);
+  cursor: pointer;
+  font-weight: 720;
+}
+
+.pi-remote-status-grid {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  margin: 0;
+}
+
+.pi-command-preview,
+.pi-output-block {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.pi-command-preview span,
+.pi-output-block span {
+  color: var(--steel);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.pi-command-preview code,
+.pi-output-block pre {
+  min-width: 0;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  color: var(--slate);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pi-output-block.stderr pre {
+  color: #8a3a3a;
+  background: rgba(255, 240, 240, 0.58);
+}
+
+.pi-camera-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.pi-camera-status-grid {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  margin: 0;
+}
+
+.pi-camera-status-grid .frame-preview {
+  grid-column: 1 / -1;
+}
+
+.pi-camera-actions {
+  align-items: center;
+}
+
+.pi-camera-advanced-toggle {
+  min-height: 38px;
+}
+
+.pi-camera-advanced {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
 .speed-slider-field {
   margin-top: 14px;
 }
@@ -2026,6 +2475,8 @@ select:focus {
 .drive-page-camera {
   grid-area: camera;
   min-width: 0;
+  display: grid;
+  gap: 14px;
 }
 
 .drive-page-controller {
@@ -2165,6 +2616,12 @@ select:focus {
 .gamepad-card small {
   color: var(--steel);
   font-weight: 620;
+}
+
+.gamepad-live-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .mapping-actions,
@@ -2458,7 +2915,11 @@ select:focus {
   }
 
   h1 {
-    font-size: 1.78rem;
+    font-size: 1.5rem;
+  }
+
+  .system-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .control-bar {
@@ -2510,7 +2971,8 @@ select:focus {
   }
 
   .workspace,
-  .side-stack {
+  .side-stack,
+  .pi-remote-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2528,6 +2990,10 @@ select:focus {
   .servo-limit-grid,
   .servo-card-telemetry,
   .port-config-grid,
+  .pi-remote-form-grid,
+  .pi-remote-status-grid,
+  .pi-auth-grid,
+  .pi-run-summary,
   .camera-settings-grid,
   .drive-vector-grid,
   .keyboard-mapping-grid,
@@ -2587,12 +3053,17 @@ select:focus {
   .feedback-grid,
   .port-config-grid,
   .firmware-upload-grid,
+  .pi-remote-form-grid,
+  .pi-remote-status-grid,
+  .pi-auth-grid,
+  .pi-run-summary,
   .entity-form,
   .camera-settings-grid,
   .camera-control-row,
   .drive-vector-grid,
   .drive-target-list,
   .keyboard-mapping-grid,
+  .gamepad-live-grid,
   .gamepad-button-grid,
   .mapping-row,
   .axis-mapping-row,
@@ -2651,7 +3122,7 @@ select:focus {
   .topbar,
   .control-bar,
   .panel {
-    padding: 14px;
+    padding: 12px;
   }
 
   .brand-mark {

@@ -40,6 +40,20 @@ export interface GamepadMapping {
   deadzone: number;
 }
 
+export type GamepadPresetId = "auto" | "xinput" | "playstation" | "switchPro" | "generic";
+
+export interface GamepadDescriptor {
+  id: string;
+  mapping?: string;
+  axes: number | readonly number[];
+  buttons: number | readonly GamepadButton[];
+}
+
+export interface GamepadPreset {
+  id: Exclude<GamepadPresetId, "auto">;
+  mapping: GamepadMapping;
+}
+
 export interface InputMapping {
   keyboard: KeyboardMapping;
   gamepad: GamepadMapping;
@@ -82,6 +96,73 @@ export const DEFAULT_INPUT_MAPPING: InputMapping = {
   }
 };
 
+export const GAMEPAD_PRESETS: Record<Exclude<GamepadPresetId, "auto">, GamepadPreset> = {
+  xinput: {
+    id: "xinput",
+    mapping: cloneGamepadMapping({
+      axes: {
+        forward: { index: 1, invert: true },
+        strafe: { index: 0, invert: false },
+        turn: { index: 2, invert: false }
+      },
+      buttons: {
+        stop: 0,
+        selectTracked: 4,
+        selectMecanum: 5,
+        cameraUp: 12,
+        cameraDown: 13,
+        cameraLeft: 14,
+        cameraRight: 15
+      },
+      deadzone: 0.12
+    })
+  },
+  playstation: {
+    id: "playstation",
+    mapping: cloneGamepadMapping({
+      axes: {
+        forward: { index: 1, invert: true },
+        strafe: { index: 0, invert: false },
+        turn: { index: 2, invert: false }
+      },
+      buttons: {
+        stop: 1,
+        selectTracked: 4,
+        selectMecanum: 5,
+        cameraUp: 12,
+        cameraDown: 13,
+        cameraLeft: 14,
+        cameraRight: 15
+      },
+      deadzone: 0.12
+    })
+  },
+  switchPro: {
+    id: "switchPro",
+    mapping: cloneGamepadMapping({
+      axes: {
+        forward: { index: 1, invert: true },
+        strafe: { index: 0, invert: false },
+        turn: { index: 2, invert: false }
+      },
+      buttons: {
+        stop: 1,
+        selectTracked: 4,
+        selectMecanum: 5,
+        cameraUp: 12,
+        cameraDown: 13,
+        cameraLeft: 14,
+        cameraRight: 15
+      },
+      deadzone: 0.12
+    })
+  },
+  generic: {
+    id: "generic",
+    mapping: cloneGamepadMapping(DEFAULT_INPUT_MAPPING.gamepad)
+  }
+};
+
 export const KEYBOARD_ACTIONS: ControlAction[] = [
   "forward",
   "backward",
@@ -115,6 +196,45 @@ export function saveInputMapping(mapping: InputMapping, storage: Storage = windo
   storage.setItem(INPUT_MAPPING_STORAGE_KEY, JSON.stringify(normalizeInputMapping(mapping)));
 }
 
+export function gamepadMappingSignature(mapping: GamepadMapping): string {
+  return JSON.stringify(normalizeGamepadMapping(mapping));
+}
+
+export function isCustomGamepadMapping(mapping: GamepadMapping): boolean {
+  const signature = gamepadMappingSignature(mapping);
+  return !Object.values(GAMEPAD_PRESETS).some((preset) => gamepadMappingSignature(preset.mapping) === signature);
+}
+
+export function getGamepadPresetMapping(presetId: GamepadPresetId, descriptor?: GamepadDescriptor | null): GamepadMapping {
+  if (presetId === "auto") {
+    return cloneGamepadMapping(resolveGamepadPreset(descriptor).mapping);
+  }
+  return cloneGamepadMapping(GAMEPAD_PRESETS[presetId].mapping);
+}
+
+export function resolveGamepadPreset(descriptor?: GamepadDescriptor | null): GamepadPreset {
+  if (!descriptor) {
+    return GAMEPAD_PRESETS.generic;
+  }
+
+  const id = descriptor.id.toLowerCase();
+  const axes = descriptorCount(descriptor.axes);
+  const buttons = descriptorCount(descriptor.buttons);
+  if (/(dualsense|dualshock|playstation|\bps[345]?\b|sony)/i.test(id)) {
+    return GAMEPAD_PRESETS.playstation;
+  }
+  if (/(switch|joy-con|joycon|pro controller|nintendo)/i.test(id)) {
+    return GAMEPAD_PRESETS.switchPro;
+  }
+  if (descriptor.mapping === "standard" || /(xinput|x-box|xbox|microsoft|360 controller|8bitdo|gamesir|gulikit)/i.test(id)) {
+    return GAMEPAD_PRESETS.xinput;
+  }
+  if (axes >= 4 && buttons >= 12) {
+    return GAMEPAD_PRESETS.generic;
+  }
+  return GAMEPAD_PRESETS.generic;
+}
+
 export function normalizeInputMapping(value: unknown): InputMapping {
   if (!value || typeof value !== "object") {
     return cloneMapping(DEFAULT_INPUT_MAPPING);
@@ -135,23 +255,28 @@ export function normalizeInputMapping(value: unknown): InputMapping {
     draft.gamepad && typeof draft.gamepad === "object" ? draft.gamepad : {};
   return {
     keyboard,
-    gamepad: {
-      axes: {
-        forward: normalizeAxis(gamepad.axes?.forward, DEFAULT_INPUT_MAPPING.gamepad.axes.forward),
-        strafe: normalizeAxis(gamepad.axes?.strafe, DEFAULT_INPUT_MAPPING.gamepad.axes.strafe),
-        turn: normalizeAxis(gamepad.axes?.turn, DEFAULT_INPUT_MAPPING.gamepad.axes.turn)
-      },
-      buttons: {
-        stop: normalizeButton(gamepad.buttons?.stop, DEFAULT_INPUT_MAPPING.gamepad.buttons.stop),
-        selectTracked: normalizeButton(gamepad.buttons?.selectTracked, DEFAULT_INPUT_MAPPING.gamepad.buttons.selectTracked),
-        selectMecanum: normalizeButton(gamepad.buttons?.selectMecanum, DEFAULT_INPUT_MAPPING.gamepad.buttons.selectMecanum),
-        cameraUp: normalizeButton(gamepad.buttons?.cameraUp, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraUp),
-        cameraDown: normalizeButton(gamepad.buttons?.cameraDown, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraDown),
-        cameraLeft: normalizeButton(gamepad.buttons?.cameraLeft, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraLeft),
-        cameraRight: normalizeButton(gamepad.buttons?.cameraRight, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraRight)
-      },
-      deadzone: normalizeDeadzone(gamepad.deadzone)
-    }
+    gamepad: normalizeGamepadMapping(gamepad)
+  };
+}
+
+export function normalizeGamepadMapping(value: unknown): GamepadMapping {
+  const gamepad: Partial<GamepadMapping> = value && typeof value === "object" ? value : {};
+  return {
+    axes: {
+      forward: normalizeAxis(gamepad.axes?.forward, DEFAULT_INPUT_MAPPING.gamepad.axes.forward),
+      strafe: normalizeAxis(gamepad.axes?.strafe, DEFAULT_INPUT_MAPPING.gamepad.axes.strafe),
+      turn: normalizeAxis(gamepad.axes?.turn, DEFAULT_INPUT_MAPPING.gamepad.axes.turn)
+    },
+    buttons: {
+      stop: normalizeButton(gamepad.buttons?.stop, DEFAULT_INPUT_MAPPING.gamepad.buttons.stop),
+      selectTracked: normalizeButton(gamepad.buttons?.selectTracked, DEFAULT_INPUT_MAPPING.gamepad.buttons.selectTracked),
+      selectMecanum: normalizeButton(gamepad.buttons?.selectMecanum, DEFAULT_INPUT_MAPPING.gamepad.buttons.selectMecanum),
+      cameraUp: normalizeButton(gamepad.buttons?.cameraUp, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraUp),
+      cameraDown: normalizeButton(gamepad.buttons?.cameraDown, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraDown),
+      cameraLeft: normalizeButton(gamepad.buttons?.cameraLeft, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraLeft),
+      cameraRight: normalizeButton(gamepad.buttons?.cameraRight, DEFAULT_INPUT_MAPPING.gamepad.buttons.cameraRight)
+    },
+    deadzone: normalizeDeadzone(gamepad.deadzone)
   };
 }
 
@@ -187,6 +312,10 @@ export function cloneMapping(mapping: InputMapping): InputMapping {
   return JSON.parse(JSON.stringify(mapping)) as InputMapping;
 }
 
+export function cloneGamepadMapping(mapping: GamepadMapping): GamepadMapping {
+  return JSON.parse(JSON.stringify(mapping)) as GamepadMapping;
+}
+
 function keyAxis(pressedKeys: ReadonlySet<string>, positiveKey: string, negativeKey: string): number {
   return (pressedKeys.has(positiveKey) ? 1 : 0) - (pressedKeys.has(negativeKey) ? 1 : 0);
 }
@@ -217,6 +346,10 @@ function normalizeAxis(value: unknown, fallback: AxisMapping): AxisMapping {
 
 function normalizeButton(value: unknown, fallback: number): number {
   return normalizeIndex(value, fallback);
+}
+
+function descriptorCount(value: number | { length: number }): number {
+  return typeof value === "number" ? value : value.length;
 }
 
 function normalizeIndex(value: unknown, fallback: number): number {

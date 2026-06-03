@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-export const DATA_SERVICE_SCHEMA_VERSION = 1;
+export const DATA_SERVICE_SCHEMA_VERSION = 2;
 export const DEFAULT_PROJECT_NAME = "Default Robot";
 
 export function defaultDatabasePath() {
@@ -89,6 +89,18 @@ export async function createDataStore(dbPath = ":memory:") {
 
       CREATE INDEX IF NOT EXISTS idx_telemetry_log_project_target
         ON telemetry_log(project_id, category, target_id, created_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS arm_teach_tracks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        track_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_arm_teach_tracks_project_updated
+        ON arm_teach_tracks(project_id, updated_at DESC, created_at DESC);
     `);
 
     db.prepare(`
@@ -319,6 +331,39 @@ export async function createDataStore(dbPath = ":memory:") {
     }));
   }
 
+  function listArmTeachTracks(projectId) {
+    if (!getProject(projectId)) {
+      throw notFoundError("project not found");
+    }
+    return db
+      .prepare("SELECT track_json AS trackJson FROM arm_teach_tracks WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC")
+      .all(projectId)
+      .map((row) => parseJson(row.trackJson, null))
+      .filter(Boolean);
+  }
+
+  function saveArmTeachTrack(projectId, track) {
+    if (!getProject(projectId)) {
+      throw notFoundError("project not found");
+    }
+    const normalized = normalizeArmTeachTrack(track);
+    db.prepare(`
+      INSERT INTO arm_teach_tracks (id, project_id, name, track_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        track_json = excluded.track_json,
+        updated_at = excluded.updated_at
+    `).run(normalized.id, projectId, normalized.name, JSON.stringify(normalized), normalized.createdAt, normalized.updatedAt);
+    db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(normalized.updatedAt, projectId);
+    return normalized;
+  }
+
+  function deleteArmTeachTrack(trackId) {
+    const result = db.prepare("DELETE FROM arm_teach_tracks WHERE id = ?").run(cleanId(trackId, "track id is required"));
+    return { deleted: result.changes > 0 };
+  }
+
   function close() {
     db.close();
   }
@@ -334,12 +379,15 @@ export async function createDataStore(dbPath = ":memory:") {
     getProjectState,
     getSession,
     initialize,
+    listArmTeachTracks,
     listLatestTelemetry,
     listProjects,
     listRecentEvents,
+    saveArmTeachTrack,
     saveProjectState,
     setCurrentProject,
     startSession,
+    deleteArmTeachTrack,
     endSession
   };
 }
@@ -393,6 +441,29 @@ function normalizeTelemetryBatch(telemetry) {
       createdAt: finiteTimestamp(item.createdAt)
     };
   });
+}
+
+function normalizeArmTeachTrack(track) {
+  if (!track || typeof track !== "object") {
+    throw badRequestError("track is required");
+  }
+  const now = Date.now();
+  const id = cleanId(track.id, "track id is required");
+  const name = typeof track.name === "string" && track.name.trim() ? track.name.trim().slice(0, 120) : "Teach Track";
+  return {
+    ...track,
+    id,
+    name,
+    createdAt: finiteTimestamp(track.createdAt) ?? now,
+    updatedAt: finiteTimestamp(track.updatedAt) ?? now
+  };
+}
+
+function cleanId(value, message) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw badRequestError(message);
+  }
+  return value.trim();
 }
 
 function clampLimit(value) {

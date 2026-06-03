@@ -133,11 +133,11 @@ void handleTorque(JsonDocument& doc, int seq) {
     return;
   }
 
-  if (servoBus.setTorque(static_cast<uint8_t>(id), doc["enabled"] | false, nullptr)) {
+  Feetech::StatusPacket status;
+  if (servoBus.setTorque(static_cast<uint8_t>(id), doc["enabled"] | false, &status) && status.status == 0) {
     sendAck(seq, command, "torque updated");
     return;
   }
-  Feetech::StatusPacket status;
   sendStatusProblem(seq, command, "torque_failed", status);
 }
 
@@ -161,18 +161,18 @@ void handleMode(JsonDocument& doc, int seq) {
   }
 
   const uint8_t servoId = static_cast<uint8_t>(id);
-  servoBus.setTorque(servoId, false, nullptr);
+  Feetech::StatusPacket status;
+  bool ok = servoBus.setTorque(servoId, false, &status) && status.status == 0;
   delay(20);
-  bool ok = wheelMode ? servoBus.setWheelMode(servoId, nullptr) : servoBus.setServoMode(servoId, nullptr);
+  ok = ok && (wheelMode ? servoBus.setWheelMode(servoId, &status) : servoBus.setServoMode(servoId, &status)) && status.status == 0;
   delay(20);
-  servoBus.setTorque(servoId, true, nullptr);
+  ok = ok && servoBus.setTorque(servoId, true, &status) && status.status == 0;
   delay(50);
 
   if (ok) {
     sendAck(seq, command, wheelMode ? "wheel mode set" : "servo mode set");
     return;
   }
-  Feetech::StatusPacket status;
   sendStatusProblem(seq, command, "mode_failed", status);
 }
 
@@ -305,9 +305,9 @@ void handleMove(JsonDocument& doc, int seq) {
       return;
     }
 
-    Feetech::StatusPacket status;
     const uint16_t positionRaw = Feetech::angleDegToRaw(angleDeg);
-    if (!servoBus.writePosition(static_cast<uint8_t>(id), positionRaw, static_cast<uint16_t>(speedRaw), acc, nullptr)) {
+    Feetech::StatusPacket status;
+    if (!servoBus.writePosition(static_cast<uint8_t>(id), positionRaw, static_cast<uint16_t>(speedRaw), acc, &status) || status.status != 0) {
       sendStatusProblem(seq, command, "move_failed", status);
       return;
     }
@@ -338,16 +338,21 @@ void handleSpeed(JsonDocument& doc, int seq) {
 
     const uint8_t servoId = static_cast<uint8_t>(id);
     if (doc["setupWheelMode"] | true) {
-      servoBus.setTorque(servoId, false, nullptr);
+      Feetech::StatusPacket setupStatus;
+      bool setupOk = servoBus.setTorque(servoId, false, &setupStatus) && setupStatus.status == 0;
       delay(20);
-      servoBus.setWheelMode(servoId, nullptr);
+      setupOk = setupOk && servoBus.setWheelMode(servoId, &setupStatus) && setupStatus.status == 0;
       delay(20);
-      servoBus.setTorque(servoId, true, nullptr);
+      setupOk = setupOk && servoBus.setTorque(servoId, true, &setupStatus) && setupStatus.status == 0;
       delay(50);
+      if (!setupOk) {
+        sendStatusProblem(seq, command, "speed_setup_failed", setupStatus);
+        return;
+      }
     }
 
     Feetech::StatusPacket status;
-    if (!servoBus.writeSpeed(servoId, static_cast<int16_t>(speedRaw), static_cast<uint8_t>(acc), nullptr)) {
+    if (!servoBus.writeSpeed(servoId, static_cast<int16_t>(speedRaw), static_cast<uint8_t>(acc), &status) || status.status != 0) {
       sendStatusProblem(seq, command, "speed_failed", status);
       return;
     }

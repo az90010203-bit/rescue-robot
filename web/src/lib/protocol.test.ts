@@ -102,12 +102,17 @@ describe("feetech protocol helpers", () => {
       type: "servo.feedback",
       id: 22,
       positionRaw: 1076,
+      positionDeg: expect.closeTo(94.59, 2),
       speedRaw: 50,
+      speedRpm: 36.62,
       loadRaw: -30,
+      loadPercent: -3,
       voltageRaw: 121,
+      voltageV: 12.1,
       temperatureC: 30,
       moving: true,
-      currentRaw: 0
+      currentRaw: 0,
+      currentMa: 0
     });
   });
 });

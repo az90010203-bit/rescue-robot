@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_INPUT_MAPPING,
+  GAMEPAD_PRESETS,
   INPUT_MAPPING_STORAGE_KEY,
   cloneMapping,
+  getGamepadPresetMapping,
   gamepadInputFromGamepad,
+  isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
   loadInputMapping,
+  resolveGamepadPreset,
   saveInputMapping
 } from "./inputMapping";
 
@@ -80,6 +84,45 @@ describe("input mapping readers", () => {
   });
 });
 
+describe("gamepad presets", () => {
+  it("detects mainstream controller families from browser descriptors", () => {
+    expect(resolveGamepadPreset(createGamepad({ id: "Xbox Wireless Controller", mapping: "standard" })).id).toBe("xinput");
+    expect(resolveGamepadPreset(createGamepad({ id: "DualSense Wireless Controller", mapping: "standard" })).id).toBe("playstation");
+    expect(resolveGamepadPreset(createGamepad({ id: "Nintendo Switch Pro Controller" })).id).toBe("switchPro");
+    expect(resolveGamepadPreset(createGamepad({ id: "Unknown USB Gamepad", mapping: "", axes: [0, 0, 0, 0] })).id).toBe("generic");
+  });
+
+  it("uses auto preset mapping for the active controller", () => {
+    const playstationPad = createGamepad({
+      id: "Sony DualShock 4",
+      axes: [0.4, -0.6, 0.25],
+      buttons: { 1: true, 12: true }
+    });
+
+    expect(gamepadInputFromGamepad(playstationPad, getGamepadPresetMapping("auto", playstationPad))).toMatchObject({
+      forward: expect.closeTo(0.5454, 3),
+      strafe: expect.closeTo(0.3181, 3),
+      turn: expect.closeTo(0.1477, 3),
+      cameraTilt: 1,
+      stop: true
+    });
+  });
+
+  it("keeps custom saved mappings distinguishable from presets", () => {
+    const custom = cloneMapping(DEFAULT_INPUT_MAPPING);
+    custom.gamepad.axes.turn = { index: 3, invert: true };
+
+    expect(isCustomGamepadMapping(GAMEPAD_PRESETS.xinput.mapping)).toBe(false);
+    expect(isCustomGamepadMapping(custom.gamepad)).toBe(true);
+  });
+
+  it("falls back unknown controllers to the generic preset", () => {
+    const unknownPad = createGamepad({ id: "Arcade Encoder", mapping: "", axes: [0.5, -0.5, 0] });
+    expect(resolveGamepadPreset(unknownPad).id).toBe("generic");
+    expect(getGamepadPresetMapping("auto", unknownPad)).toEqual(GAMEPAD_PRESETS.generic.mapping);
+  });
+});
+
 function createStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -104,21 +147,25 @@ function createStorage(): Storage {
   };
 }
 
-function createGamepad(options: { axes: number[]; buttons: Record<number, boolean> }): Gamepad {
+function createGamepad(
+  options: { axes?: number[]; buttons?: Record<number, boolean>; id?: string; mapping?: string } = {}
+): Gamepad {
+  const axes = options.axes ?? [0, 0, 0, 0];
+  const pressedButtons = options.buttons ?? {};
   const buttons = Array.from({ length: 16 }, (_, index) => ({
-    pressed: Boolean(options.buttons[index]),
-    touched: Boolean(options.buttons[index]),
-    value: options.buttons[index] ? 1 : 0
+    pressed: Boolean(pressedButtons[index]),
+    touched: Boolean(pressedButtons[index]),
+    value: pressedButtons[index] ? 1 : 0
   })) as GamepadButton[];
 
   return {
-    axes: options.axes,
+    axes,
     buttons,
     connected: true,
     hapticActuators: [],
-    id: "Test Gamepad",
+    id: options.id ?? "Test Gamepad",
     index: 0,
-    mapping: "standard",
+    mapping: options.mapping ?? "standard",
     timestamp: 1
   } as unknown as Gamepad;
 }

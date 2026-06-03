@@ -4,8 +4,11 @@ import {
   appendEvents,
   checkDataService,
   createProject,
+  deleteArmTeachTrack,
+  listArmTeachTracks,
   loadCurrentProjectState,
   saveProjectState,
+  saveArmTeachTrack,
   selectProject
 } from "./dataService";
 import { createAppConfigSnapshot, createAppStateSnapshotV2 } from "./appDatabase";
@@ -75,6 +78,37 @@ describe("data service client", () => {
       { url: "http://data.test/projects", method: "POST", body: { name: "Robot B" } },
       { url: "http://data.test/projects/project%201/current", method: "PATCH", body: null }
     ]);
+  });
+
+  it("uses scoped arm teach track endpoints", async () => {
+    const calls: Array<{ url: string; body: unknown; method?: string }> = [];
+    const track = {
+      id: "track 1",
+      name: "Route",
+      createdAt: 1,
+      updatedAt: 2,
+      durationMs: 0,
+      sampleIntervalMs: 100,
+      jointIds: [],
+      servoIds: [],
+      samples: [],
+      metadata: { source: "hardware-drag" as const }
+    };
+    const fetcher = createJsonFetcher((url, init) => {
+      calls.push({ url, body: init.body ? JSON.parse(String(init.body)) : null, method: init.method });
+      return init.method === "GET" ? { tracks: [track] } : init.method === "DELETE" ? { deleted: true } : track;
+    });
+
+    await expect(listArmTeachTracks("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([track]);
+    await expect(saveArmTeachTrack("project 1", track, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(track);
+    await expect(deleteArmTeachTrack("track 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual({ deleted: true });
+
+    expect(calls.map((call) => [call.method, call.url])).toEqual([
+      ["GET", "http://data.test/projects/project%201/arm-teach-tracks"],
+      ["PUT", "http://data.test/projects/project%201/arm-teach-tracks/track%201"],
+      ["DELETE", "http://data.test/arm-teach-tracks/track%201"]
+    ]);
+    expect(calls[1].body).toEqual({ track });
   });
 
   it("turns network failures into DataServiceError", async () => {

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .vite/
 coverage/
+.platformio-venv/
 .pio/
 .vscode/
 .codex-screenshots/

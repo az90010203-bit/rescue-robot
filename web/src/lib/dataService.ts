@@ -1,4 +1,5 @@
 import type { AppStateSnapshotV2, PersistedLogEntry } from "./appDatabase";
+import type { ArmTeachTrack } from "./armTeach";
 
 export const DATA_SERVICE_BASE_URL = "http://127.0.0.1:17351";
 
@@ -129,6 +130,26 @@ export async function appendTelemetry(sessionId: string, telemetry: DataTelemetr
     },
     options
   );
+}
+
+export async function listArmTeachTracks(projectId: string, options: RequestOptions = {}): Promise<ArmTeachTrack[]> {
+  const response = await requestJson<{ tracks: ArmTeachTrack[] }>(`/projects/${encodeURIComponent(projectId)}/arm-teach-tracks`, { method: "GET" }, options);
+  return response.tracks;
+}
+
+export async function saveArmTeachTrack(projectId: string, track: ArmTeachTrack, options: RequestOptions = {}): Promise<ArmTeachTrack> {
+  return requestJson<ArmTeachTrack>(
+    `/projects/${encodeURIComponent(projectId)}/arm-teach-tracks/${encodeURIComponent(track.id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ track })
+    },
+    options
+  );
+}
+
+export async function deleteArmTeachTrack(trackId: string, options: RequestOptions = {}): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/arm-teach-tracks/${encodeURIComponent(trackId)}`, { method: "DELETE" }, options);
 }
 
 async function requestJson<T>(path: string, init: RequestInit, options: RequestOptions): Promise<T> {

@@ -27,6 +27,7 @@ import {
   Settings,
   SlidersHorizontal,
   Square,
+  Terminal,
   Trash2,
   Unplug,
   Upload,
@@ -74,6 +75,7 @@ import {
   rawToAngleDeg,
   requiresMotorDirectionDeadtime,
   servoLogicalSpan,
+  servoLogicalToPhysicalAngle,
   servoLogicalToPhysicalAngleWithReverse,
   servoPhysicalToLogicalAngleWithReverse,
   toHex,
@@ -87,7 +89,6 @@ import {
   loadOrMigrateAppConfigSnapshot,
   normalizeAppStateSnapshotV2,
   saveAppDatabaseSnapshot,
-  saveLegacyAppConfigBackup,
   PersistedActiveModule,
   PersistedLogEntry,
   PersistedServoCommandMap
@@ -100,13 +101,27 @@ import {
   appendTelemetry,
   checkDataService,
   createProject,
+  deleteArmTeachTrack,
   endSession,
+  listArmTeachTracks,
   listProjects,
   loadCurrentProjectState,
+  saveArmTeachTrack,
   saveProjectState,
   selectProject,
   startSession
 } from "./lib/dataService";
+import {
+  ARM_TEACH_SAMPLE_INTERVAL_MS,
+  ArmTeachSample,
+  ArmTeachTrack,
+  armTeachTrackToJson,
+  armTeachTrackToJsonl,
+  createArmTeachSampleFromFeedback,
+  createArmTeachTrack,
+  normalizeArmTeachTracks,
+  updateArmTeachTrackMetadata
+} from "./lib/armTeach";
 import {
   ServoSmoothPreset,
   createPositionTrajectory,
@@ -147,14 +162,16 @@ import {
 import {
   ControlAction,
   DEFAULT_INPUT_MAPPING,
+  GamepadPresetId,
   InputMapping,
   KEYBOARD_ACTIONS,
   cloneMapping,
+  getGamepadPresetMapping,
   gamepadInputFromGamepad,
+  isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
-  loadInputMapping,
   normalizeInputMapping,
-  saveInputMapping
+  resolveGamepadPreset
 } from "./lib/inputMapping";
 import { WebSerialClient, isSerialClientError } from "./lib/serial";
 import {
@@ -164,9 +181,12 @@ import {
   ArmJointConfig,
   ArmSegmentPose,
   CameraConfig,
+  DEFAULT_CAMERA_CONFIG,
   DEFAULT_LINKAGE_MEMBER_ACC,
   DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   DEFAULT_LINKAGE_WHEEL_TURNS_TARGET,
+  DEFAULT_MOTORS,
+  DEFAULT_SERVOS,
   MotorLinkageGroup,
   ServoLinkageGroup,
   ServoLinkageWheelDirection,
@@ -178,27 +198,15 @@ import {
   calculateServoLinkageTargets,
   calculateServoLinkageWheelTargets,
   createDefaultArmConfig,
-  loadArmConfig,
-  loadCameraConfig,
-  loadMotorLinkageGroups,
-  loadServoLinkageGroups,
-  loadMotors,
-  loadServos,
   normalizeArmConfig,
   normalizeMotorLinkageGroups,
   normalizeServoLinkageGroups,
-  saveArmConfig,
-  saveCameraConfig,
-  saveMotorLinkageGroups,
-  saveServoLinkageGroups,
-  saveMotors,
-  saveServos,
   validateCameraConfig,
   validateMotorDraft,
   validateMotorMapping,
   validateServoDraft
 } from "./lib/storage";
-import { SupportedLanguage, defaultLanguage, isSupportedLanguage, saveLanguagePreference, supportedLanguages } from "./i18n/languages";
+import { SupportedLanguage, defaultLanguage, isSupportedLanguage, supportedLanguages } from "./i18n/languages";
 import { TB6618_MOTOR_DEBUGGER_INO_FILENAME, buildTb6618MotorDebuggerIno } from "./lib/arduinoFirmware";
 import {
   FIRMWARE_BOARD_OPTIONS,
@@ -212,6 +220,50 @@ import {
   requestFirmwareHealth,
   uploadFirmware
 } from "./lib/firmwareUpload";
+import {
+  PiExecResult,
+  PiCameraCheckResult,
+  PiHelperHealth,
+  PiReadinessResult,
+  PiRunPlan,
+  PiSetupProfile,
+  PiUploadResult,
+  checkPiCamera,
+  checkPiReadiness,
+  createPiRunPlan,
+  execPiCommand,
+  installPiCameraTools,
+  isPiRemoteError,
+  requestPiHelperHealth,
+  runUploadedFile,
+  startPiCameraStream,
+  stopPiCameraStream,
+  setupPiWorkspace,
+  testPiConnection,
+  uploadPiFile
+} from "./lib/piRemote";
+import { BUILTIN_PLATFORM_PLUGINS, BUILTIN_UI_PANELS } from "./platform/builtinPlugins";
+import {
+  PlatformCommand,
+  PlatformCommandResult,
+  createPlatformCommand,
+  platformCommandEventType,
+  validatePlatformCommand
+} from "./platform/commands";
+import { createPlatformDevices } from "./platform/deviceModel";
+import { PlatformEventBus } from "./platform/events";
+import { createPlatformRegistry } from "./platform/registry";
+import { createPlatformStateSnapshot } from "./platform/stateStore";
+import { PlatformEvent } from "./platform/types";
+import {
+  findPlatformUiPanelForDevice,
+  formatPlatformStateValue,
+  limitPlatformEvents,
+  platformCommandForControl,
+  platformControlDefaultsForDevice,
+  PlatformControlDraft,
+  resolveSelectedPlatformDeviceId
+} from "./platform/ui";
 
 type LogValues = Record<string, string | number | boolean>;
 
@@ -227,14 +279,30 @@ interface LogEntry {
 type ActiveModule = "servo" | "arm" | "motor" | "camera" | "mapping";
 type AppSection = "console" | "components" | "tests" | "settings";
 type ComponentPanel = "arm" | "drive" | "camera";
-type TestPanel = "servo" | "motor";
+type TestPanel = "servo" | "motor" | "pi";
 type ConnectionMode = "servo-bus" | "controller";
 type ServoControlMode = "position" | "wheel";
 type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused";
 type ServoSafetyDisplayState = "idle" | "monitoring" | "stopped";
+type ArmTeachStatus = "idle" | "preparing" | "recording" | "stopped" | "playing" | "error";
 type DatabaseSaveStatus = "loading" | "saving" | "saved" | "error" | "offline";
 type MotorDebugHandshakeStatus = "unknown" | "syncing" | "ready" | "error";
 type FirmwareUploadStatus = "idle" | "checking" | "loadingPorts" | "compiling" | "compiled" | "uploading" | "uploaded" | "error";
+type PiRemoteStatus = "idle" | "checking" | "settingUp" | "ready" | "uploading" | "running" | "complete" | "error";
+type PiCameraStatus = "idle" | "checking" | "installing" | "starting" | "streaming" | "stopping" | "error";
+interface PiRemoteForm {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  authMode: PiSetupProfile["authMode"];
+  privateKeyPath: string;
+  workspaceDir: string;
+  remotePath: string;
+  command: string;
+  cwd: string;
+  timeoutSeconds: string;
+}
 interface ServoCommandState {
   mode: ServoControlMode;
   angleDeg: string;
@@ -251,6 +319,12 @@ type ServoMotionStatusMap = Record<number, ServoMotionDisplayStatus>;
 interface ServoSafetyDisplayStatus {
   state: ServoSafetyDisplayState;
   reason?: ServoSafetyTriggerReason;
+}
+interface ArmTeachRuntime {
+  joints: ArmJointConfig[];
+  startedAt: number;
+  samples: ArmTeachSample[];
+  sampling: boolean;
 }
 type ServoSafetyStatusMap = Record<number, ServoSafetyDisplayStatus>;
 interface PendingLiveAngleMove {
@@ -328,10 +402,26 @@ interface GamepadSummary {
   axes: number;
   buttons: number;
   mapping: string;
+  axesValues: number[];
+  pressedButtons: number[];
 }
 
 const defaultServoDraft = { id: "23", name: "ID23" };
 const defaultMotorDraft = { channel: "M7", name: "Motor 7" };
+const defaultPiRemoteForm: PiRemoteForm = {
+  host: "raspberrypi.local",
+  port: "22",
+  username: "pi",
+  password: "",
+  authMode: "password",
+  privateKeyPath: "",
+  workspaceDir: "~/rescue-robot",
+  remotePath: "/home/pi/rescue/uploaded.py",
+  command: "python3 /home/pi/rescue/uploaded.py",
+  cwd: "",
+  timeoutSeconds: "30"
+};
+const PI_SETUP_PROFILE_STORAGE_KEY = "rescue-robot.piSetupProfile.v1";
 const defaultServoCommandState: ServoCommandState = {
   mode: "position",
   angleDeg: "90",
@@ -395,17 +485,31 @@ function clampServoCommandStateToLimits(state: ServoCommandState, servo: ServoPr
 
 export default function App() {
   const { i18n, t } = useTranslation();
+  const platformRegistryRef = useRef(createPlatformRegistry(BUILTIN_PLATFORM_PLUGINS));
+  const platformEventBusRef = useRef(new PlatformEventBus());
   const currentLanguage = isSupportedLanguage(i18n.language) ? i18n.language : defaultLanguage;
   const [activeSection, setActiveSection] = useState<AppSection>("console");
   const [activeComponent, setActiveComponent] = useState<ComponentPanel>("drive");
   const [activeTest, setActiveTest] = useState<TestPanel>("servo");
   const [activeModule, setActiveModule] = useState<ActiveModule>("camera");
-  const [servos, setServos] = useState<ServoProfile[]>(() => loadServos());
-  const [armConfig, setArmConfig] = useState<ArmConfig>(() => loadArmConfig(loadServos()));
-  const [servoLinkageGroups, setServoLinkageGroups] = useState<ServoLinkageGroup[]>(() => loadServoLinkageGroups(loadServos()));
-  const [motors, setMotors] = useState<MotorProfile[]>(() => loadMotors());
-  const [motorLinkageGroups, setMotorLinkageGroups] = useState<MotorLinkageGroup[]>(() => loadMotorLinkageGroups(loadMotors()));
-  const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => loadCameraConfig());
+  const [selectedPlatformDeviceId, setSelectedPlatformDeviceId] = useState("");
+  const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
+  const [platformControlDraftByDeviceId, setPlatformControlDraftByDeviceId] = useState<Record<string, PlatformControlDraft>>({});
+  const [servos, setServos] = useState<ServoProfile[]>(() => DEFAULT_SERVOS);
+  const [armConfig, setArmConfig] = useState<ArmConfig>(() => createDefaultArmConfig(DEFAULT_SERVOS));
+  const [armTeachTracks, setArmTeachTracks] = useState<ArmTeachTrack[]>([]);
+  const [selectedArmTeachTrackId, setSelectedArmTeachTrackId] = useState<string | null>(null);
+  const [armTeachStatus, setArmTeachStatus] = useState<ArmTeachStatus>("idle");
+  const [armTeachDraftName, setArmTeachDraftName] = useState("");
+  const [armTeachDraftNotes, setArmTeachDraftNotes] = useState("");
+  const [armTeachElapsedMs, setArmTeachElapsedMs] = useState(0);
+  const [armTeachSampleCount, setArmTeachSampleCount] = useState(0);
+  const [armTeachLastSampleStatus, setArmTeachLastSampleStatus] = useState("idle");
+  const [armTeachUnsavedTrack, setArmTeachUnsavedTrack] = useState<ArmTeachTrack | null>(null);
+  const [servoLinkageGroups, setServoLinkageGroups] = useState<ServoLinkageGroup[]>([]);
+  const [motors, setMotors] = useState<MotorProfile[]>(() => DEFAULT_MOTORS);
+  const [motorLinkageGroups, setMotorLinkageGroups] = useState<MotorLinkageGroup[]>([]);
+  const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => DEFAULT_CAMERA_CONFIG);
   const [servoDraft, setServoDraft] = useState(defaultServoDraft);
   const [motorDraft, setMotorDraft] = useState(defaultMotorDraft);
   const [servoLibraryError, setServoLibraryError] = useState<ValidationErrorKey | null>(null);
@@ -450,8 +554,9 @@ export default function App() {
   const [gamepadInput, setGamepadInput] = useState<DriveInputState>(ZERO_DRIVE_INPUT);
   const [gamepads, setGamepads] = useState<GamepadSummary[]>([]);
   const [selectedGamepadIndex, setSelectedGamepadIndex] = useState<number | "">("");
-  const [inputMapping, setInputMapping] = useState<InputMapping>(() => loadInputMapping());
-  const [mappingDraft, setMappingDraft] = useState<InputMapping>(() => cloneMapping(loadInputMapping()));
+  const [selectedGamepadPreset, setSelectedGamepadPreset] = useState<GamepadPresetId>("auto");
+  const [inputMapping, setInputMapping] = useState<InputMapping>(() => cloneMapping(DEFAULT_INPUT_MAPPING));
+  const [mappingDraft, setMappingDraft] = useState<InputMapping>(() => cloneMapping(DEFAULT_INPUT_MAPPING));
   const [capturingKey, setCapturingKey] = useState<ControlAction | null>(null);
   const [firmwareBoard, setFirmwareBoard] = useState<FirmwareBoardId>("arduino-uno");
   const [firmwareHelperHealth, setFirmwareHelperHealth] = useState<FirmwareHelperHealth | null>(null);
@@ -461,6 +566,22 @@ export default function App() {
   const [firmwareStatus, setFirmwareStatus] = useState<FirmwareUploadStatus>("idle");
   const [firmwareError, setFirmwareError] = useState<string | null>(null);
   const [firmwareLogs, setFirmwareLogs] = useState("");
+  const [piRemoteForm, setPiRemoteForm] = useState<PiRemoteForm>(() => ({ ...defaultPiRemoteForm }));
+  const [piHelperHealth, setPiHelperHealth] = useState<PiHelperHealth | null>(null);
+  const [piRemoteStatus, setPiRemoteStatus] = useState<PiRemoteStatus>("idle");
+  const [piRemoteError, setPiRemoteError] = useState<string | null>(null);
+  const [piRemoteFile, setPiRemoteFile] = useState<File | null>(null);
+  const [piRemoteUploadResult, setPiRemoteUploadResult] = useState<PiUploadResult | null>(null);
+  const [piRemoteExecResult, setPiRemoteExecResult] = useState<PiExecResult | null>(null);
+  const [piReadiness, setPiReadiness] = useState<PiReadinessResult | null>(null);
+  const [piRunPlan, setPiRunPlan] = useState<PiRunPlan | null>(null);
+  const [piSetupComplete, setPiSetupComplete] = useState(false);
+  const [piAdvancedOpen, setPiAdvancedOpen] = useState(false);
+  const [piCameraStatus, setPiCameraStatus] = useState<PiCameraStatus>("idle");
+  const [piCameraCheck, setPiCameraCheck] = useState<PiCameraCheckResult | null>(null);
+  const [piCameraExecResult, setPiCameraExecResult] = useState<PiExecResult | null>(null);
+  const [piCameraError, setPiCameraError] = useState<string | null>(null);
+  const [piCameraAdvancedOpen, setPiCameraAdvancedOpen] = useState(false);
   const serialRef = useRef<WebSerialClient | null>(null);
   const seqRef = useRef(1);
   const logIdRef = useRef(1);
@@ -477,6 +598,9 @@ export default function App() {
   const armLiveSendingRef = useRef(false);
   const pendingArmConfigRef = useRef<ArmConfig | null>(null);
   const draggingArmJointIdRef = useRef<string | null>(null);
+  const armTeachTimerRef = useRef<number | undefined>(undefined);
+  const armTeachRuntimeRef = useRef<ArmTeachRuntime | null>(null);
+  const armTeachPlaybackGenerationRef = useRef(0);
   const linkageLiveTimerRef = useRef<Record<string, number>>({});
   const linkageLiveSendingRef = useRef<Record<string, boolean>>({});
   const pendingLinkageMoveRef = useRef<Record<string, ServoLinkageGroup>>({});
@@ -536,6 +660,10 @@ export default function App() {
     () => armConfig.joints.find((joint) => joint.id === armConfig.selectedJointId) ?? armConfig.joints[0],
     [armConfig]
   );
+  const selectedArmTeachTrack = useMemo(
+    () => armTeachTracks.find((track) => track.id === selectedArmTeachTrackId) ?? armTeachUnsavedTrack ?? armTeachTracks[0] ?? null,
+    [armTeachTracks, armTeachUnsavedTrack, selectedArmTeachTrackId]
+  );
   const armSegmentPoses = useMemo(
     () => calculateArmSegmentPoses(armConfig.joints, { x: 300, y: 250 }),
     [armConfig.joints]
@@ -574,6 +702,30 @@ export default function App() {
   const firmwareHexLabel = firmwareJob ? `${Math.max(1, Math.round(firmwareJob.hexSizeBytes / 1024))} KB` : "--";
   const canCompileFirmware = !firmwareBusy && firmwareHelperHealth?.pioAvailable === true;
   const canUploadFirmware = !firmwareBusy && Boolean(firmwareJob && selectedFirmwarePort && firmwareHelperHealth?.pioAvailable);
+  const piRemoteBusy = piRemoteStatus === "checking" || piRemoteStatus === "settingUp" || piRemoteStatus === "uploading" || piRemoteStatus === "running";
+  const piRemoteStatusTone: "neutral" | "online" | "warning" | "danger" =
+    piRemoteStatus === "error" ? "danger" : piRemoteStatus === "ready" || piRemoteStatus === "complete" ? "online" : piRemoteBusy ? "warning" : "neutral";
+  const piHelperLabel =
+    piRemoteStatus === "checking" || piRemoteStatus === "settingUp"
+      ? t("status.syncing")
+      : piHelperHealth
+        ? t("status.online")
+        : t("status.unknown");
+  const piAuthReady = piRemoteForm.authMode === "password" ? Boolean(piRemoteForm.password) : Boolean(piRemoteForm.privateKeyPath.trim());
+  const piConnectionReady = Boolean(piRemoteForm.host.trim() && piRemoteForm.username.trim() && piAuthReady);
+  const piCameraBusy = piCameraStatus === "checking" || piCameraStatus === "installing" || piCameraStatus === "starting" || piCameraStatus === "stopping";
+  const piFileReady = Boolean(piRemoteFile);
+  const piCommandReady = Boolean(piRemoteForm.command.trim());
+  const canTestPiConnection = !piRemoteBusy && piConnectionReady;
+  const canUploadPiFile = !piRemoteBusy && piConnectionReady && piFileReady;
+  const canExecPiCommand = !piRemoteBusy && piConnectionReady && piCommandReady;
+  const canSetupPiWorkspace = !piRemoteBusy && piConnectionReady;
+  const canRunPiFile = !piRemoteBusy && piConnectionReady && piFileReady;
+  const canUploadAndExecPiFile = canUploadPiFile && piCommandReady;
+  const canUsePiCamera = piConnectionReady && !piCameraBusy;
+  const piOutputLabel = piRemoteExecResult
+    ? `${t("piRemote.exitCode")} ${piRemoteExecResult.exitCode} · ${Math.max(1, Math.round(piRemoteExecResult.durationMs))} ms`
+    : "--";
   const keyboardInput = useMemo(
     () => keyboardInputFromPressedKeys(pressedKeys, inputMapping.keyboard),
     [inputMapping.keyboard, pressedKeys]
@@ -588,12 +740,68 @@ export default function App() {
   );
   const drivePreviewCommand = safeDriveCommandPreview(driveTargets, stopMode);
   const activeGamepad = gamepads.find((gamepad) => gamepad.index === selectedGamepadIndex) ?? gamepads[0];
+  const recommendedGamepadPreset = useMemo(() => resolveGamepadPreset(activeGamepad), [activeGamepad]);
+  const savedGamepadIsCustom = useMemo(() => isCustomGamepadMapping(inputMapping.gamepad), [inputMapping.gamepad]);
+  const effectiveGamepadMapping = useMemo(() => {
+    if (savedGamepadIsCustom) {
+      return inputMapping.gamepad;
+    }
+    return getGamepadPresetMapping(selectedGamepadPreset, activeGamepad);
+  }, [activeGamepad, inputMapping.gamepad, savedGamepadIsCustom, selectedGamepadPreset]);
   const driveCanCommand = connected && debugEnabled && activeModule === "camera";
   const webSerialAvailable = typeof navigator !== "undefined" && Boolean(navigator.serial);
+  const platformDevices = useMemo(
+    () =>
+      createPlatformDevices({
+        servos,
+        motors,
+        cameraConfig,
+        armConfig,
+        servoFeedback,
+        motorFeedback,
+        connected,
+        connectionMode,
+        cameraReady: Boolean(cameraStreamUrl) && !cameraValidationError
+      }),
+    [armConfig, cameraConfig, cameraStreamUrl, cameraValidationError, connected, connectionMode, motorFeedback, motors, servoFeedback, servos]
+  );
+  const platformState = useMemo(
+    () =>
+      createPlatformStateSnapshot({
+        servoFeedback,
+        motorFeedback,
+        cameraConfig,
+        armConfig,
+        connected,
+        connectionMode
+      }),
+    [armConfig, cameraConfig, connected, connectionMode, motorFeedback, servoFeedback]
+  );
+  const preferredPlatformDeviceId =
+    activeModule === "servo" && selectedId !== ""
+      ? `servo:${selectedId}`
+      : activeModule === "motor" && selectedChannel
+        ? `motor:${normalizeMotorChannel(selectedChannel)}`
+        : activeModule === "arm"
+          ? "robot-arm:main"
+          : activeModule === "camera"
+            ? "camera:main"
+            : null;
+  const resolvedPlatformDeviceId = resolveSelectedPlatformDeviceId(platformDevices, selectedPlatformDeviceId, preferredPlatformDeviceId);
+  const selectedPlatformDevice = platformDevices.find((device) => device.id === resolvedPlatformDeviceId);
+  const selectedPlatformState = resolvedPlatformDeviceId ? platformState[resolvedPlatformDeviceId] : undefined;
+  const selectedPlatformUiPanel = findPlatformUiPanelForDevice(selectedPlatformDevice, BUILTIN_UI_PANELS);
+  const selectedPlatformControlDraft =
+    (resolvedPlatformDeviceId ? platformControlDraftByDeviceId[resolvedPlatformDeviceId] : undefined) ?? platformControlDefaultsForDevice(selectedPlatformDevice);
+  const platformCapabilityCount = platformRegistryRef.current.listCapabilities().length;
+  const platformDeviceCount = platformDevices.length;
+  const platformStateCount = Object.keys(platformState).length;
   const currentServoSmoothConfig = resolveServoMotionConfig(servoSmoothPreset);
   const currentServoSafetyConfig = resolveServoSafetyConfig(servoSafetyPreset);
   const activeModuleLabel =
-    activeModule === "servo"
+    activeSection === "tests" && activeTest === "pi"
+      ? t("testTabs.pi")
+      : activeModule === "servo"
       ? t("module.servo")
       : activeModule === "arm"
         ? t("module.arm")
@@ -611,7 +819,9 @@ export default function App() {
           ? t("sections.tests")
           : t("sections.settings");
   const activeModuleMeta =
-    activeModule === "servo"
+    activeSection === "tests" && activeTest === "pi"
+      ? t("meta.piRemote")
+      : activeModule === "servo"
       ? t("meta.servoCount", { count: servos.length })
       : activeModule === "arm"
         ? t("meta.armJoints", { count: armConfig.joints.length })
@@ -663,6 +873,20 @@ export default function App() {
   }, [currentLanguage]);
 
   useEffect(() => {
+    if (selectedPlatformDeviceId !== resolvedPlatformDeviceId) {
+      setSelectedPlatformDeviceId(resolvedPlatformDeviceId);
+    }
+  }, [resolvedPlatformDeviceId, selectedPlatformDeviceId]);
+
+  useEffect(() => {
+    const unsubscribe = platformEventBusRef.current.subscribe(() => {
+      setPlatformEvents(limitPlatformEvents(platformEventBusRef.current.getRecentEvents(), 10));
+    });
+    setPlatformEvents(limitPlatformEvents(platformEventBusRef.current.getRecentEvents(), 10));
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadPersistentState() {
@@ -680,12 +904,14 @@ export default function App() {
         setLastDatabaseSavedAt(current.stateUpdatedAt);
         setDatabaseErrorMessage("");
 
+        const persistedTracks = normalizeArmTeachTracks(await listArmTeachTracks(current.project.id), current.state?.config.armConfig);
         if (current.state) {
           const state = mergeDataServiceRuntime(normalizeAppStateSnapshotV2(current.state), current.events, current.telemetry);
+          state.config.armTeachTracks = normalizeArmTeachTracks([...persistedTracks, ...state.config.armTeachTracks], state.config.armConfig);
           await applyAppStateSnapshot(state);
         } else {
           const { snapshot } = await loadOrMigrateAppConfigSnapshot();
-          const migratedState = createAppStateSnapshotV2({ config: snapshot });
+          const migratedState = createAppStateSnapshotV2({ config: { ...snapshot, armTeachTracks: persistedTracks } });
           await saveProjectState(current.project.id, migratedState);
           await applyAppStateSnapshot(migratedState);
           setLastDatabaseSavedAt(migratedState.updatedAt);
@@ -754,7 +980,6 @@ export default function App() {
   }, [motorLinkageGroups]);
 
   useEffect(() => {
-    saveServos(servos);
     if (selectedId === "" && servos[0]) {
       setSelectedId(servos[0].id);
     }
@@ -768,10 +993,6 @@ export default function App() {
   }, [servos]);
 
   useEffect(() => {
-    saveServoLinkageGroups(servoLinkageGroups, servos);
-  }, [servoLinkageGroups, servos]);
-
-  useEffect(() => {
     setArmConfig((current) => {
       const normalized = normalizeArmConfig(current, servos);
       return JSON.stringify(normalized) === JSON.stringify(current) ? current : normalized;
@@ -779,19 +1000,11 @@ export default function App() {
   }, [servos]);
 
   useEffect(() => {
-    saveArmConfig(armConfig, servos);
-  }, [armConfig, servos]);
-
-  useEffect(() => {
     setMotorLinkageGroups((current) => {
       const normalized = normalizeMotorLinkageGroups(current, motors);
       return JSON.stringify(normalized) === JSON.stringify(current) ? current : normalized;
     });
   }, [motors]);
-
-  useEffect(() => {
-    saveMotorLinkageGroups(motorLinkageGroups, motors);
-  }, [motorLinkageGroups, motors]);
 
   useEffect(() => {
     if (!databaseLoadedRef.current) {
@@ -805,16 +1018,24 @@ export default function App() {
     setDatabaseStatus("saving");
     databaseSaveTimerRef.current = window.setTimeout(() => {
       const projectId = currentProjectIdRef.current;
+      const state = buildCurrentAppStateSnapshot();
       if (!projectId) {
-        setDatabaseStatus("offline");
+        void saveAppDatabaseSnapshot(state.config)
+          .then(() => {
+            setLastDatabaseSavedAt(state.updatedAt);
+            setDatabaseErrorMessage(t("database.localFallback"));
+            setDatabaseStatus("offline");
+          })
+          .catch((error) => {
+            setDatabaseErrorMessage(error instanceof Error && error.message ? error.message : t("database.error"));
+            setDatabaseStatus("error");
+          });
         return;
       }
 
-      const state = buildCurrentAppStateSnapshot();
       void saveProjectState(projectId, state)
         .then((result) => {
           void saveAppDatabaseSnapshot(state.config).catch(() => undefined);
-          saveLegacyAppConfigBackup(state.config);
           setLastDatabaseSavedAt(result.updatedAt);
           setDatabaseErrorMessage("");
           setDatabaseStatus("saved");
@@ -840,6 +1061,7 @@ export default function App() {
     motorSpeed,
     motors,
     armConfig,
+    armTeachTracks,
     selectedChannel,
     selectedFirmwarePort,
     selectedGamepadIndex,
@@ -891,7 +1113,6 @@ export default function App() {
   }, [servos]);
 
   useEffect(() => {
-    saveMotors(motors);
     if (!selectedChannel && motors[0]) {
       setSelectedChannel(motors[0].channel);
     }
@@ -979,7 +1200,7 @@ export default function App() {
         selectedGamepadIndex === ""
           ? pads[0]
           : pads.find((gamepad) => gamepad.index === selectedGamepadIndex);
-      const nextInput = gamepadInputFromGamepad(selectedPad, inputMapping.gamepad);
+      const nextInput = gamepadInputFromGamepad(selectedPad, effectiveGamepadMapping);
       const inputSignature = JSON.stringify(nextInput);
       if (inputSignature !== gamepadInputSignatureRef.current) {
         gamepadInputSignatureRef.current = inputSignature;
@@ -998,7 +1219,11 @@ export default function App() {
             id: gamepad.id,
             axes: gamepad.axes.length,
             buttons: gamepad.buttons.length,
-            mapping: gamepad.mapping || "unknown"
+            mapping: gamepad.mapping || "unknown",
+            axesValues: gamepad.axes.map((axis) => Number(axis.toFixed(2))),
+            pressedButtons: gamepad.buttons
+              .map((button, index) => (button.pressed ? index : -1))
+              .filter((index) => index >= 0)
           }))
         );
       }
@@ -1008,7 +1233,7 @@ export default function App() {
 
     frameId = window.requestAnimationFrame(pollGamepads);
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeModule, inputMapping.gamepad, selectedGamepadIndex]);
+  }, [activeModule, effectiveGamepadMapping, selectedGamepadIndex]);
 
   useEffect(() => {
     if (!driveInput.stop) {
@@ -1082,7 +1307,39 @@ export default function App() {
 
   useEffect(() => {
     void checkFirmwareHelper(false);
+    void checkPiHelper(false);
   }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PI_SETUP_PROFILE_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const profile = JSON.parse(raw) as Partial<PiSetupProfile>;
+      setPiRemoteForm((current) => ({
+        ...current,
+        host: typeof profile.host === "string" && profile.host ? profile.host : current.host,
+        username: typeof profile.username === "string" && profile.username ? profile.username : current.username,
+        authMode: profile.authMode === "privateKey" ? "privateKey" : "password",
+        privateKeyPath: typeof profile.privateKeyPath === "string" ? profile.privateKeyPath : current.privateKeyPath,
+        workspaceDir: typeof profile.workspaceDir === "string" && profile.workspaceDir ? profile.workspaceDir : current.workspaceDir
+      }));
+    } catch {
+      window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    const profile: PiSetupProfile = {
+      host: piRemoteForm.host,
+      username: piRemoteForm.username,
+      authMode: piRemoteForm.authMode,
+      privateKeyPath: piRemoteForm.privateKeyPath,
+      workspaceDir: piRemoteForm.workspaceDir
+    };
+    window.localStorage.setItem(PI_SETUP_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  }, [piRemoteForm.authMode, piRemoteForm.host, piRemoteForm.privateKeyPath, piRemoteForm.username, piRemoteForm.workspaceDir]);
 
   function addLog(direction: LogEntry["direction"], text: string, level: LogEntry["level"] = "info") {
     const entry: LogEntry = { id: logIdRef.current++, direction, text, level };
@@ -1160,6 +1417,12 @@ export default function App() {
 
   function rememberServoFeedback(feedback: InboundMessage & { type: "servo.feedback" }) {
     setServoFeedback((current) => ({ ...current, [feedback.id]: feedback }));
+    platformEventBusRef.current.emit({
+      type: "servo.feedback",
+      level: "info",
+      source: `servo:${feedback.id}`,
+      payload: { ...feedback }
+    });
     if (feedback.positionRaw !== undefined) {
       lastServoPhysicalAngleRef.current[feedback.id] = rawToAngleDeg(feedback.positionRaw);
     }
@@ -1176,6 +1439,12 @@ export default function App() {
   function rememberMotorFeedback(message: InboundMessage & { type: "motor.feedback" }) {
     const channel = normalizeMotorChannel(message.channel);
     setMotorFeedback((current) => ({ ...current, [channel]: message }));
+    platformEventBusRef.current.emit({
+      type: "motor.feedback",
+      level: "info",
+      source: `motor:${channel}`,
+      payload: { ...message, channel }
+    });
     queueTelemetry({
       category: "motor",
       targetId: channel,
@@ -1201,6 +1470,311 @@ export default function App() {
     setFirmwareLogs(isFirmwareUploadError(error) && error.logs ? error.logs : message);
     setFirmwareStatus("error");
     addLog("system", message, "error");
+  }
+
+  function setPiRemoteFailure(error: unknown) {
+    const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : t("piRemote.errors.requestFailed");
+    setPiRemoteStatus("error");
+    setPiRemoteError(message);
+    addLog("system", message, "error");
+  }
+
+  function piConnectionRequest() {
+    return {
+      host: piRemoteForm.host.trim(),
+      port: Number.isFinite(Number(piRemoteForm.port)) ? Number(piRemoteForm.port) : 22,
+      username: piRemoteForm.username.trim(),
+      password: piRemoteForm.authMode === "password" ? piRemoteForm.password || undefined : undefined,
+      privateKeyPath: piRemoteForm.authMode === "privateKey" ? piRemoteForm.privateKeyPath.trim() || undefined : undefined
+    };
+  }
+
+  function piSetupProfile(): PiSetupProfile {
+    return {
+      host: piRemoteForm.host.trim(),
+      username: piRemoteForm.username.trim(),
+      authMode: piRemoteForm.authMode,
+      privateKeyPath: piRemoteForm.privateKeyPath.trim(),
+      workspaceDir: piRemoteForm.workspaceDir.trim() || "~/rescue-robot"
+    };
+  }
+
+  function piCommandRequest() {
+    const timeoutSeconds = Number(piRemoteForm.timeoutSeconds);
+    return {
+      ...piConnectionRequest(),
+      command: piRemoteForm.command.trim(),
+      cwd: piRemoteForm.cwd.trim() || undefined,
+      timeoutMs: Number.isFinite(timeoutSeconds) ? Math.round(timeoutSeconds * 1000) : undefined
+    };
+  }
+
+  function updatePiRemoteField(field: keyof PiRemoteForm, value: string) {
+    setPiRemoteForm((current) => ({ ...current, [field]: value }));
+    setPiRemoteError(null);
+    if ((field === "workspaceDir" || field === "username") && piRemoteFile) {
+      const nextWorkspaceDir = field === "workspaceDir" ? value : piRemoteForm.workspaceDir;
+      const nextUsername = field === "username" ? value : piRemoteForm.username;
+      setPiRunPlan(createPiRunPlan(piRemoteFile.name, nextWorkspaceDir, nextUsername || "pi"));
+    }
+  }
+
+  function updatePiRemoteFile(file: File | null) {
+    setPiRemoteFile(file);
+    setPiRemoteError(null);
+    setPiRemoteUploadResult(null);
+    setPiRemoteExecResult(null);
+    setPiRunPlan(file ? createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi") : null);
+  }
+
+  async function checkPiHelper(log = true): Promise<PiHelperHealth | null> {
+    setPiRemoteStatus("checking");
+    setPiRemoteError(null);
+    try {
+      const health = await requestPiHelperHealth();
+      setPiHelperHealth(health);
+      setPiRemoteStatus("idle");
+      if (log) {
+        addSystemLog("logs.piHelperReady");
+      }
+      return health;
+    } catch (error) {
+      setPiHelperHealth(null);
+      setPiRemoteStatus("error");
+      setPiRemoteError(t("piRemote.errors.helperUnavailable"));
+      if (log) {
+        addSystemLog("logs.piHelperUnavailable", "warn");
+      }
+      return null;
+    }
+  }
+
+  async function testRaspberryPiConnection() {
+    setPiRemoteStatus("checking");
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    setPiReadiness(null);
+    try {
+      const result = await checkPiReadiness(piConnectionRequest(), piSetupProfile());
+      setPiReadiness(result);
+      setPiSetupComplete(result.pythonAvailable && result.workspaceReady);
+      setPiRemoteStatus(result.pythonAvailable ? "ready" : "error");
+      addSystemLog("logs.piConnectionReady", "info", { host: piRemoteForm.host.trim(), ms: Math.round(result.connection.durationMs) });
+      if (!result.pythonAvailable) {
+        setPiRemoteError(t("piRemote.errors.pythonMissing"));
+      } else if (!result.workspaceReady) {
+        setPiRemoteError(t("piRemote.errors.workspaceMissing"));
+      }
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function setupRaspberryPiWorkspace() {
+    setPiRemoteStatus("settingUp");
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await setupPiWorkspace(piConnectionRequest(), piSetupProfile());
+      setPiRemoteExecResult(result.exec);
+      setPiSetupComplete(result.ok);
+      setPiRemoteStatus(result.ok ? "ready" : "error");
+      addSystemLog("logs.piWorkspaceReady", result.ok ? "info" : "warn", { path: result.workspaceDir });
+      if (!result.ok) {
+        setPiRemoteError(result.exec.stderr || result.exec.stdout || t("piRemote.errors.setupFailed"));
+      }
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function uploadRaspberryPiFile() {
+    if (!piRemoteFile) {
+      setPiRemoteError(t("piRemote.errors.selectFile"));
+      addSystemLog("logs.piSelectFile", "warn");
+      return;
+    }
+
+    setPiRemoteStatus("uploading");
+    setPiRemoteError(null);
+    setPiRemoteUploadResult(null);
+    try {
+      const result = await uploadPiFile({
+        ...piConnectionRequest(),
+        file: piRemoteFile,
+        remotePath: piRemoteForm.remotePath.trim()
+      });
+      setPiRemoteUploadResult(result);
+      setPiRemoteStatus("complete");
+      addSystemLog("logs.piFileUploaded", "info", { path: result.remotePath, size: result.sizeBytes });
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function execRaspberryPiCommand() {
+    setPiRemoteStatus("running");
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await execPiCommand(piCommandRequest());
+      setPiRemoteExecResult(result);
+      setPiRemoteStatus(result.exitCode === 0 ? "complete" : "error");
+      addSystemLog("logs.piCommandComplete", result.exitCode === 0 ? "info" : "warn", { code: result.exitCode });
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function runRaspberryPiFile() {
+    if (!piRemoteFile) {
+      setPiRemoteError(t("piRemote.errors.selectFile"));
+      addSystemLog("logs.piSelectFile", "warn");
+      return;
+    }
+
+    setPiRemoteStatus("running");
+    setPiRemoteError(null);
+    setPiRemoteUploadResult(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await runUploadedFile({
+        ...piConnectionRequest(),
+        file: piRemoteFile,
+        workspaceDir: piRemoteForm.workspaceDir,
+        timeoutMs: Number.isFinite(Number(piRemoteForm.timeoutSeconds)) ? Math.round(Number(piRemoteForm.timeoutSeconds) * 1000) : undefined
+      });
+      setPiRemoteUploadResult(result.upload);
+      setPiRunPlan(result.plan);
+      setPiRemoteExecResult(result.exec);
+      setPiRemoteStatus(!result.exec || result.exec.exitCode === 0 ? "complete" : "error");
+      addSystemLog(
+        result.exec ? "logs.piUploadAndExecComplete" : "logs.piUploadOnlyComplete",
+        !result.exec || result.exec.exitCode === 0 ? "info" : "warn",
+        { code: result.exec?.exitCode ?? 0 }
+      );
+      if (!result.exec) {
+        setPiRemoteError(t("piRemote.errors.uploadOnly"));
+      }
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function uploadAndExecRaspberryPiFile() {
+    await runRaspberryPiFile();
+  }
+
+  function clearPiOutput() {
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    setPiRemoteUploadResult(null);
+    setPiRemoteStatus(piSetupComplete ? "ready" : "idle");
+  }
+
+  function setPiCameraFailure(error: unknown) {
+    const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : t("piRemote.camera.errors.requestFailed");
+    setPiCameraStatus("error");
+    setPiCameraError(message);
+    setPiCameraExecResult(null);
+    addLog("system", message, "error");
+  }
+
+  async function checkRaspberryPiCamera() {
+    setPiCameraStatus("checking");
+    setPiCameraError(null);
+    setPiCameraExecResult(null);
+    try {
+      const health = await requestPiHelperHealth();
+      setPiHelperHealth(health);
+      const result = await checkPiCamera(piConnectionRequest(), piSetupProfile());
+      setPiCameraCheck(result);
+      setPiCameraStatus(result.streamRunning ? "streaming" : "idle");
+      addSystemLog("logs.piCameraChecked", result.cameraAvailable ? "info" : "warn", { device: result.device ?? "--" });
+      if (!result.cameraAvailable) {
+        setPiCameraError(t("piRemote.camera.errors.noCamera"));
+      } else if (!result.ustreamerAvailable) {
+        setPiCameraError(t("piRemote.camera.errors.ustreamerMissing"));
+      }
+    } catch (error) {
+      setPiCameraFailure(error);
+    }
+  }
+
+  async function startRaspberryPiCameraStream() {
+    setPiCameraStatus("starting");
+    setPiCameraError(null);
+    setPiCameraExecResult(null);
+    try {
+      const health = await requestPiHelperHealth();
+      setPiHelperHealth(health);
+      const result = await startPiCameraStream(piConnectionRequest(), piSetupProfile());
+      setPiCameraExecResult(result.exec);
+      setPiCameraStatus(result.ok ? "streaming" : "error");
+      if (result.ok) {
+        setPiCameraCheck((current) => ({
+          cameraAvailable: true,
+          device: result.device,
+          ustreamerAvailable: true,
+          streamRunning: true,
+          streamUrl: result.streamUrl,
+          stdout: result.exec.stdout,
+          stderr: result.exec.stderr
+        }));
+        setCameraConfig((current) => ({ ...current, streamUrl: result.streamUrl }));
+        setCameraStreamLoaded(false);
+        setCameraStreamFailed(false);
+        addSystemLog("logs.piCameraStarted", "info", { url: result.streamUrl });
+      } else {
+        setPiCameraError(result.exec.stderr || result.exec.stdout || t("piRemote.camera.errors.startFailed"));
+        addSystemLog("logs.piCameraStartFailed", "warn");
+      }
+    } catch (error) {
+      setPiCameraFailure(error);
+    }
+  }
+
+  async function stopRaspberryPiCameraStream() {
+    setPiCameraStatus("stopping");
+    setPiCameraError(null);
+    try {
+      const result = await stopPiCameraStream(piConnectionRequest(), piSetupProfile());
+      setPiCameraExecResult(result);
+      setPiCameraStatus(result.exitCode === 0 ? "idle" : "error");
+      setPiCameraCheck((current) => (current ? { ...current, streamRunning: false } : current));
+      addSystemLog("logs.piCameraStopped", result.exitCode === 0 ? "info" : "warn");
+      if (result.exitCode !== 0) {
+        setPiCameraError(result.stderr || result.stdout || t("piRemote.camera.errors.stopFailed"));
+      }
+    } catch (error) {
+      setPiCameraFailure(error);
+    }
+  }
+
+  async function installRaspberryPiCameraTools() {
+    if (!window.confirm(t("piRemote.camera.installConfirm"))) {
+      return;
+    }
+    setPiCameraStatus("installing");
+    setPiCameraError(null);
+    setPiCameraExecResult(null);
+    try {
+      const result = await installPiCameraTools(piConnectionRequest());
+      setPiCameraExecResult(result.exec);
+      setPiCameraStatus(result.ok ? "idle" : "error");
+      addSystemLog("logs.piCameraToolsInstalled", result.ok ? "info" : "warn");
+      if (!result.ok) {
+        setPiCameraError(result.exec.stderr || result.exec.stdout || t("piRemote.camera.errors.installFailed"));
+      }
+    } catch (error) {
+      setPiCameraFailure(error);
+    }
+  }
+
+  function clearPiCameraOutput() {
+    setPiCameraError(null);
+    setPiCameraExecResult(null);
+    setPiCameraStatus(piCameraCheck?.streamRunning ? "streaming" : "idle");
   }
 
   async function checkFirmwareHelper(log = true): Promise<FirmwareHelperHealth | null> {
@@ -1346,6 +1920,10 @@ export default function App() {
     return "online";
   }
 
+  function metricNumber(value: number | undefined, digits = 1) {
+    return value === undefined || !Number.isFinite(value) ? undefined : value.toFixed(digits);
+  }
+
   function nextSeq() {
     return seqRef.current++;
   }
@@ -1361,6 +1939,7 @@ export default function App() {
     setMotors(snapshot.motors);
     setMotorLinkageGroups(snapshot.motorLinkageGroups);
     setArmConfig(snapshot.armConfig);
+    setArmTeachTracks(normalizeArmTeachTracks(snapshot.armTeachTracks, snapshot.armConfig));
     setCameraConfig(snapshot.cameraConfig);
     setInputMapping(snapshot.inputMapping);
     setMappingDraft(cloneMapping(snapshot.inputMapping));
@@ -1368,7 +1947,6 @@ export default function App() {
     setSelectedId(snapshot.servos[0]?.id ?? "");
     setSelectedChannel(snapshot.motors[0]?.channel ?? "");
     if (snapshot.language !== currentLanguage) {
-      saveLanguagePreference(snapshot.language);
       await i18n.changeLanguage(snapshot.language);
     }
   }
@@ -1415,6 +1993,7 @@ export default function App() {
       motors,
       motorLinkageGroups,
       armConfig,
+      armTeachTracks,
       cameraConfig,
       inputMapping,
       language: currentLanguage,
@@ -1489,9 +2068,11 @@ export default function App() {
     setLastDatabaseSavedAt(payload.stateUpdatedAt);
     setDatabaseErrorMessage("");
 
+    const persistedTracks = normalizeArmTeachTracks(await listArmTeachTracks(payload.project.id), payload.state?.config.armConfig);
     const state = payload.state
       ? mergeDataServiceRuntime(normalizeAppStateSnapshotV2(payload.state), payload.events, payload.telemetry)
       : fallbackState ?? createAppStateSnapshotV2({ config: buildCurrentAppConfigSnapshot() });
+    state.config.armTeachTracks = normalizeArmTeachTracks([...persistedTracks, ...state.config.armTeachTracks], state.config.armConfig);
     if (!payload.state) {
       const result = await saveProjectState(payload.project.id, state);
       setLastDatabaseSavedAt(result.updatedAt);
@@ -2003,6 +2584,12 @@ export default function App() {
 
   function handleErrorMessage(message: InboundMessage & { type: "error" }) {
     resolvePendingCommandResponse(message);
+    platformEventBusRef.current.emit({
+      type: "command.error",
+      level: "error",
+      source: message.command ?? "controller",
+      payload: { ...message }
+    });
     const pendingDebugSet = pendingDebugSetBySeqRef.current.get(message.seq);
     if (pendingDebugSet) {
       pendingDebugSetBySeqRef.current.delete(message.seq);
@@ -4187,6 +4774,337 @@ export default function App() {
     draggingArmJointIdRef.current = null;
   }
 
+  function getEnabledArmTeachJoints(config = armConfig) {
+    return config.joints.filter((joint) => joint.enabled && servos.some((servo) => servo.id === joint.servoId));
+  }
+
+  function clearArmTeachTimer() {
+    if (armTeachTimerRef.current !== undefined) {
+      window.clearInterval(armTeachTimerRef.current);
+      armTeachTimerRef.current = undefined;
+    }
+  }
+
+  async function startArmTeachRecording() {
+    if (armTeachStatus === "recording" || armTeachStatus === "playing") {
+      return;
+    }
+    const joints = getEnabledArmTeachJoints();
+    if (joints.length === 0) {
+      addSystemLog("logs.armNoTargets", "warn");
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus("no enabled joints");
+      return;
+    }
+    if (!servoBusConnected()) {
+      addSystemLog("logs.servoBusRequired", "warn");
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus("servo bus offline");
+      return;
+    }
+
+    cancelArmLiveMove();
+    cancelServoMotionForArm();
+    armTeachPlaybackGenerationRef.current += 1;
+    setArmTeachStatus("preparing");
+    setArmTeachUnsavedTrack(null);
+    setArmTeachElapsedMs(0);
+    setArmTeachSampleCount(0);
+    setArmTeachLastSampleStatus("releasing torque");
+
+    try {
+      await enqueueServoSerialTask(async () => {
+        for (const joint of joints) {
+          await sendServoFrameUnlocked(buildTorqueFrame(joint.servoId, false), 80, true);
+          livePositionModeServoRef.current.delete(joint.servoId);
+          cancelServoSafetyMonitor(joint.servoId);
+        }
+      });
+    } catch {
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus("torque release failed");
+      addSystemLog("logs.commandInvalid", "error");
+      return;
+    }
+
+    const now = Date.now();
+    armTeachRuntimeRef.current = {
+      joints,
+      startedAt: now,
+      samples: [],
+      sampling: false
+    };
+    setArmTeachStatus("recording");
+    setArmTeachLastSampleStatus("recording");
+    await sampleArmTeachFrame();
+    armTeachTimerRef.current = window.setInterval(() => {
+      void sampleArmTeachFrame();
+    }, ARM_TEACH_SAMPLE_INTERVAL_MS);
+  }
+
+  async function sampleArmTeachFrame() {
+    const runtime = armTeachRuntimeRef.current;
+    if (!runtime || runtime.sampling || !servoBusConnected()) {
+      return;
+    }
+
+    runtime.sampling = true;
+    const tMs = Date.now() - runtime.startedAt;
+    const feedbackByServoId: Record<
+      number,
+      {
+        positionRaw?: number;
+        speedRaw?: number;
+        loadRaw?: number;
+        voltageRaw?: number;
+        temperatureC?: number;
+        currentRaw?: number;
+      }
+    > = {};
+    try {
+      for (const joint of runtime.joints) {
+        const packet = await sendServoFrame(buildReadFeedbackFrame(joint.servoId), 120, false);
+        if (!packet || packet.status !== 0) {
+          throw new Error(`ID${joint.servoId} feedback failed`);
+        }
+        const feedback = parseServoFeedback(packet);
+        rememberServoFeedback(feedback);
+        if (feedback.positionRaw === undefined) {
+          throw new Error(`ID${joint.servoId} position missing`);
+        }
+        feedbackByServoId[joint.servoId] = {
+          positionRaw: feedback.positionRaw,
+          speedRaw: feedback.speedRaw,
+          loadRaw: feedback.loadRaw,
+          voltageRaw: feedback.voltageRaw,
+          temperatureC: feedback.temperatureC,
+          currentRaw: feedback.currentRaw
+        };
+      }
+      const sample = createArmTeachSampleFromFeedback({
+        tMs,
+        joints: runtime.joints,
+        servos,
+        feedbackByServoId
+      });
+      if (!sample) {
+        throw new Error("incomplete sample");
+      }
+      runtime.samples.push(sample);
+      setArmTeachElapsedMs(sample.tMs);
+      setArmTeachSampleCount(runtime.samples.length);
+      setArmTeachLastSampleStatus(`ok ${new Date().toLocaleTimeString()}`);
+      setArmTeachStatus("recording");
+    } catch (error) {
+      clearArmTeachTimer();
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus(error instanceof Error && error.message ? error.message : "sample failed");
+      addSystemLog("logs.commandInvalid", "error");
+    } finally {
+      runtime.sampling = false;
+    }
+  }
+
+  async function stopArmTeachRecording() {
+    const runtime = armTeachRuntimeRef.current;
+    clearArmTeachTimer();
+    if (!runtime) {
+      return;
+    }
+    armTeachRuntimeRef.current = null;
+    setArmTeachStatus("stopped");
+    setArmTeachLastSampleStatus("holding current pose");
+
+    for (const joint of runtime.joints) {
+      const servo = armServoForJoint(joint);
+      if (servo) {
+        await holdServoAtCurrentPosition(servo, joint.speedRaw, joint.acc, false);
+      }
+    }
+
+    if (runtime.samples.length === 0) {
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus("no valid samples");
+      return;
+    }
+
+    const lastSample = runtime.samples[runtime.samples.length - 1];
+    applyArmTeachSampleToConfig(lastSample, true);
+    const track = createArmTeachTrack({
+      name: armTeachDraftName,
+      joints: runtime.joints,
+      samples: runtime.samples,
+      sampleIntervalMs: ARM_TEACH_SAMPLE_INTERVAL_MS,
+      notes: armTeachDraftNotes
+    });
+    setArmTeachUnsavedTrack(track);
+    setSelectedArmTeachTrackId(track.id);
+    setArmTeachDraftName(track.name);
+    setArmTeachDraftNotes(track.metadata.notes ?? "");
+    setArmTeachElapsedMs(track.durationMs);
+    setArmTeachSampleCount(track.samples.length);
+    setArmTeachLastSampleStatus("stopped");
+  }
+
+  function applyArmTeachSampleToConfig(sample: ArmTeachSample, selectFirst = false) {
+    setArmConfig((current) => {
+      const byJointId = new Map(sample.joints.map((joint) => [joint.jointId, joint]));
+      return {
+        ...current,
+        selectedJointId: selectFirst ? sample.joints[0]?.jointId ?? current.selectedJointId : current.selectedJointId,
+        joints: current.joints.map((joint) => {
+          const recorded = byJointId.get(joint.id);
+          return recorded ? { ...joint, angleDeg: clamp(recorded.logicalAngleDeg, 0, servoLogicalSpan(armServoForJoint(joint) ?? { id: joint.servoId, name: joint.name })) } : joint;
+        })
+      };
+    });
+  }
+
+  function armConfigForTeachSample(track: ArmTeachTrack, sample: ArmTeachSample): ArmConfig | null {
+    const byJointId = new Map(sample.joints.map((joint) => [joint.jointId, joint]));
+    const required = new Set(track.jointIds);
+    const missing = armConfig.joints.some((joint) => required.has(joint.id) && !byJointId.has(joint.id));
+    if (missing) {
+      return null;
+    }
+    return {
+      ...armConfig,
+      joints: armConfig.joints.map((joint) => {
+        const recorded = byJointId.get(joint.id);
+        return recorded ? { ...joint, angleDeg: recorded.logicalAngleDeg } : joint;
+      })
+    };
+  }
+
+  function validateArmTeachTrackForPlayback(track: ArmTeachTrack) {
+    if (track.samples.length === 0) {
+      return "track has no samples";
+    }
+    const jointById = new Map(armConfig.joints.map((joint) => [joint.id, joint]));
+    for (let index = 0; index < track.jointIds.length; index += 1) {
+      const joint = jointById.get(track.jointIds[index]);
+      if (!joint || joint.servoId !== track.servoIds[index]) {
+        return "track joints do not match current arm";
+      }
+    }
+    return "";
+  }
+
+  async function playArmTeachTrack(track = selectedArmTeachTrack) {
+    if (!track || armTeachStatus === "recording") {
+      return;
+    }
+    if (!servoBusConnected()) {
+      addSystemLog("logs.servoBusRequired", "warn");
+      setArmTeachLastSampleStatus("servo bus offline");
+      return;
+    }
+    const validation = validateArmTeachTrackForPlayback(track);
+    if (validation) {
+      setArmTeachStatus("error");
+      setArmTeachLastSampleStatus(validation);
+      return;
+    }
+
+    const generation = armTeachPlaybackGenerationRef.current + 1;
+    armTeachPlaybackGenerationRef.current = generation;
+    setArmTeachStatus("playing");
+    setArmTeachLastSampleStatus("playing");
+    for (let index = 0; index < track.samples.length; index += 1) {
+      if (armTeachPlaybackGenerationRef.current !== generation || !servoBusConnected()) {
+        return;
+      }
+      const sample = track.samples[index];
+      const previous = track.samples[index - 1];
+      if (previous) {
+        await sleepMs(Math.max(0, sample.tMs - previous.tMs));
+      }
+      const config = armConfigForTeachSample(track, sample);
+      if (!config) {
+        setArmTeachStatus("error");
+        setArmTeachLastSampleStatus("track sample mismatch");
+        return;
+      }
+      setArmConfig(config);
+      await runArmPositionMotion(config, true);
+      setArmTeachElapsedMs(sample.tMs);
+      setArmTeachSampleCount(index + 1);
+    }
+    if (armTeachPlaybackGenerationRef.current === generation) {
+      setArmTeachStatus("stopped");
+      setArmTeachLastSampleStatus("playback complete");
+    }
+  }
+
+  async function pauseArmTeachPlayback() {
+    armTeachPlaybackGenerationRef.current += 1;
+    if (armTeachStatus === "playing") {
+      await pauseArm();
+    }
+    setArmTeachStatus("stopped");
+    setArmTeachLastSampleStatus("playback paused");
+  }
+
+  async function saveCurrentArmTeachTrack() {
+    const source = armTeachUnsavedTrack ?? selectedArmTeachTrack;
+    if (!source) {
+      return;
+    }
+    const track = updateArmTeachTrackMetadata(source, { name: armTeachDraftName, notes: armTeachDraftNotes });
+    setArmTeachTracks((current) => upsertArmTeachTrack(current, track));
+    setArmTeachUnsavedTrack(null);
+    setSelectedArmTeachTrackId(track.id);
+    setArmTeachLastSampleStatus("saved locally");
+    const projectId = currentProjectIdRef.current;
+    if (projectId) {
+      try {
+        const saved = await saveArmTeachTrack(projectId, track);
+        setArmTeachTracks((current) => upsertArmTeachTrack(current, saved));
+        setArmTeachLastSampleStatus("saved");
+      } catch (error) {
+        setDatabaseErrorMessage(error instanceof Error && error.message ? error.message : t("database.error"));
+        setDatabaseStatus("error");
+      }
+    }
+  }
+
+  async function removeSelectedArmTeachTrack() {
+    const track = selectedArmTeachTrack;
+    if (!track) {
+      return;
+    }
+    armTeachPlaybackGenerationRef.current += 1;
+    setArmTeachTracks((current) => current.filter((item) => item.id !== track.id));
+    if (armTeachUnsavedTrack?.id === track.id) {
+      setArmTeachUnsavedTrack(null);
+    }
+    setSelectedArmTeachTrackId(null);
+    if (currentProjectIdRef.current) {
+      await deleteArmTeachTrack(track.id).catch((error) => {
+        setDatabaseErrorMessage(error instanceof Error && error.message ? error.message : t("database.error"));
+        setDatabaseStatus("error");
+      });
+    }
+  }
+
+  function exportArmTeachTrack(track: ArmTeachTrack | null, format: "json" | "jsonl") {
+    if (!track) {
+      return;
+    }
+    const body = format === "json" ? armTeachTrackToJson(track) : armTeachTrackToJsonl(track);
+    const blob = new Blob([body], { type: format === "json" ? "application/json" : "application/x-ndjson" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${track.name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "arm-teach"}.${format === "json" ? "json" : "jsonl"}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function upsertArmTeachTrack(current: ArmTeachTrack[], track: ArmTeachTrack) {
+    return [track, ...current.filter((item) => item.id !== track.id)].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
   async function sendArmPose() {
     await runArmPositionMotion(armConfig);
   }
@@ -4223,6 +5141,12 @@ export default function App() {
       setConnectionMode(mode);
       setConnected(true);
       resetMotorDebugHandshake();
+      platformEventBusRef.current.emit({
+        type: "serial.connected",
+        level: "info",
+        source: mode === "servo-bus" ? "transport.web-serial" : "transport.controller-json",
+        payload: { mode, baudRate: mode === "servo-bus" ? 1000000 : 115200 }
+      });
       addLog("system", mode === "servo-bus" ? "飞特总线已连接：1000000 baud" : "控制器串口已连接：115200 baud");
       if (mode === "controller") {
         await writeDebugSetToClient(client, activeModule, debugEnabled);
@@ -4247,6 +5171,12 @@ export default function App() {
     setConnectionMode(null);
     setConnected(false);
     resetMotorDebugHandshake();
+    platformEventBusRef.current.emit({
+      type: "serial.disconnected",
+      level: "warn",
+      source: "transport.web-serial",
+      payload: {}
+    });
     addSystemLog("logs.serialClosed");
   }
 
@@ -4273,7 +5203,7 @@ export default function App() {
       return moduleForComponentPanel(activeComponent);
     }
     if (section === "tests") {
-      return activeTest;
+      return activeTest === "pi" ? "motor" : activeTest;
     }
     return "mapping";
   }
@@ -4292,7 +5222,9 @@ export default function App() {
   async function selectTestPanel(panel: TestPanel) {
     setActiveSection("tests");
     setActiveTest(panel);
-    await selectModule(panel);
+    if (panel !== "pi") {
+      await selectModule(panel);
+    }
   }
 
   async function toggleDebugMode() {
@@ -4332,7 +5264,6 @@ export default function App() {
     if (!isSupportedLanguage(language)) {
       return;
     }
-    saveLanguagePreference(language);
     await i18n.changeLanguage(language);
   }
 
@@ -4356,7 +5287,6 @@ export default function App() {
       return;
     }
 
-    saveCameraConfig(cameraConfig);
     setCameraConfigError(null);
     addSystemLog("logs.cameraConfigSaved");
   }
@@ -4494,7 +5424,6 @@ export default function App() {
     }
 
     setMotorConfigError(null);
-    saveMotors(motors);
     addSystemLog("logs.motorMappingSaved");
     return true;
   }
@@ -4525,10 +5454,8 @@ export default function App() {
     }
 
     try {
-      const sent = await sendMotorCommand(
-        buildMotorConfigCommand(nextSeq(), {
-          channel: selectedMotor.channel,
-          driver: "tb6618",
+      const result = await dispatchPlatformCommand(
+        createPlatformCommand("motor.configure", `motor:${selectedMotor.channel}`, {
           pwmPin: selectedMotor.pwmPin ?? "",
           in1Pin: selectedMotor.in1Pin ?? "",
           in2Pin: selectedMotor.in2Pin ?? "",
@@ -4536,15 +5463,189 @@ export default function App() {
           sensorPin: selectedMotor.sensorPin
         })
       );
-      if (sent) {
+      if (result.status === "sent") {
         setMotorConfigError(null);
-        saveMotors(motors);
         addSystemLog("logs.motorConfigSent");
       }
     } catch {
       setMotorConfigError("validation.invalidMotorPin");
       addSystemLog("logs.motorMappingInvalid", "error");
     }
+  }
+
+  function emitPlatformCommandResult(command: PlatformCommand, result: PlatformCommandResult) {
+    platformEventBusRef.current.emit({
+      type: platformCommandEventType(result.status),
+      level: result.status === "sent" ? "info" : result.status === "skipped" || result.status === "timeout" ? "warn" : "error",
+      source: command.targetDeviceId,
+      payload: {
+        commandId: command.id,
+        commandType: command.type,
+        status: result.status,
+        message: result.message ?? null
+      }
+    });
+  }
+
+  function servoForPlatformCommand(command: PlatformCommand): ServoProfile | null {
+    const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+    return servos.find((servo) => servo.id === servoId) ?? null;
+  }
+
+  async function dispatchPlatformCommand(command: PlatformCommand): Promise<PlatformCommandResult> {
+    const validationError = validatePlatformCommand(command);
+    if (validationError) {
+      const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: validationError };
+      emitPlatformCommandResult(command, result);
+      return result;
+    }
+
+    try {
+      if (command.type === "servo.ping") {
+        const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        const packet = await sendServoFrames(buildPingFrame(servoId), 140);
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: packet ? "sent" : "timeout",
+          response: packet ?? undefined
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      if (command.type === "servo.read_feedback") {
+        const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        const packet = await sendServoFrames(buildReadFeedbackFrame(servoId), 180);
+        if (packet?.status === 0) {
+          rememberServoFeedback(parseServoFeedback(packet));
+        }
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: packet ? "sent" : "timeout",
+          response: packet ?? undefined
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      if (command.type === "servo.set_torque") {
+        const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        const packet = await sendServoFrames(buildTorqueFrame(servoId, Boolean(command.payload.enabled)));
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: packet ? "sent" : "timeout",
+          response: packet ?? undefined
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      if (command.type === "servo.set_position") {
+        const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        const servo = servoForPlatformCommand(command);
+        if (!servo) {
+          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: `servo ${servoId} is not configured` };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
+        const sent = await enqueueServoSerialTask(() =>
+          writeServoPositionUnlocked({
+            servo,
+            physicalAngleDeg: servoLogicalToPhysicalAngle(servo, Number(command.payload.angleDeg)),
+            speedRaw: Number(command.payload.speedRaw),
+            acc: typeof command.payload.acc === "number" ? command.payload.acc : undefined,
+            waitMs: 80,
+            logFrame: true
+          })
+        );
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: sent ? "sent" : "timeout",
+          response: sent ?? undefined
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      if (command.type === "servo.set_speed") {
+        const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        const servo = servoForPlatformCommand(command);
+        if (!servo) {
+          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: `servo ${servoId} is not configured` };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
+        const sent = await enqueueServoSerialTask(() =>
+          writeServoWheelSpeedUnlocked({
+            servo,
+            speedRaw: applyServoWheelDirection(servo, Number(command.payload.speedRaw)),
+            acc: typeof command.payload.acc === "number" ? command.payload.acc : undefined,
+            setupMode: true,
+            waitMs: 60,
+            logFrame: true
+          })
+        );
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: sent ? "sent" : "timeout",
+          response: sent ?? undefined
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      const channel = command.targetDeviceId.replace("motor:", "");
+      if (command.type === "motor.set_speed") {
+        const response = await sendMotorCommand(buildMotorSetCommand(nextSeq(), { channel, speedPercent: Number(command.payload.speedPercent), stopMode: command.payload.stopMode as MotorStopMode | undefined }));
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+      if (command.type === "motor.stop") {
+        const response = await sendMotorCommand(buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined }));
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+      if (command.type === "motor.read_feedback") {
+        const response = await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel });
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+      if (command.type === "motor.configure") {
+        const response = await sendMotorCommand(buildMotorConfigCommand(nextSeq(), {
+          channel,
+          driver: "tb6618",
+          pwmPin: String(command.payload.pwmPin),
+          in1Pin: String(command.payload.in1Pin),
+          in2Pin: String(command.payload.in2Pin),
+          enablePin: typeof command.payload.enablePin === "string" ? command.payload.enablePin : undefined,
+          sensorPin: typeof command.payload.sensorPin === "string" ? command.payload.sensorPin : undefined
+        }));
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+    } catch (error) {
+      const result: PlatformCommandResult = {
+        commandId: command.id,
+        deviceId: command.targetDeviceId,
+        status: "failed",
+        message: error instanceof Error && error.message ? error.message : "platform command failed"
+      };
+      emitPlatformCommandResult(command, result);
+      return result;
+    }
+
+    const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "skipped", message: "platform command was not handled" };
+    emitPlatformCommandResult(command, result);
+    return result;
   }
 
   function addMotorLinkageGroup() {
@@ -4953,7 +6054,8 @@ export default function App() {
   }
 
   async function pingServo(servo: ServoProfile) {
-    const packet = await sendServoFrames(buildPingFrame(servo.id), 140);
+    const result = await dispatchPlatformCommand(createPlatformCommand("servo.ping", `servo:${servo.id}`));
+    const packet = result.response as ReturnType<typeof parseFeetechStatusPacket>;
     if (packet?.status === 0) {
       addLog("system", `ID${servo.id} ping ok`);
     } else if (packet) {
@@ -4964,7 +6066,8 @@ export default function App() {
   }
 
   async function readServo(servo: ServoProfile) {
-    const packet = await sendServoFrames(buildReadFeedbackFrame(servo.id), 180);
+    const result = await dispatchPlatformCommand(createPlatformCommand("servo.read_feedback", `servo:${servo.id}`));
+    const packet = result.response as ReturnType<typeof parseFeetechStatusPacket>;
     if (!packet) {
       addLog("system", `ID${servo.id} 读取无回包`, "warn");
       return;
@@ -4973,12 +6076,10 @@ export default function App() {
       addLog("system", `ID${servo.id} 读取状态错误 ${packet.status}`, "warn");
       return;
     }
-    const feedback = parseServoFeedback(packet);
-    rememberServoFeedback(feedback);
   }
 
   async function setTorqueForServo(servo: ServoProfile, enabled: boolean) {
-    await sendServoFrames(buildTorqueFrame(servo.id, enabled));
+    await dispatchPlatformCommand(createPlatformCommand("servo.set_torque", `servo:${servo.id}`, { enabled }));
     if (!enabled) {
       cancelLiveAngleMove(servo.id);
       cancelLiveWheelMove(servo.id);
@@ -5039,7 +6140,7 @@ export default function App() {
         )
       );
       if (sent) {
-        saveCameraConfig(nextConfig);
+        setCameraConfig(nextConfig);
       }
     } catch {
       addSystemLog("logs.cameraCommandInvalid", "error");
@@ -5055,7 +6156,10 @@ export default function App() {
     try {
       cancelSingleMotorMove(selectedMotor.channel);
       cancelMotorLinkageMovesForChannels([selectedMotor.channel]);
-      await sendMotorCommand(buildMotorSetCommand(nextSeq(), { channel: selectedMotor.channel, speedPercent: Number(motorSpeed), stopMode }));
+      const result = await dispatchPlatformCommand(createPlatformCommand("motor.set_speed", `motor:${selectedMotor.channel}`, { speedPercent: Number(motorSpeed), stopMode }));
+      if (result.status !== "sent") {
+        addSystemLog("logs.motorCommandInvalid", "error");
+      }
     } catch {
       addSystemLog("logs.motorCommandInvalid", "error");
     }
@@ -5067,7 +6171,7 @@ export default function App() {
     }
     cancelSingleMotorMove(selectedMotor.channel);
     cancelMotorLinkageMovesForChannels([selectedMotor.channel]);
-    await sendMotorCommand(buildMotorStopCommand(nextSeq(), { channel: selectedMotor.channel, stopMode }));
+    await dispatchPlatformCommand(createPlatformCommand("motor.stop", `motor:${selectedMotor.channel}`, { stopMode }));
     setMotorSpeed("0");
   }
 
@@ -5087,7 +6191,7 @@ export default function App() {
     if (!selectedMotor) {
       return;
     }
-    await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel: selectedMotor.channel });
+    await dispatchPlatformCommand(createPlatformCommand("motor.read_feedback", `motor:${selectedMotor.channel}`));
   }
 
   async function selectDriveBase(base: DriveBase) {
@@ -5160,13 +6264,13 @@ export default function App() {
     const current = gamepad.buttons.map((button) => button.pressed);
     const justPressed = (button: number) => current[button] && !previous[button];
 
-    if (justPressed(inputMapping.gamepad.buttons.stop)) {
+    if (justPressed(effectiveGamepadMapping.buttons.stop)) {
       void stopAllMotors();
     }
-    if (justPressed(inputMapping.gamepad.buttons.selectTracked)) {
+    if (justPressed(effectiveGamepadMapping.buttons.selectTracked)) {
       void selectDriveBase("tracked");
     }
-    if (justPressed(inputMapping.gamepad.buttons.selectMecanum)) {
+    if (justPressed(effectiveGamepadMapping.buttons.selectMecanum)) {
       void selectDriveBase("mecanum");
     }
 
@@ -5177,7 +6281,6 @@ export default function App() {
     const normalized = normalizeInputMapping(mappingDraft);
     setInputMapping(normalized);
     setMappingDraft(cloneMapping(normalized));
-    saveInputMapping(normalized);
     addSystemLog("logs.inputMappingSaved");
   }
 
@@ -5185,9 +6288,17 @@ export default function App() {
     const defaults = cloneMapping(DEFAULT_INPUT_MAPPING);
     setInputMapping(defaults);
     setMappingDraft(cloneMapping(defaults));
-    saveInputMapping(defaults);
+    setSelectedGamepadPreset("auto");
     setCapturingKey(null);
     addSystemLog("logs.inputMappingReset");
+  }
+
+  function applyGamepadPresetToDraft() {
+    const presetMapping = getGamepadPresetMapping(selectedGamepadPreset, activeGamepad);
+    setMappingDraft((current) => ({
+      ...current,
+      gamepad: presetMapping
+    }));
   }
 
   function updateKeyboardMapping(action: ControlAction, value: string) {
@@ -5761,6 +6872,339 @@ export default function App() {
     );
   }
 
+  function platformStatusTone(status?: string): "neutral" | "online" | "warning" | "danger" {
+    if (status === "online") {
+      return "online";
+    }
+    if (status === "standby") {
+      return "warning";
+    }
+    if (status === "error") {
+      return "danger";
+    }
+    return "neutral";
+  }
+
+  function platformTypeLabel(type: string): string {
+    return t(`platform.types.${type}`, { defaultValue: type });
+  }
+
+  function platformFeatureLabel(feature: string): string {
+    return t(`platform.features.${feature}`, { defaultValue: feature });
+  }
+
+  function platformPluginDisplayName(kind: "drivers" | "transports", id: string): string {
+    const key = id.replace(/^(driver|transport)\./, "").replace(/-/g, "_");
+    return t(`platform.${kind}.${key}`, { defaultValue: id.replace(/^(driver|transport)\./, "") });
+  }
+
+  function platformDeviceDisplayName(device: { id: string; name: string }): string {
+    return t(`platform.devices.${device.id.replace(/[:.-]/g, "_")}`, { defaultValue: device.name });
+  }
+
+  function platformStateLabels(deviceType?: string): Record<string, string> {
+    const common: Record<string, string> = { connected: t("platform.state.connected"), mode: t("platform.state.mode") };
+    if (deviceType === "servo") {
+      return {
+        ...common,
+        positionRaw: t("platform.state.positionRaw"),
+        speedRaw: t("platform.state.speedRaw"),
+        loadRaw: t("platform.state.loadRaw"),
+        voltageRaw: t("platform.state.voltageRaw"),
+        temperatureC: t("platform.state.temperatureC"),
+        moving: t("platform.state.moving"),
+        currentRaw: t("platform.state.currentRaw")
+      };
+    }
+    if (deviceType === "motor") {
+      return {
+        ...common,
+        channel: t("platform.state.channel"),
+        commandedSpeedPercent: t("platform.state.commandedSpeedPercent"),
+        dutyPercent: t("platform.state.dutyPercent"),
+        direction: t("platform.state.direction"),
+        stopMode: t("platform.state.stopMode"),
+        speedRpm: t("platform.state.speedRpm"),
+        pulseHz: t("platform.state.pulseHz"),
+        encoderTicks: t("platform.state.encoderTicks")
+      };
+    }
+    if (deviceType === "camera") {
+      return {
+        ...common,
+        streamUrl: t("platform.state.streamUrl"),
+        panServoId: t("platform.state.panServoId"),
+        tiltServoId: t("platform.state.tiltServoId"),
+        panAngleDeg: t("platform.state.panAngleDeg"),
+        tiltAngleDeg: t("platform.state.tiltAngleDeg")
+      };
+    }
+    if (deviceType === "robot-arm") {
+      return {
+        ...common,
+        jointCount: t("platform.state.jointCount"),
+        liveDragEnabled: t("platform.state.liveDragEnabled"),
+        selectedJointId: t("platform.state.selectedJointId")
+      };
+    }
+    return common;
+  }
+
+  function formatPlatformDisplayValue(value: string | number | boolean | null | undefined): string {
+    if (typeof value === "boolean") {
+      return value ? t("common.yes") : t("common.no");
+    }
+    return formatPlatformStateValue(value);
+  }
+
+  function platformControlLabel(actionId: string | undefined, fallback: string): string {
+    return actionId ? t(`platform.controls.${actionId}`, { defaultValue: fallback }) : fallback;
+  }
+
+  function updatePlatformControlDraft(deviceId: string, key: string, value: string | number | boolean) {
+    const defaults = platformControlDefaultsForDevice(platformDevices.find((device) => device.id === deviceId));
+    setPlatformControlDraftByDeviceId((current) => ({
+      ...current,
+      [deviceId]: {
+        ...defaults,
+        ...current[deviceId],
+        [key]: value
+      }
+    }));
+  }
+
+  async function runPlatformControlAction(actionId: string | undefined) {
+    if (!selectedPlatformDevice) {
+      return;
+    }
+
+    const command = platformCommandForControl(selectedPlatformDevice, actionId, selectedPlatformControlDraft);
+    if (typeof command === "string") {
+      platformEventBusRef.current.emit({
+        type: "platform.command.failed",
+        level: "error",
+        source: selectedPlatformDevice.id,
+        payload: {
+          commandType: actionId ?? "unknown",
+          status: "failed",
+          message: command
+        }
+      });
+      addLog("system", command, "error");
+      return;
+    }
+
+    await dispatchPlatformCommand(command);
+  }
+
+  function renderPlatformControlPanel() {
+    const device = selectedPlatformDevice;
+    const panel = selectedPlatformUiPanel;
+
+    return (
+      <section className="panel platform-control-panel" aria-labelledby="platform-control-title">
+        <PanelTitle
+          icon={<SlidersHorizontal size={18} />}
+          id="platform-control-title"
+          meta={panel ? t(`platform.panelSchemas.${panel.id}`, { defaultValue: panel.title }) : t("platform.meta.schema")}
+          title={t("platform.panels.control")}
+        />
+        {!device ? (
+          <div className="empty-state">{t("platform.empty.noDeviceSelected")}</div>
+        ) : !panel || (device.type !== "servo" && device.type !== "motor") ? (
+          <div className="empty-state">{t("platform.empty.dedicatedPanel", { type: platformTypeLabel(device.type) })}</div>
+        ) : (
+          <div className="platform-control-stack">
+            <div className="platform-control-summary">
+              <Metric label={t("platform.labels.target")} value={platformDeviceDisplayName(device)} />
+              <Metric label={t("platform.labels.capability")} value={platformTypeLabel(device.type)} />
+            </div>
+
+            {device.type === "servo" && (
+              <div className="platform-control-grid">
+                <label>
+                  <span>{t("platform.labels.position")}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={360}
+                    step={1}
+                    value={String(selectedPlatformControlDraft.angleDeg ?? 90)}
+                    onChange={(event) => updatePlatformControlDraft(device.id, "angleDeg", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{t("platform.labels.speed")}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={4095}
+                    step={1}
+                    value={String(selectedPlatformControlDraft.speedRaw ?? 800)}
+                    onChange={(event) => updatePlatformControlDraft(device.id, "speedRaw", event.target.value)}
+                  />
+                </label>
+                <label className="checkbox-field platform-control-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedPlatformControlDraft.enabled ?? true)}
+                    onChange={(event) => updatePlatformControlDraft(device.id, "enabled", event.target.checked)}
+                  />
+                  <span>{t("platform.labels.torqueEnabled")}</span>
+                </label>
+              </div>
+            )}
+
+            {device.type === "motor" && (
+              <div className="platform-control-grid">
+                <label>
+                  <span>{t("platform.labels.speed")}</span>
+                  <input
+                    type="number"
+                    min={-100}
+                    max={100}
+                    step={1}
+                    value={String(selectedPlatformControlDraft.speedPercent ?? 0)}
+                    onChange={(event) => updatePlatformControlDraft(device.id, "speedPercent", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{t("platform.labels.stopMode")}</span>
+                  <select
+                    value={String(selectedPlatformControlDraft.stopMode ?? "coast")}
+                    onChange={(event) => updatePlatformControlDraft(device.id, "stopMode", event.target.value)}
+                  >
+                    <option value="coast">{t("stopMode.coast")}</option>
+                    <option value="brake">{t("stopMode.brake")}</option>
+                  </select>
+                </label>
+              </div>
+            )}
+
+            <div className="action-grid platform-control-actions">
+              {device.type === "servo" && (
+                <button className="icon-button" onClick={() => void runPlatformControlAction("scan")} type="button">
+                  <Radar size={18} />
+                  <span>{t("platform.controls.scan")}</span>
+                </button>
+              )}
+              {panel.controls
+                .filter((control) => control.actionId)
+                .map((control) => (
+                  <button
+                    className={control.actionId === "stop" ? "icon-button danger" : control.kind === "button" || control.kind === "toggle" ? "icon-button" : "icon-button primary"}
+                    key={control.id}
+                    onClick={() => void runPlatformControlAction(control.actionId)}
+                    type="button"
+                  >
+                    {control.actionId === "stop" ? <Square size={18} /> : control.actionId?.includes("read") ? <Activity size={18} /> : <Send size={18} />}
+                    <span>{platformControlLabel(control.actionId, control.label)}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderPlatformDeviceTree() {
+    return (
+      <section className="platform-panel" aria-labelledby="platform-devices-title">
+        <PanelTitle
+          icon={<Cpu size={18} />}
+          id="platform-devices-title"
+          meta={t("platform.meta.capsDevices", { caps: platformCapabilityCount, devices: platformDeviceCount })}
+          title={t("platform.panels.devices")}
+        />
+        <div className="platform-device-list">
+          {platformDevices.length === 0 ? (
+            <div className="empty-state">{t("platform.empty.noDevices")}</div>
+          ) : (
+            platformDevices.map((device) => (
+              <button
+                className={resolvedPlatformDeviceId === device.id ? "device-row platform-device-row selected" : "device-row platform-device-row"}
+                key={device.id}
+                onClick={() => setSelectedPlatformDeviceId(device.id)}
+                type="button"
+              >
+                <span className="platform-device-copy">
+                  <span className="device-id">{platformTypeLabel(device.type)}</span>
+                  <span className="device-name">{platformDeviceDisplayName(device)}</span>
+                  <small>{platformPluginDisplayName("drivers", device.driverId)} / {platformPluginDisplayName("transports", device.transportId)}</small>
+                  <span className="platform-chip-row">
+                    {device.capabilities.flatMap((capability) => capability.features.slice(0, 3)).map((feature) => (
+                      <span className="platform-chip" key={`${device.id}:${feature}`}>{platformFeatureLabel(feature)}</span>
+                    ))}
+                  </span>
+                </span>
+                <span className={`platform-status-pill ${device.status}`}>{t(`status.${device.status}`, { defaultValue: device.status })}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderPlatformStatePanel() {
+    const values = selectedPlatformState?.values ?? {};
+    const labels = platformStateLabels(selectedPlatformDevice?.type);
+    const entries = Object.entries(labels).filter(([key]) => key in values);
+    const fallbackEntries = Object.entries(values).filter(([key]) => !(key in labels));
+    const displayEntries = [...entries, ...fallbackEntries].slice(0, 10);
+
+    return (
+      <section className="panel platform-state-panel" aria-labelledby="platform-state-title">
+        <PanelTitle icon={<Radar size={18} />} id="platform-state-title" meta={t("platform.meta.states", { count: platformStateCount })} title={t("platform.panels.state")} />
+        {selectedPlatformDevice ? (
+          <>
+            <div className="platform-state-summary">
+              <Metric label={t("platform.labels.device")} value={platformDeviceDisplayName(selectedPlatformDevice)} />
+              <Metric label={t("platform.labels.type")} value={platformTypeLabel(selectedPlatformDevice.type)} />
+              <Metric label={t("platform.labels.status")} value={t(`status.${selectedPlatformDevice.status}`, { defaultValue: selectedPlatformDevice.status })} tone={platformStatusTone(selectedPlatformDevice.status)} />
+              <Metric label={t("platform.labels.driver")} value={platformPluginDisplayName("drivers", selectedPlatformDevice.driverId)} />
+            </div>
+            {displayEntries.length === 0 ? (
+              <div className="empty-state">{t("platform.empty.noState")}</div>
+            ) : (
+              <div className="feedback-grid platform-state-grid">
+                {displayEntries.map(([key, value]) => (
+                  <Metric code={typeof value === "string" && value.length > 28} key={key} label={labels[key] ?? key} value={formatPlatformDisplayValue(value)} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-state">{t("platform.empty.noDeviceSelected")}</div>
+        )}
+      </section>
+    );
+  }
+
+  function renderPlatformEventList() {
+    return (
+      <section className="panel platform-events-panel" aria-labelledby="platform-events-title">
+        <PanelTitle icon={<Activity size={18} />} id="platform-events-title" meta={t("platform.meta.recent", { count: platformEvents.length })} title={t("platform.panels.events")} />
+        <div className="platform-event-list">
+          {platformEvents.length === 0 ? (
+            <div className="empty-state">{t("platform.empty.noEvents")}</div>
+          ) : (
+            platformEvents.map((event) => (
+              <div className={`platform-event ${event.level}`} key={event.id}>
+                <span>
+                  <strong>{event.type}</strong>
+                  <small>{event.source} / {new Date(event.createdAt).toLocaleTimeString()}</small>
+                </span>
+                <code>{JSON.stringify(event.payload)}</code>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
   function renderArmLibrary() {
     return (
       <div className="arm-library-stack">
@@ -5947,7 +7391,100 @@ export default function App() {
             <span>{t("actions.pauseArm")}</span>
           </button>
         </div>
+        {renderArmTeachPanel()}
       </div>
+    );
+  }
+
+  function renderArmTeachPanel() {
+    const selectedTrack = selectedArmTeachTrack;
+    const canRecord = servoBusConnected() && armTeachStatus !== "recording" && armTeachStatus !== "playing" && getEnabledArmTeachJoints().length > 0;
+    const canStop = armTeachStatus === "recording" || armTeachStatus === "preparing" || armTeachStatus === "error";
+    const canPlay = Boolean(selectedTrack) && servoBusConnected() && armTeachStatus !== "recording" && armTeachStatus !== "playing";
+    const canSave = Boolean(armTeachUnsavedTrack || selectedTrack);
+    const durationSeconds = (selectedTrack?.durationMs ?? armTeachElapsedMs) / 1000;
+
+    return (
+      <section className="arm-teach-panel">
+        <div className="panel-heading-row">
+          <div>
+            <p className="eyebrow">ARM TEACH</p>
+            <h3>示教录制</h3>
+          </div>
+          <span className={`teach-status ${armTeachStatus}`}>{armTeachStatus.toUpperCase()}</span>
+        </div>
+        <div className="command-grid arm-teach-grid">
+          <label>
+            <span>轨迹</span>
+            <select
+              value={selectedTrack?.id ?? ""}
+              onChange={(event) => {
+                const track = armTeachUnsavedTrack?.id === event.target.value ? armTeachUnsavedTrack : armTeachTracks.find((item) => item.id === event.target.value) ?? null;
+                setSelectedArmTeachTrackId(track?.id ?? null);
+                setArmTeachDraftName(track?.name ?? "");
+                setArmTeachDraftNotes(track?.metadata.notes ?? "");
+              }}
+            >
+              {armTeachUnsavedTrack ? <option value={armTeachUnsavedTrack.id}>{armTeachUnsavedTrack.name} *</option> : null}
+              {armTeachTracks.length === 0 && !armTeachUnsavedTrack ? <option value="">暂无轨迹</option> : null}
+              {armTeachTracks.map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>名称</span>
+            <input value={armTeachDraftName} onChange={(event) => setArmTeachDraftName(event.target.value)} placeholder="Teach route" />
+          </label>
+          <label>
+            <span>备注</span>
+            <input value={armTeachDraftNotes} onChange={(event) => setArmTeachDraftNotes(event.target.value)} placeholder="task notes" />
+          </label>
+        </div>
+        <div className="arm-status-strip arm-teach-metrics">
+          <Metric label="时长" value={durationSeconds.toFixed(1)} suffix=" s" />
+          <Metric label="采样点" value={selectedTrack?.samples.length ?? armTeachSampleCount} />
+          <Metric label="频率" value="10" suffix=" Hz" />
+          <Metric label="关节" value={selectedTrack?.jointIds.length ?? getEnabledArmTeachJoints().length} />
+          <Metric label="最近采样" value={armTeachLastSampleStatus || "--"} tone={armTeachStatus === "error" ? "danger" : armTeachStatus === "recording" ? "warning" : "neutral"} />
+        </div>
+        <div className="action-grid arm-teach-actions">
+          <button className="icon-button primary" disabled={!canRecord} onClick={() => void startArmTeachRecording()} type="button">
+            <Radar size={18} />
+            <span>开始示教</span>
+          </button>
+          <button className="icon-button danger" disabled={!canStop} onClick={() => void stopArmTeachRecording()} type="button">
+            <Square size={18} />
+            <span>停止录制</span>
+          </button>
+          <button className="icon-button" disabled={!canPlay} onClick={() => void playArmTeachTrack()} type="button">
+            <Play size={18} />
+            <span>回放</span>
+          </button>
+          <button className="icon-button" disabled={armTeachStatus !== "playing"} onClick={() => void pauseArmTeachPlayback()} type="button">
+            <Square size={18} />
+            <span>暂停回放</span>
+          </button>
+          <button className="icon-button" disabled={!canSave} onClick={() => void saveCurrentArmTeachTrack()} type="button">
+            <Save size={18} />
+            <span>保存</span>
+          </button>
+          <button className="icon-button" disabled={!selectedTrack} onClick={() => exportArmTeachTrack(selectedTrack, "json")} type="button">
+            <Download size={18} />
+            <span>JSON</span>
+          </button>
+          <button className="icon-button" disabled={!selectedTrack} onClick={() => exportArmTeachTrack(selectedTrack, "jsonl")} type="button">
+            <Download size={18} />
+            <span>JSONL</span>
+          </button>
+          <button className="icon-button danger" disabled={!selectedTrack} onClick={() => void removeSelectedArmTeachTrack()} type="button">
+            <Trash2 size={18} />
+            <span>删除</span>
+          </button>
+        </div>
+      </section>
     );
   }
 
@@ -6164,15 +7701,15 @@ export default function App() {
         <div className="servo-card-telemetry">
           <span>
             <small>{t("metrics.position")}</small>
-            <strong>{feedback?.positionRaw ?? "--"}</strong>
+            <strong>{feedback?.positionDeg === undefined ? "--" : `${feedback.positionDeg.toFixed(1)}°`}</strong>
           </span>
           <span>
             <small>{t("metrics.load")}</small>
-            <strong>{feedback?.loadRaw ?? "--"}</strong>
+            <strong>{feedback?.loadPercent === undefined ? "--" : `${feedback.loadPercent.toFixed(1)}%`}</strong>
           </span>
           <span>
             <small>{t("metrics.voltage")}</small>
-            <strong>{feedback?.voltageRaw ?? "--"}</strong>
+            <strong>{feedback?.voltageV === undefined ? "--" : `${feedback.voltageV.toFixed(1)}V`}</strong>
           </span>
           <span>
             <small>{t("metrics.temp")}</small>
@@ -6184,7 +7721,7 @@ export default function App() {
           </span>
           <span>
             <small>{t("metrics.current")}</small>
-            <strong>{feedback?.currentRaw ?? "--"}</strong>
+            <strong>{feedback?.currentMa === undefined ? "--" : `${feedback.currentMa.toFixed(1)}mA`}</strong>
           </span>
           <span>
             <small>{t("metrics.safety")}</small>
@@ -6219,6 +7756,331 @@ export default function App() {
           </button>
         </div>
       </article>
+    );
+  }
+
+  function renderSimplePiRemotePage() {
+    const selectedFileLabel = piRemoteFile ? `${piRemoteFile.name} · ${Math.max(1, Math.round(piRemoteFile.size / 1024))} KB` : t("piRemote.noFile");
+    const uploadLabel = piRemoteUploadResult
+      ? `${piRemoteUploadResult.remotePath} · ${Math.max(1, Math.round(piRemoteUploadResult.sizeBytes / 1024))} KB`
+      : "--";
+    const runModeLabel = piRunPlan ? t(`piRemote.runMode.${piRunPlan.mode}`) : "--";
+    const setupStatusLabel = piSetupComplete
+      ? t("piRemote.setupReady")
+      : piReadiness?.pythonAvailable
+        ? t("piRemote.setupNeeded")
+        : piReadiness
+          ? t("piRemote.pythonMissing")
+          : t("piRemote.notChecked");
+
+    return (
+      <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
+        <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+
+        <div className="pi-remote-grid">
+          <div className="pi-remote-stack">
+            <div className="pi-remote-section pi-wizard-section">
+              <div className="port-config-title">
+                <Usb size={17} />
+                <span>{t("piRemote.firstSetup")}</span>
+              </div>
+              <div className="pi-wizard-steps">
+                <div className="pi-wizard-step">
+                  <strong>1</strong>
+                  <label>
+                    <span>{t("fields.piHost")}</span>
+                    <input value={piRemoteForm.host} onChange={(event) => updatePiRemoteField("host", event.target.value)} placeholder={t("placeholders.piHost")} />
+                  </label>
+                </div>
+                <div className="pi-wizard-step">
+                  <strong>2</strong>
+                  <div className="pi-auth-grid">
+                    <label>
+                      <span>{t("fields.piUsername")}</span>
+                      <input value={piRemoteForm.username} onChange={(event) => updatePiRemoteField("username", event.target.value)} placeholder="pi" />
+                    </label>
+                    <label>
+                      <span>{t("fields.piAuthMode")}</span>
+                      <select value={piRemoteForm.authMode} onChange={(event) => updatePiRemoteField("authMode", event.target.value as PiSetupProfile["authMode"])}>
+                        <option value="password">{t("piRemote.auth.password")}</option>
+                        <option value="privateKey">{t("piRemote.auth.privateKey")}</option>
+                      </select>
+                    </label>
+                    {piRemoteForm.authMode === "password" ? (
+                      <label className="pi-remote-wide">
+                        <span>{t("fields.piPassword")}</span>
+                        <input type="password" value={piRemoteForm.password} onChange={(event) => updatePiRemoteField("password", event.target.value)} autoComplete="off" />
+                      </label>
+                    ) : (
+                      <label className="pi-remote-wide">
+                        <span>{t("fields.piPrivateKeyPath")}</span>
+                        <input value={piRemoteForm.privateKeyPath} onChange={(event) => updatePiRemoteField("privateKeyPath", event.target.value)} placeholder={t("placeholders.piPrivateKeyPath")} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+                <div className="pi-wizard-step">
+                  <strong>3</strong>
+                  <div className="pi-step-action">
+                    <span>{t("piRemote.checkHint")}</span>
+                    <button className="icon-button primary" disabled={!canTestPiConnection} onClick={testRaspberryPiConnection} type="button">
+                      <Radar size={18} />
+                      <span>{t("actions.testPiConnection")}</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="pi-wizard-step">
+                  <strong>4</strong>
+                  <div className="pi-step-action">
+                    <span>{t("piRemote.setupHint")}</span>
+                    <button className="icon-button" disabled={!canSetupPiWorkspace} onClick={setupRaspberryPiWorkspace} type="button">
+                      <Settings size={18} />
+                      <span>{t("actions.setupPiWorkspace")}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pi-remote-section">
+              <div className="port-config-title">
+                <Play size={17} />
+                <span>{t("piRemote.oneClickRun")}</span>
+              </div>
+              <div className="pi-run-card">
+                <label>
+                  <span>{t("fields.piFile")}</span>
+                  <input type="file" onChange={(event) => updatePiRemoteFile(event.target.files?.[0] ?? null)} />
+                </label>
+                <div className="pi-run-summary">
+                  <Metric label={t("metrics.piSelectedFile")} value={selectedFileLabel} />
+                  <Metric label={t("metrics.piRunMode")} value={runModeLabel} tone={piRunPlan?.canExecute ? "online" : piRunPlan ? "warning" : "neutral"} />
+                </div>
+              </div>
+              <div className="action-grid port-config-actions">
+                <button className="icon-button primary" disabled={!canRunPiFile} onClick={runRaspberryPiFile} type="button">
+                  <Play size={18} />
+                  <span>{t("actions.oneClickRunPiFile")}</span>
+                </button>
+                <button className="icon-button" onClick={clearPiOutput} type="button">
+                  <RotateCw size={18} />
+                  <span>{t("actions.clearPiOutput")}</span>
+                </button>
+              </div>
+            </div>
+
+            <button className="pi-advanced-toggle" onClick={() => setPiAdvancedOpen((current) => !current)} type="button">
+              {piAdvancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+              <span>{t("piRemote.advancedSettings")}</span>
+            </button>
+
+            {piAdvancedOpen && (
+              <div className="pi-remote-section">
+                <div className="pi-remote-form-grid">
+                  <label>
+                    <span>{t("fields.piPort")}</span>
+                    <input type="number" min={1} max={65535} step={1} value={piRemoteForm.port} onChange={(event) => updatePiRemoteField("port", event.target.value)} />
+                  </label>
+                  <label>
+                    <span>{t("fields.piTimeoutSeconds")}</span>
+                    <input type="number" min={1} max={300} step={1} value={piRemoteForm.timeoutSeconds} onChange={(event) => updatePiRemoteField("timeoutSeconds", event.target.value)} />
+                  </label>
+                  <label className="pi-remote-wide">
+                    <span>{t("fields.piWorkspaceDir")}</span>
+                    <input value={piRemoteForm.workspaceDir} onChange={(event) => updatePiRemoteField("workspaceDir", event.target.value)} placeholder="~/rescue-robot" />
+                  </label>
+                  <label className="pi-remote-wide">
+                    <span>{t("fields.piRemotePath")}</span>
+                    <input value={piRemoteForm.remotePath} onChange={(event) => updatePiRemoteField("remotePath", event.target.value)} placeholder="/home/pi/rescue/uploaded.py" />
+                  </label>
+                  <label className="pi-remote-wide">
+                    <span>{t("fields.piCommand")}</span>
+                    <textarea rows={3} value={piRemoteForm.command} onChange={(event) => updatePiRemoteField("command", event.target.value)} />
+                  </label>
+                </div>
+                <div className="action-grid port-config-actions">
+                  <button className="icon-button" disabled={piRemoteBusy} onClick={() => checkPiHelper()} type="button">
+                    <RotateCw size={18} />
+                    <span>{t("actions.checkPiHelper")}</span>
+                  </button>
+                  <button className="icon-button" disabled={!canUploadPiFile} onClick={uploadRaspberryPiFile} type="button">
+                    <Upload size={18} />
+                    <span>{t("actions.uploadPiFile")}</span>
+                  </button>
+                  <button className="icon-button" disabled={!canExecPiCommand} onClick={execRaspberryPiCommand} type="button">
+                    <Send size={18} />
+                    <span>{t("actions.execPiCommand")}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <aside className="pi-remote-output">
+            <div className="preview-grid pi-remote-status-grid">
+              <Metric label={t("metrics.piHelper")} value={piHelperLabel} tone={piHelperHealth ? "online" : piRemoteStatus === "error" ? "danger" : "neutral"} />
+              <Metric label={t("metrics.piRemote")} value={t(`piRemote.status.${piRemoteStatus}`)} tone={piRemoteStatusTone} />
+              <Metric label={t("metrics.piTarget")} value={`${piRemoteForm.username || "pi"}@${piRemoteForm.host || "--"}`} />
+              <Metric label={t("metrics.piSetup")} value={setupStatusLabel} tone={piSetupComplete ? "online" : piReadiness?.pythonAvailable ? "warning" : piReadiness ? "danger" : "neutral"} />
+              <Metric className="frame-preview" code label={t("metrics.piUpload")} value={uploadLabel} />
+              <Metric label={t("metrics.piExit")} value={piOutputLabel} tone={piRemoteExecResult?.exitCode === 0 ? "online" : piRemoteExecResult ? "warning" : "neutral"} />
+            </div>
+
+            {piRemoteError && <p className="form-error">{piRemoteError}</p>}
+
+            <div className="pi-command-preview">
+              <span>{t("piRemote.commandPreview")}</span>
+              <code>{`${piRemoteForm.username || "pi"}@${piRemoteForm.host || "--"}$ ${piRunPlan?.command ?? piRemoteForm.command ?? "--"}`}</code>
+            </div>
+
+            <div className="pi-output-block">
+              <span>STDOUT</span>
+              <pre>{piRemoteExecResult?.stdout || "--"}</pre>
+            </div>
+            <div className="pi-output-block stderr">
+              <span>STDERR</span>
+              <pre>{piRemoteExecResult?.stderr || "--"}</pre>
+            </div>
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  function renderPiRemotePage() {
+    const selectedFileLabel = piRemoteFile ? `${piRemoteFile.name} · ${Math.max(1, Math.round(piRemoteFile.size / 1024))} KB` : t("piRemote.noFile");
+    const uploadLabel = piRemoteUploadResult
+      ? `${piRemoteUploadResult.remotePath} · ${Math.max(1, Math.round(piRemoteUploadResult.sizeBytes / 1024))} KB`
+      : "--";
+
+    return (
+      <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
+        <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+
+        <div className="pi-remote-grid">
+          <div className="pi-remote-stack">
+            <div className="pi-remote-section">
+              <div className="port-config-title">
+                <Usb size={17} />
+                <span>{t("piRemote.connection")}</span>
+              </div>
+              <div className="pi-remote-form-grid">
+                <label>
+                  <span>{t("fields.piHost")}</span>
+                  <input value={piRemoteForm.host} onChange={(event) => updatePiRemoteField("host", event.target.value)} placeholder={t("placeholders.piHost")} />
+                </label>
+                <label>
+                  <span>{t("fields.piPort")}</span>
+                  <input type="number" min={1} max={65535} step={1} value={piRemoteForm.port} onChange={(event) => updatePiRemoteField("port", event.target.value)} />
+                </label>
+                <label>
+                  <span>{t("fields.piUsername")}</span>
+                  <input value={piRemoteForm.username} onChange={(event) => updatePiRemoteField("username", event.target.value)} placeholder="pi" />
+                </label>
+                <label>
+                  <span>{t("fields.piPassword")}</span>
+                  <input type="password" value={piRemoteForm.password} onChange={(event) => updatePiRemoteField("password", event.target.value)} autoComplete="off" />
+                </label>
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piPrivateKeyPath")}</span>
+                  <input value={piRemoteForm.privateKeyPath} onChange={(event) => updatePiRemoteField("privateKeyPath", event.target.value)} placeholder={t("placeholders.piPrivateKeyPath")} />
+                </label>
+              </div>
+              <div className="action-grid port-config-actions">
+                <button className="icon-button" disabled={piRemoteBusy} onClick={() => checkPiHelper()} type="button">
+                  <RotateCw size={18} />
+                  <span>{t("actions.checkPiHelper")}</span>
+                </button>
+                <button className="icon-button primary" disabled={!canTestPiConnection} onClick={testRaspberryPiConnection} type="button">
+                  <Radar size={18} />
+                  <span>{t("actions.testPiConnection")}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pi-remote-section">
+              <div className="port-config-title">
+                <Upload size={17} />
+                <span>{t("piRemote.upload")}</span>
+              </div>
+              <div className="pi-remote-form-grid">
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piFile")}</span>
+                  <input type="file" onChange={(event) => updatePiRemoteFile(event.target.files?.[0] ?? null)} />
+                </label>
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piRemotePath")}</span>
+                  <input value={piRemoteForm.remotePath} onChange={(event) => updatePiRemoteField("remotePath", event.target.value)} placeholder="/home/pi/rescue/uploaded.py" />
+                </label>
+              </div>
+              <div className="action-grid port-config-actions">
+                <button className="icon-button" disabled={!canUploadPiFile} onClick={uploadRaspberryPiFile} type="button">
+                  <Upload size={18} />
+                  <span>{t("actions.uploadPiFile")}</span>
+                </button>
+                <button className="icon-button primary" disabled={!canUploadAndExecPiFile} onClick={uploadAndExecRaspberryPiFile} type="button">
+                  <Play size={18} />
+                  <span>{t("actions.uploadAndRunPiFile")}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pi-remote-section">
+              <div className="port-config-title">
+                <Terminal size={17} />
+                <span>{t("piRemote.command")}</span>
+              </div>
+              <div className="pi-remote-form-grid">
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piCommand")}</span>
+                  <textarea rows={3} value={piRemoteForm.command} onChange={(event) => updatePiRemoteField("command", event.target.value)} />
+                </label>
+                <label>
+                  <span>{t("fields.piCwd")}</span>
+                  <input value={piRemoteForm.cwd} onChange={(event) => updatePiRemoteField("cwd", event.target.value)} placeholder="/home/pi" />
+                </label>
+                <label>
+                  <span>{t("fields.piTimeoutSeconds")}</span>
+                  <input type="number" min={1} max={300} step={1} value={piRemoteForm.timeoutSeconds} onChange={(event) => updatePiRemoteField("timeoutSeconds", event.target.value)} />
+                </label>
+              </div>
+              <div className="action-grid port-config-actions">
+                <button className="icon-button primary" disabled={!canExecPiCommand} onClick={execRaspberryPiCommand} type="button">
+                  <Send size={18} />
+                  <span>{t("actions.execPiCommand")}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <aside className="pi-remote-output">
+            <div className="preview-grid pi-remote-status-grid">
+              <Metric label={t("metrics.piHelper")} value={piHelperLabel} tone={piHelperHealth ? "online" : piRemoteStatus === "error" ? "danger" : "neutral"} />
+              <Metric label={t("metrics.piRemote")} value={t(`piRemote.status.${piRemoteStatus}`)} tone={piRemoteStatusTone} />
+              <Metric label={t("metrics.piTarget")} value={`${piRemoteForm.username || "pi"}@${piRemoteForm.host || "--"}`} />
+              <Metric label={t("metrics.piSelectedFile")} value={selectedFileLabel} />
+              <Metric className="frame-preview" code label={t("metrics.piUpload")} value={uploadLabel} />
+              <Metric label={t("metrics.piExit")} value={piOutputLabel} tone={piRemoteExecResult?.exitCode === 0 ? "online" : piRemoteExecResult ? "warning" : "neutral"} />
+            </div>
+
+            {piRemoteError && <p className="form-error">{piRemoteError}</p>}
+
+            <div className="pi-command-preview">
+              <span>{t("piRemote.commandPreview")}</span>
+              <code>{`${piRemoteForm.username || "pi"}@${piRemoteForm.host || "--"}$ ${piRemoteForm.command || "--"}`}</code>
+            </div>
+
+            <div className="pi-output-block">
+              <span>STDOUT</span>
+              <pre>{piRemoteExecResult?.stdout || "--"}</pre>
+            </div>
+            <div className="pi-output-block stderr">
+              <span>STDERR</span>
+              <pre>{piRemoteExecResult?.stderr || "--"}</pre>
+            </div>
+          </aside>
+        </div>
+      </section>
     );
   }
 
@@ -6257,6 +8119,10 @@ export default function App() {
             <button className={activeTest === "motor" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("motor")} type="button">
               <Cpu size={17} />
               <span>{t("testTabs.motor")}</span>
+            </button>
+            <button className={activeTest === "pi" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("pi")} type="button">
+              <Terminal size={17} />
+              <span>{t("testTabs.pi")}</span>
             </button>
           </div>
         ) : (
@@ -6301,8 +8167,8 @@ export default function App() {
 
   function renderConsolePage() {
     const servoTelemetryItems = Object.values(servoFeedback);
-    const voltageValue = servoTelemetryItems.find((item) => item.voltageRaw !== undefined)?.voltageRaw ?? "--";
-    const currentValue = servoTelemetryItems.find((item) => item.currentRaw !== undefined)?.currentRaw ?? "--";
+    const voltageValue = metricNumber(servoTelemetryItems.find((item) => item.voltageV !== undefined)?.voltageV);
+    const currentValue = metricNumber(servoTelemetryItems.find((item) => item.currentMa !== undefined)?.currentMa);
     const temperatureValue = servoTelemetryItems.find((item) => item.temperatureC !== undefined)?.temperatureC ?? "--";
     const movingServoCount = servoTelemetryItems.filter((item) => item.moving).length;
     const driveStickX = activeDriveBase === "mecanum" ? virtualDriveInput.strafe : virtualDriveInput.turn;
@@ -6321,8 +8187,8 @@ export default function App() {
               <h3 id="robot-telemetry-title">{t("console.robotTelemetry")}</h3>
             </div>
             <div className="console-metric-grid">
-              <Metric label={t("metrics.voltage")} value={voltageValue} />
-              <Metric label={t("metrics.current")} value={currentValue} />
+              <Metric label={t("metrics.voltage")} value={voltageValue} suffix=" V" />
+              <Metric label={t("metrics.current")} value={currentValue} suffix=" mA" />
               <Metric label={t("metrics.temp")} value={temperatureValue} suffix={temperatureValue === "--" ? "" : "°C"} />
               <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
               <Metric label={t("metrics.drive")} value={driveCanCommand ? t("status.ready") : t("status.standby")} tone={driveCanCommand ? "online" : "neutral"} />
@@ -6435,6 +8301,70 @@ export default function App() {
     );
   }
 
+  function renderPiCameraCard() {
+    const cameraTarget = `${piRemoteForm.username || "pi"}@${piRemoteForm.host || "raspberrypi.local"}`;
+    const deviceLabel = piCameraCheck?.device ?? "--";
+    const toolLabel = piCameraCheck ? (piCameraCheck.ustreamerAvailable ? t("status.ready") : t("piRemote.camera.toolMissing")) : t("status.unknown");
+    const streamLabel = piCameraCheck?.streamUrl || cameraStreamUrl || "--";
+    const statusTone: "neutral" | "online" | "warning" | "danger" =
+      piCameraStatus === "error" ? "danger" : piCameraStatus === "streaming" ? "online" : piCameraBusy ? "warning" : "neutral";
+
+    return (
+      <section className="pi-camera-card" aria-labelledby="pi-camera-title">
+        <div className="drive-section-title">
+          <Video size={17} />
+          <h3 id="pi-camera-title">{t("piRemote.camera.title")}</h3>
+        </div>
+        <div className="preview-grid pi-camera-status-grid">
+          <Metric label={t("metrics.piTarget")} value={cameraTarget} />
+          <Metric label={t("piRemote.camera.statusLabel")} value={t(`piRemote.camera.status.${piCameraStatus}`)} tone={statusTone} />
+          <Metric label={t("piRemote.camera.device")} value={deviceLabel} tone={piCameraCheck?.cameraAvailable ? "online" : piCameraCheck ? "danger" : "neutral"} />
+          <Metric label={t("piRemote.camera.tool")} value={toolLabel} tone={piCameraCheck?.ustreamerAvailable ? "online" : piCameraCheck ? "warning" : "neutral"} />
+          <Metric className="frame-preview" code label={t("metrics.stream")} value={streamLabel} />
+        </div>
+        <div className="action-grid pi-camera-actions">
+          <button className="icon-button" disabled={!canUsePiCamera} onClick={checkRaspberryPiCamera} type="button">
+            <Radar size={18} />
+            <span>{t("actions.checkPiCamera")}</span>
+          </button>
+          <button className="icon-button primary" disabled={!canUsePiCamera} onClick={startRaspberryPiCameraStream} type="button">
+            <Play size={18} />
+            <span>{t("actions.startPiCamera")}</span>
+          </button>
+          <button className="icon-button" disabled={!piConnectionReady || piCameraBusy} onClick={stopRaspberryPiCameraStream} type="button">
+            <Square size={18} />
+            <span>{t("actions.stopPiCamera")}</span>
+          </button>
+          <button className="icon-button" onClick={clearPiCameraOutput} type="button">
+            <RotateCw size={18} />
+            <span>{t("actions.clearPiOutput")}</span>
+          </button>
+        </div>
+        {piCameraError && <p className="form-error">{piCameraError}</p>}
+        <button className="pi-advanced-toggle pi-camera-advanced-toggle" onClick={() => setPiCameraAdvancedOpen((current) => !current)} type="button">
+          {piCameraAdvancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+          <span>{t("piRemote.camera.advanced")}</span>
+        </button>
+        {piCameraAdvancedOpen && (
+          <div className="pi-camera-advanced">
+            <button className="icon-button" disabled={!canUsePiCamera} onClick={installRaspberryPiCameraTools} type="button">
+              <Settings size={18} />
+              <span>{t("actions.installPiCameraTools")}</span>
+            </button>
+            <div className="pi-output-block">
+              <span>STDOUT</span>
+              <pre>{piCameraExecResult?.stdout || piCameraCheck?.stdout || "--"}</pre>
+            </div>
+            <div className="pi-output-block stderr">
+              <span>STDERR</span>
+              <pre>{piCameraExecResult?.stderr || piCameraCheck?.stderr || "--"}</pre>
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderDrivePage() {
     return (
       <section className="panel drive-page-panel" aria-labelledby="drive-page-title">
@@ -6520,6 +8450,7 @@ export default function App() {
                   : t("status.streamMissing")}
               </span>
             </div>
+            {renderPiCameraCard()}
           </section>
 
           <section className="drive-page-controller" aria-labelledby="drive-controller-title">
@@ -6780,7 +8711,9 @@ export default function App() {
         ) : (
           <>
             {renderContextTabs()}
-            {activeModule === "camera" ? (
+            {activeSection === "tests" && activeTest === "pi" ? (
+              renderSimplePiRemotePage()
+            ) : activeModule === "camera" ? (
               renderDrivePage()
             ) : (
               <>
@@ -6802,6 +8735,8 @@ export default function App() {
             }
           />
 
+          {renderPlatformDeviceTree()}
+
           {activeModule === "mapping" ? (
             <div className="mapping-settings-stack">
               <label>
@@ -6814,6 +8749,17 @@ export default function App() {
                   {gamepads.map((gamepad) => (
                     <option key={gamepad.index} value={gamepad.index}>
                       #{gamepad.index} {gamepad.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>{t("fields.gamepadPreset")}</span>
+                <select value={selectedGamepadPreset} onChange={(event) => setSelectedGamepadPreset(event.target.value as GamepadPresetId)}>
+                  {(["auto", "xinput", "playstation", "switchPro", "generic"] as GamepadPresetId[]).map((preset) => (
+                    <option key={preset} value={preset}>
+                      {t(`mapping.presets.${preset}`)}
                     </option>
                   ))}
                 </select>
@@ -6832,7 +8778,34 @@ export default function App() {
                         })
                       : t("mapping.connectGamepad")}
                   </small>
+                  <small>
+                    {t("mapping.recommendedPreset", { preset: t(`mapping.presets.${recommendedGamepadPreset.id}`) })}
+                    {savedGamepadIsCustom ? ` · ${t("mapping.customMappingActive")}` : ""}
+                  </small>
                 </span>
+              </div>
+
+              <div className="gamepad-live-grid">
+                <Metric
+                  code
+                  label={t("mapping.liveAxes")}
+                  value={
+                    activeGamepad
+                      ? activeGamepad.axesValues.map((axis, index) => `${index}:${axis.toFixed(2)}`).join(" ")
+                      : "--"
+                  }
+                />
+                <Metric
+                  code
+                  label={t("mapping.liveButtons")}
+                  value={
+                    activeGamepad
+                      ? activeGamepad.pressedButtons.length > 0
+                        ? activeGamepad.pressedButtons.join(", ")
+                        : t("mapping.none")
+                      : "--"
+                  }
+                />
               </div>
 
               <label className="speed-slider-field">
@@ -6848,6 +8821,10 @@ export default function App() {
               </label>
 
               <div className="mapping-actions">
+                <button className="icon-button" onClick={applyGamepadPresetToDraft} type="button">
+                  <Gamepad2 size={18} />
+                  <span>{t("actions.applyPreset")}</span>
+                </button>
                 <button className="icon-button primary" onClick={saveMappingSettings} type="button">
                   <Save size={18} />
                   <span>{t("actions.saveMapping")}</span>
@@ -7610,6 +9587,10 @@ export default function App() {
         </section>
 
         <aside className="side-stack">
+          {renderPlatformStatePanel()}
+
+          {renderPlatformControlPanel()}
+
           <section className="panel feedback-panel" aria-labelledby="feedback-title">
             <PanelTitle
               icon={<Play size={18} />}
@@ -7665,12 +9646,12 @@ export default function App() {
             ) : activeModule === "arm" ? (
               selectedArmJoint && selectedArmFeedback ? (
                 <div className="feedback-grid">
-                  <Metric label={t("metrics.position")} value={selectedArmFeedback.positionRaw} />
-                  <Metric label={t("metrics.speed")} value={selectedArmFeedback.speedRaw} />
-                  <Metric label={t("metrics.load")} value={selectedArmFeedback.loadRaw} />
-                  <Metric label={t("metrics.voltage")} value={selectedArmFeedback.voltageRaw} />
+                  <Metric label={t("metrics.position")} value={metricNumber(selectedArmFeedback.positionDeg)} suffix=" deg" />
+                  <Metric label={t("metrics.speed")} value={metricNumber(selectedArmFeedback.speedRpm, 2)} suffix=" rpm" />
+                  <Metric label={t("metrics.load")} value={metricNumber(selectedArmFeedback.loadPercent)} suffix="%" />
+                  <Metric label={t("metrics.voltage")} value={metricNumber(selectedArmFeedback.voltageV)} suffix=" V" />
                   <Metric label={t("metrics.temp")} value={selectedArmFeedback.temperatureC} suffix="°C" />
-                  <Metric label={t("metrics.current")} value={selectedArmFeedback.currentRaw} />
+                  <Metric label={t("metrics.current")} value={metricNumber(selectedArmFeedback.currentMa)} suffix=" mA" />
                   <Metric label={t("fields.angleDeg")} value={formatServoAngle(selectedArmJoint.angleDeg)} suffix=" deg" />
                   <Metric label={t("metrics.moving")} value={selectedArmFeedback.moving ? t("common.yes") : t("common.no")} tone={selectedArmFeedback.moving ? "warning" : "neutral"} />
                 </div>
@@ -7680,12 +9661,12 @@ export default function App() {
             ) : activeModule === "servo" ? (
               selectedServo && servoFeedback[selectedServo.id] ? (
                 <div className="feedback-grid">
-                  <Metric label={t("metrics.position")} value={servoFeedback[selectedServo.id].positionRaw} />
-                  <Metric label={t("metrics.speed")} value={servoFeedback[selectedServo.id].speedRaw} />
-                  <Metric label={t("metrics.load")} value={servoFeedback[selectedServo.id].loadRaw} />
-                  <Metric label={t("metrics.voltage")} value={servoFeedback[selectedServo.id].voltageRaw} />
+                  <Metric label={t("metrics.position")} value={metricNumber(servoFeedback[selectedServo.id].positionDeg)} suffix=" deg" />
+                  <Metric label={t("metrics.speed")} value={metricNumber(servoFeedback[selectedServo.id].speedRpm, 2)} suffix=" rpm" />
+                  <Metric label={t("metrics.load")} value={metricNumber(servoFeedback[selectedServo.id].loadPercent)} suffix="%" />
+                  <Metric label={t("metrics.voltage")} value={metricNumber(servoFeedback[selectedServo.id].voltageV)} suffix=" V" />
                   <Metric label={t("metrics.temp")} value={servoFeedback[selectedServo.id].temperatureC} suffix="°C" />
-                  <Metric label={t("metrics.current")} value={servoFeedback[selectedServo.id].currentRaw} />
+                  <Metric label={t("metrics.current")} value={metricNumber(servoFeedback[selectedServo.id].currentMa)} suffix=" mA" />
                   <Metric
                     label={t("metrics.moving")}
                     value={servoFeedback[selectedServo.id].moving ? t("common.yes") : t("common.no")}
@@ -7708,6 +9689,8 @@ export default function App() {
               <div className="empty-state">{t("empty.noFeedback")}</div>
             )}
           </section>
+
+          {renderPlatformEventList()}
 
           <LogPanel logs={logs} />
         </aside>

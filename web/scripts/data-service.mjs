@@ -15,7 +15,7 @@ function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(body));
@@ -106,6 +106,23 @@ async function route(store, request, response) {
   if (segments[0] === "projects" && segments[1] && request.method === "POST" && segments[2] === "sessions") {
     const session = store.startSession(segments[1]);
     sendJson(response, 201, session);
+    return;
+  }
+
+  if (segments[0] === "projects" && segments[1] && request.method === "GET" && segments[2] === "arm-teach-tracks") {
+    sendJson(response, 200, { tracks: store.listArmTeachTracks(segments[1]) });
+    return;
+  }
+
+  if (segments[0] === "projects" && segments[1] && request.method === "PUT" && segments[2] === "arm-teach-tracks" && segments[3]) {
+    const body = await readJsonBody(request);
+    const track = store.saveArmTeachTrack(segments[1], { ...(body.track ?? body), id: segments[3] });
+    sendJson(response, 200, track);
+    return;
+  }
+
+  if (segments[0] === "arm-teach-tracks" && segments[1] && request.method === "DELETE") {
+    sendJson(response, 200, store.deleteArmTeachTrack(segments[1]));
     return;
   }
 

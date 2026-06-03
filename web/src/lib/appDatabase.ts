@@ -1,5 +1,6 @@
 import { SupportedLanguage, defaultLanguage, getInitialLanguage, isSupportedLanguage, saveLanguagePreference } from "../i18n/languages";
 import { InputMapping, loadInputMapping, normalizeInputMapping, saveInputMapping } from "./inputMapping";
+import { ArmTeachTrack, normalizeArmTeachTracks } from "./armTeach";
 import { ServoSafetyPreset } from "./servoSafety";
 import { ServoSmoothPreset } from "./servoMotion";
 import { WHEEL_SLIDER_CENTER_DEG, WHEEL_SLIDER_MAX_DEG, WHEEL_SLIDER_MIN_DEG, normalizeWheelMaxSpeedRaw } from "./servoWheelSlider";
@@ -71,6 +72,7 @@ export interface AppConfigSnapshot {
   motors: MotorProfile[];
   motorLinkageGroups: MotorLinkageGroup[];
   armConfig: ArmConfig;
+  armTeachTracks: ArmTeachTrack[];
   cameraConfig: CameraConfig;
   inputMapping: InputMapping;
   language: SupportedLanguage;
@@ -158,6 +160,7 @@ export function normalizeAppConfigSnapshot(value: unknown): AppConfigSnapshot {
   const servos = normalizeServoList(draft.servos);
   const motors = normalizeMotorList(draft.motors);
 
+  const armConfig = normalizeArmConfig(draft.armConfig, servos);
   return {
     version: 1,
     servos,
@@ -167,7 +170,8 @@ export function normalizeAppConfigSnapshot(value: unknown): AppConfigSnapshot {
     servoSafety: normalizeServoSafety(draft.servoSafety),
     motors,
     motorLinkageGroups: normalizeMotorLinkageGroups(draft.motorLinkageGroups, motors),
-    armConfig: normalizeArmConfig(draft.armConfig, servos),
+    armConfig,
+    armTeachTracks: normalizeArmTeachTracks(draft.armTeachTracks, armConfig),
     cameraConfig: normalizeCameraConfigValue(draft.cameraConfig),
     inputMapping: normalizeInputMapping(draft.inputMapping),
     language: typeof draft.language === "string" && isSupportedLanguage(draft.language) ? draft.language : defaultLanguage,
@@ -176,7 +180,7 @@ export function normalizeAppConfigSnapshot(value: unknown): AppConfigSnapshot {
   };
 }
 
-export function createAppConfigSnapshot(value: Omit<AppConfigSnapshot, "version" | "updatedAt"> & { updatedAt?: number }): AppConfigSnapshot {
+export function createAppConfigSnapshot(value: Omit<AppConfigSnapshot, "version" | "updatedAt" | "armTeachTracks"> & { armTeachTracks?: ArmTeachTrack[]; updatedAt?: number }): AppConfigSnapshot {
   return normalizeAppConfigSnapshot({
     ...value,
     version: 1,
@@ -224,6 +228,7 @@ export function loadLegacyAppConfigSnapshot(storage: Storage | undefined = getBr
     motors,
     motorLinkageGroups: loadMotorLinkageGroups(motors, legacyStorage),
     armConfig: loadArmConfig(servos, legacyStorage),
+    armTeachTracks: [],
     cameraConfig: loadCameraConfig(legacyStorage),
     inputMapping: loadInputMapping(legacyStorage),
     language: getInitialLanguage(legacyStorage),

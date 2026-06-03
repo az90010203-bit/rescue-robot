@@ -10,6 +10,11 @@ export const GOAL_SPEED_ADDR = 0x2e;
 export const PRESENT_POSITION_ADDR = 0x38;
 export const FEEDBACK_READ_LENGTH = 0x0f;
 export const DEFAULT_WHEEL_SPEED_LIMIT = 1000;
+export const FEETECH_VOLTAGE_UNIT_V = 0.1;
+export const FEETECH_CURRENT_UNIT_MA = 6.5;
+export const FEETECH_LOAD_FULL_SCALE_RAW = 1000;
+export const FEETECH_SPEED_STEPS_PER_SECOND = 50;
+export const FEETECH_STEPS_PER_REVOLUTION = 4096;
 
 export type ServoDirection = 1 | -1;
 export type DebugModule = "servo" | "motor" | "camera";
@@ -117,12 +122,17 @@ export type InboundMessage =
       seq: number;
       id: number;
       positionRaw?: number;
+      positionDeg?: number;
       speedRaw?: number;
+      speedRpm?: number;
       loadRaw?: number;
+      loadPercent?: number;
       voltageRaw?: number;
+      voltageV?: number;
       temperatureC?: number;
       moving?: boolean;
       currentRaw?: number;
+      currentMa?: number;
     }
   | {
       type: "motor.feedback";
@@ -164,6 +174,22 @@ export function rawToAngleDeg(positionRaw: number): number {
     throw new RangeError("positionRaw must be finite");
   }
   return (clamp(Math.round(positionRaw), 0, 4095) / 4095) * 360;
+}
+
+export function voltageRawToVolts(voltageRaw: number): number {
+  return roundMetric(voltageRaw * FEETECH_VOLTAGE_UNIT_V, 2);
+}
+
+export function currentRawToMilliamps(currentRaw: number): number {
+  return roundMetric(currentRaw * FEETECH_CURRENT_UNIT_MA, 1);
+}
+
+export function loadRawToPercent(loadRaw: number): number {
+  return roundMetric((loadRaw / FEETECH_LOAD_FULL_SCALE_RAW) * 100, 1);
+}
+
+export function speedRawToRpm(speedRaw: number): number {
+  return roundMetric((speedRaw * FEETECH_SPEED_STEPS_PER_SECOND * 60) / FEETECH_STEPS_PER_REVOLUTION, 2);
 }
 
 export function normalizeServoProfile(servo: ServoProfile): ServoProfile {
@@ -447,22 +473,37 @@ export function parseFeetechStatusPacket(bytes: ArrayLike<number>): FeetechStatu
 
 export function parseServoFeedback(packet: FeetechStatusPacket): Extract<InboundMessage, { type: "servo.feedback" }> {
   const params = packet.params;
+  const positionRaw = params.length >= 2 ? littleEndianValue(params[0], params[1]) : undefined;
+  const speedRaw = params.length >= 4 ? decodeSigned15Bit(params[2], params[3]) : undefined;
+  const loadRaw = params.length >= 6 ? decodeSigned10Bit(params[4], params[5]) : undefined;
+  const voltageRaw = params[6];
+  const currentRaw = params.length >= 15 ? decodeSigned15Bit(params[13], params[14]) : undefined;
   return {
     type: "servo.feedback",
     seq: 0,
     id: packet.id,
-    positionRaw: params.length >= 2 ? littleEndianValue(params[0], params[1]) : undefined,
-    speedRaw: params.length >= 4 ? decodeSigned15Bit(params[2], params[3]) : undefined,
-    loadRaw: params.length >= 6 ? decodeSigned10Bit(params[4], params[5]) : undefined,
-    voltageRaw: params[6],
+    positionRaw,
+    positionDeg: positionRaw === undefined ? undefined : rawToAngleDeg(positionRaw),
+    speedRaw,
+    speedRpm: speedRaw === undefined ? undefined : speedRawToRpm(speedRaw),
+    loadRaw,
+    loadPercent: loadRaw === undefined ? undefined : loadRawToPercent(loadRaw),
+    voltageRaw,
+    voltageV: voltageRaw === undefined ? undefined : voltageRawToVolts(voltageRaw),
     temperatureC: params[7],
     moving: params[10] === undefined ? undefined : params[10] !== 0,
-    currentRaw: params.length >= 15 ? decodeSigned15Bit(params[13], params[14]) : undefined
+    currentRaw,
+    currentMa: currentRaw === undefined ? undefined : currentRawToMilliamps(currentRaw)
   };
 }
 
 function littleEndianValue(low: number, high: number): number {
   return ((high & 0xff) << 8) | (low & 0xff);
+}
+
+function roundMetric(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
 export function buildServoMoveCommand(seq: number, target: ServoTarget | ServoTarget[], sync = false): PcCommand {
