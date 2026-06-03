@@ -6675,15 +6675,13 @@ export default function App() {
           <StatusCard
             label={t("status.module")}
             value={
-              activeModule === "servo"
-                ? t("module.servoValue")
-                : activeModule === "arm"
-                  ? t("module.armValue")
-                  : activeModule === "motor"
-                    ? t("module.motorValue")
-                    : activeModule === "mapping"
-                      ? t("module.mappingValue")
-                      : t("module.cameraValue")
+              activeSection === "console"
+                ? t("sections.consoleValue")
+                : activeSection === "components"
+                  ? t("sections.componentsValue")
+                  : activeSection === "tests"
+                    ? t("sections.testsValue")
+                    : t("sections.settingsValue")
             }
             tone="neutral"
           />
@@ -6708,26 +6706,22 @@ export default function App() {
           </button>
         </div>
 
-        <div className="module-switch" aria-label={t("aria.debugModule")}>
-          <button className={activeModule === "servo" ? "module-tab active" : "module-tab"} onClick={() => selectModule("servo")} type="button">
-            <Settings size={17} />
-            <span>{t("module.servo")}</span>
+        <div className="module-switch section-switch" aria-label={t("aria.primarySection")}>
+          <button className={activeSection === "console" ? "module-tab active" : "module-tab"} onClick={() => selectSection("console")} type="button">
+            <Gauge size={17} />
+            <span>{t("sections.console")}</span>
           </button>
-          <button className={activeModule === "arm" ? "module-tab active" : "module-tab"} onClick={() => selectModule("arm")} type="button">
+          <button className={activeSection === "components" ? "module-tab active" : "module-tab"} onClick={() => selectSection("components")} type="button">
             <SlidersHorizontal size={17} />
-            <span>{t("module.arm")}</span>
+            <span>{t("sections.components")}</span>
           </button>
-          <button className={activeModule === "motor" ? "module-tab active" : "module-tab"} onClick={() => selectModule("motor")} type="button">
+          <button className={activeSection === "tests" ? "module-tab active" : "module-tab"} onClick={() => selectSection("tests")} type="button">
             <Cpu size={17} />
-            <span>{t("module.motor")}</span>
+            <span>{t("sections.tests")}</span>
           </button>
-          <button className={activeModule === "camera" ? "module-tab active" : "module-tab"} onClick={() => selectModule("camera")} type="button">
-            <Camera size={17} />
-            <span>{t("module.camera")}</span>
-          </button>
-          <button className={activeModule === "mapping" ? "module-tab active" : "module-tab"} onClick={() => selectModule("mapping")} type="button">
-            <Keyboard size={17} />
-            <span>{t("module.mapping")}</span>
+          <button className={activeSection === "settings" ? "module-tab active" : "module-tab"} onClick={() => selectSection("settings")} type="button">
+            <Settings size={17} />
+            <span>{t("sections.settings")}</span>
           </button>
         </div>
 
@@ -6780,11 +6774,16 @@ export default function App() {
         </label>
       </section>
 
-      <div className="workspace">
-        {activeModule === "camera" ? (
-          renderDrivePage()
+      <div className={activeSection === "console" ? "workspace console-workspace" : "workspace"}>
+        {activeSection === "console" ? (
+          renderConsolePage()
         ) : (
           <>
+            {renderContextTabs()}
+            {activeModule === "camera" ? (
+              renderDrivePage()
+            ) : (
+              <>
         <section className="panel library-panel" aria-labelledby="device-library-title">
           <PanelTitle
             icon={<ListPlus size={18} />}
@@ -7712,6 +7711,8 @@ export default function App() {
 
           <LogPanel logs={logs} />
         </aside>
+              </>
+            )}
           </>
         )}
       </div>

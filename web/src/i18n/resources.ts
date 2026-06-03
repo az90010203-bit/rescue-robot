@@ -10,6 +10,9 @@
         systemStatus: "系统状态",
         connectionControls: "连接与模块控制",
         debugModule: "调试模块",
+        primarySection: "主工作区",
+        contextTabs: "工作区子页",
+        virtualJoystick: "虚拟摇杆",
         gimbalControls: "云台方向控制",
         driveBase: "底盘类型",
         driveTargets: "底盘电机输出",
@@ -23,6 +26,41 @@
       language: {
         label: "语言",
         select: "选择语言"
+      },
+      sections: {
+        console: "主控台",
+        components: "组件调节",
+        tests: "功能测试",
+        settings: "设置",
+        consoleValue: "CONSOLE",
+        componentsValue: "PARTS",
+        testsValue: "TEST",
+        settingsValue: "SET"
+      },
+      componentTabs: {
+        arm: "机械臂",
+        drive: "麦轮 / 底盘",
+        camera: "摄像头"
+      },
+      testTabs: {
+        servo: "舵机测试",
+        motor: "电机测试"
+      },
+      settingsTabs: {
+        input: "输入映射"
+      },
+      console: {
+        main: "主控台 / Main Console",
+        robotTelemetry: "机器人实时数据 / Robot Telemetry",
+        camera: "摄像头 / Camera",
+        pose: "机械臂与姿态 / Arm & Pose",
+        control: "控制区域 / Control",
+        driveStick: "底盘摇杆",
+        cameraStick: "云台摇杆",
+        driveStickTracked: "前后 / 转向",
+        driveStickMecanum: "前后 / 横移",
+        cameraStickHint: "Pan / Tilt",
+        telemetryNote: "整机电压、电流协议未接入时，显示已有舵机和电机反馈。"
       },
       module: {
         servo: "舵机调试",
@@ -262,6 +300,8 @@
         current: "Current",
         moving: "Moving",
         safety: "保护",
+        servoCount: "舵机数",
+        motorCount: "电机映射",
         command: "Command",
         commandSpeedRaw: "命令速度",
         rpm: "RPM",
@@ -482,6 +522,9 @@
         systemStatus: "System status",
         connectionControls: "Connection and module controls",
         debugModule: "Debug module",
+        primarySection: "Primary workspace",
+        contextTabs: "Workspace tabs",
+        virtualJoystick: "Virtual joystick",
         gimbalControls: "Gimbal direction controls",
         driveBase: "Drive base",
         driveTargets: "Drive motor outputs",
@@ -495,6 +538,41 @@
       language: {
         label: "Language",
         select: "Select language"
+      },
+      sections: {
+        console: "Main Console",
+        components: "Components",
+        tests: "Function Tests",
+        settings: "Settings",
+        consoleValue: "CONSOLE",
+        componentsValue: "PARTS",
+        testsValue: "TEST",
+        settingsValue: "SET"
+      },
+      componentTabs: {
+        arm: "Arm",
+        drive: "Mecanum / Drive",
+        camera: "Camera"
+      },
+      testTabs: {
+        servo: "Servo Test",
+        motor: "Motor Test"
+      },
+      settingsTabs: {
+        input: "Input Mapping"
+      },
+      console: {
+        main: "Main Console",
+        robotTelemetry: "Robot Telemetry",
+        camera: "Camera",
+        pose: "Arm & Pose",
+        control: "Control",
+        driveStick: "Drive Stick",
+        cameraStick: "Gimbal Stick",
+        driveStickTracked: "Forward / turn",
+        driveStickMecanum: "Forward / strafe",
+        cameraStickHint: "Pan / Tilt",
+        telemetryNote: "When whole-robot voltage/current protocol is not connected, existing servo and motor feedback is shown."
       },
       module: {
         servo: "Servo Debug",
@@ -734,6 +812,8 @@
         current: "Current",
         moving: "Moving",
         safety: "Protection",
+        servoCount: "Servos",
+        motorCount: "Motor Mapping",
         command: "Command",
         commandSpeedRaw: "Command Speed",
         rpm: "RPM",
@@ -954,6 +1034,9 @@
         systemStatus: "システム状態",
         connectionControls: "接続とモジュール制御",
         debugModule: "デバッグモジュール",
+        primarySection: "メインワークスペース",
+        contextTabs: "ワークスペースタブ",
+        virtualJoystick: "仮想ジョイスティック",
         gimbalControls: "ジンバル方向制御",
         driveBase: "駆動ベース",
         driveTargets: "駆動モーター出力",
@@ -967,6 +1050,41 @@
       language: {
         label: "言語",
         select: "言語を選択"
+      },
+      sections: {
+        console: "主コンソール",
+        components: "コンポーネント調整",
+        tests: "機能テスト",
+        settings: "設定",
+        consoleValue: "CONSOLE",
+        componentsValue: "PARTS",
+        testsValue: "TEST",
+        settingsValue: "SET"
+      },
+      componentTabs: {
+        arm: "アーム",
+        drive: "メカナム / 駆動",
+        camera: "カメラ"
+      },
+      testTabs: {
+        servo: "サーボテスト",
+        motor: "モーターテスト"
+      },
+      settingsTabs: {
+        input: "入力マッピング"
+      },
+      console: {
+        main: "主コンソール",
+        robotTelemetry: "ロボットリアルタイムデータ",
+        camera: "カメラ",
+        pose: "アームと姿勢",
+        control: "制御エリア",
+        driveStick: "駆動スティック",
+        cameraStick: "ジンバルスティック",
+        driveStickTracked: "前後 / 旋回",
+        driveStickMecanum: "前後 / 横移動",
+        cameraStickHint: "Pan / Tilt",
+        telemetryNote: "機体全体の電圧・電流プロトコル未接続時は、既存のサーボとモーターのフィードバックを表示します。"
       },
       module: {
         servo: "サーボデバッグ",
@@ -1206,6 +1324,8 @@
         current: "Current",
         moving: "Moving",
         safety: "保護",
+        servoCount: "サーボ数",
+        motorCount: "モーター割当",
         command: "Command",
         commandSpeedRaw: "Command Speed",
         rpm: "RPM",
