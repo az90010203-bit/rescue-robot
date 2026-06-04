@@ -100,19 +100,19 @@ textarea:focus-visible {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(360px, 520px);
+  grid-template-columns: minmax(260px, 1fr) minmax(420px, 520px);
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   border-radius: 16px;
-  padding: 14px 16px;
+  padding: 12px 14px 11px;
 }
 
 .topbar::after {
   position: absolute;
-  right: 18px;
+  right: 16px;
   bottom: 0;
-  left: 18px;
-  height: 3px;
+  left: 16px;
+  height: 2px;
   border-radius: 999px 999px 0 0;
   background: linear-gradient(90deg, var(--coral), var(--magenta), var(--blue), var(--cyan));
   content: "";
@@ -123,7 +123,7 @@ textarea:focus-visible {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .brand-mark {
@@ -152,7 +152,7 @@ textarea:focus-visible {
 .eyebrow {
   margin: 0 0 3px;
   color: var(--steel);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -170,9 +170,9 @@ h2 {
 
 h1 {
   color: var(--ink);
-  font-size: 1.68rem;
+  font-size: 1.62rem;
   font-weight: 680;
-  line-height: 1.06;
+  line-height: 1.05;
 }
 
 h2 {
@@ -184,23 +184,24 @@ h2 {
 .system-line {
   margin: 4px 0 0;
   color: var(--slate);
-  font-size: 0.84rem;
+  font-size: 0.8rem;
   font-weight: 520;
 }
 
 .system-strip {
+  width: 100%;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  gap: 6px;
 }
 
 .status-card {
-  min-height: 44px;
+  min-height: 40px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  padding: 7px 9px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
@@ -208,8 +209,8 @@ h2 {
 }
 
 .status-led {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--muted-2);
   box-shadow: 0 0 0 4px rgba(134, 134, 139, 0.12);
@@ -238,7 +239,7 @@ h2 {
 
 .status-copy small {
   color: var(--steel);
-  font-size: 0.64rem;
+  font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -246,7 +247,7 @@ h2 {
 .status-copy strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.84rem;
+  font-size: 0.8rem;
   font-weight: 720;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -547,6 +548,30 @@ h2 {
 
 .console-base-switch {
   width: min(100%, 420px);
+}
+
+.camera-mode-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.camera-segmented-control {
+  width: 100%;
+}
+
+.camera-segmented-control .module-tab {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 0.78rem;
+}
+
+.camera-mode-note {
+  margin: -4px 0 0;
+  color: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 750;
 }
 
 .joystick-grid {
@@ -1005,6 +1030,53 @@ textarea {
   min-width: 0;
 }
 
+.platform-control-wide,
+.platform-control-output,
+.platform-control-camera,
+.platform-control-group,
+.platform-control-joystick {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.platform-control-grid textarea {
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+}
+
+.platform-control-output pre {
+  max-height: 168px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.platform-control-camera {
+  display: grid;
+  gap: 8px;
+}
+
+.platform-control-camera img,
+.platform-control-camera .empty-state {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.platform-control-group {
+  display: grid;
+  gap: 8px;
+}
+
 .platform-control-toggle {
   grid-column: 1 / -1;
   min-height: 42px;
@@ -1018,6 +1090,449 @@ textarea {
 
 .platform-control-actions {
   margin-top: 2px;
+}
+
+.architecture-workspace {
+  display: grid;
+  gap: 16px;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.architecture-shell-head,
+.architecture-tabs,
+.architecture-grid,
+.architecture-form-grid,
+.architecture-layout-grid,
+.architecture-panel-controls,
+.architecture-actions,
+.architecture-library-filter,
+.architecture-debug-head,
+.architecture-status,
+.architecture-select-block,
+.architecture-selectable-list,
+.architecture-entity-list {
+  display: grid;
+  gap: 12px;
+}
+
+.architecture-shell-head {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-shell-head h2 {
+  margin: 4px 0 0;
+  font-size: 24px;
+}
+
+.architecture-status {
+  align-items: center;
+  grid-auto-flow: column;
+  justify-content: end;
+}
+
+.architecture-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.architecture-grid {
+  align-items: start;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.architecture-plugin-grid {
+  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+}
+
+.architecture-builder-panel,
+.architecture-driver-panel,
+.architecture-library-panel,
+.architecture-debug-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.architecture-panel-title {
+  margin-bottom: 0;
+}
+
+.architecture-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.architecture-form-grid label,
+.architecture-builder-panel > label,
+.architecture-panel-controls label {
+  display: grid;
+  gap: 6px;
+}
+
+.architecture-wide-field,
+.architecture-wide-button,
+.architecture-control-group,
+.architecture-camera-view {
+  grid-column: 1 / -1;
+}
+
+.architecture-device-list,
+.architecture-driver-list,
+.architecture-selectable-list,
+.architecture-entity-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.architecture-driver-list {
+  display: grid;
+  gap: 8px;
+}
+
+.architecture-driver-filter {
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr);
+}
+
+.architecture-driver-filter label {
+  display: grid;
+  gap: 6px;
+}
+
+.architecture-driver-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-driver-tags {
+  min-width: 96px;
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.architecture-driver-summary {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
+.architecture-driver-summary strong,
+.architecture-driver-summary small,
+.architecture-driver-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-driver-summary small {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.architecture-driver-summary span {
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.architecture-plugin-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  max-height: 520px;
+}
+
+.architecture-plugin-card {
+  min-height: 136px;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+}
+
+.architecture-plugin-open {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 0;
+  padding: 12px 12px 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.architecture-plugin-open:focus-visible {
+  border-radius: 12px;
+  outline: 2px solid rgba(20, 86, 240, 0.35);
+  outline-offset: -2px;
+}
+
+.architecture-plugin-card .device-info {
+  gap: 5px;
+}
+
+.architecture-plugin-card .device-name {
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.architecture-plugin-card .device-meta {
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.architecture-plugin-card .platform-status-pill {
+  align-self: center;
+}
+
+.architecture-plugin-card-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.architecture-plugin-delete {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(212, 86, 86, 0.2);
+  color: var(--red);
+  background: rgba(212, 86, 86, 0.08);
+}
+
+.architecture-plugin-delete:disabled {
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--panel-soft);
+}
+
+.architecture-plugin-library-grid .empty-state {
+  grid-column: 1 / -1;
+  min-height: 180px;
+}
+
+.architecture-debug-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.plugin-instance-debug-stack,
+.plugin-servo-limiter,
+.plugin-serial-monitor {
+  display: grid;
+  gap: 14px;
+}
+
+.plugin-servo-limiter {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.plugin-servo-limiter-head {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+}
+
+.plugin-servo-limiter-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-servo-limiter-head strong {
+  font-size: 0.95rem;
+}
+
+.plugin-servo-limiter-head span {
+  color: var(--steel);
+  font-size: 0.78rem;
+}
+
+.plugin-servo-limiter-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.plugin-servo-limit-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plugin-servo-limit-actions {
+  justify-content: start;
+}
+
+.plugin-serial-monitor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.plugin-serial-monitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plugin-serial-monitor-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.plugin-serial-monitor-head strong {
+  font-size: 0.95rem;
+}
+
+.plugin-serial-monitor-head span {
+  color: var(--steel);
+  font-size: 0.78rem;
+}
+
+.plugin-serial-log-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.plugin-serial-log-list .empty-state {
+  min-height: 96px;
+}
+
+.architecture-debug-head {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-selectable-row {
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.architecture-selectable-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.architecture-selectable-row small,
+.architecture-panel-card-head small {
+  color: var(--muted);
+}
+
+.architecture-layout-grid {
+  align-items: stretch;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.architecture-panel-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.architecture-panel-card[draggable="true"] {
+  cursor: grab;
+}
+
+.architecture-panel-card-head {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.architecture-panel-card-head span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.architecture-panel-card-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-panel-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.architecture-control-group,
+.architecture-metric {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.architecture-metric {
+  background: var(--panel-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.architecture-metric span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.architecture-metric strong {
+  font-size: 18px;
+}
+
+.architecture-actions {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.architecture-camera-view img {
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.architecture-empty {
+  align-items: center;
+  justify-items: center;
+  min-height: 260px;
+  text-align: center;
+}
+
+.architecture-empty p,
+.architecture-error {
+  margin: 0;
 }
 
 .platform-event {
@@ -1486,7 +2001,7 @@ textarea {
 }
 
 .arm-joint-row {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .arm-joint-actions {
@@ -1560,6 +2075,13 @@ textarea {
 
 .arm-handle:active {
   cursor: grabbing;
+}
+
+.arm-end-effector {
+  fill: var(--charcoal);
+  stroke: #ffffff;
+  stroke-width: 3;
+  opacity: 0.9;
 }
 
 .arm-label {
@@ -2338,12 +2860,57 @@ textarea {
 }
 
 .camera-viewer img,
+.camera-viewer video,
 .camera-placeholder {
   width: 100%;
   height: 100%;
 }
 
-.camera-viewer img {
+.camera-video-grid {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.camera-video-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.camera-video-grid.dual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.camera-source-panel {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.camera-source-viewer {
+  margin-bottom: 0;
+}
+
+.camera-source-name {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  max-width: calc(100% - 160px);
+  overflow: hidden;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 0.84rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-source-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.camera-viewer img,
+.camera-viewer video {
   display: block;
   object-fit: cover;
   background: var(--panel-soft);
@@ -2860,6 +3427,7 @@ textarea {
 
   .system-strip {
     width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .workspace {
@@ -2881,6 +3449,10 @@ textarea {
 
   .drive-page-camera .camera-viewer {
     min-height: 320px;
+  }
+
+  .camera-video-grid.dual {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .drive-page-params {
@@ -2915,7 +3487,11 @@ textarea {
   }
 
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.48rem;
+  }
+
+  .topbar {
+    padding: 12px;
   }
 
   .system-strip {
@@ -2947,6 +3523,7 @@ textarea {
   }
 
   .project-switch {
+    flex: 0 0 auto;
     flex-wrap: wrap;
   }
 
@@ -2972,6 +3549,7 @@ textarea {
 
   .workspace,
   .side-stack,
+  .architecture-grid,
   .pi-remote-grid {
     grid-template-columns: 1fr;
   }
@@ -2988,6 +3566,9 @@ textarea {
   .servo-extra-grid,
   .preview-grid,
   .servo-limit-grid,
+  .plugin-servo-limiter-head,
+  .plugin-servo-limiter-metrics,
+  .plugin-servo-limit-grid,
   .servo-card-telemetry,
   .port-config-grid,
   .pi-remote-form-grid,
@@ -3034,13 +3615,29 @@ textarea {
   }
 
   .drive-page-params,
-  .drive-status-grid {
+  .drive-status-grid,
+  .architecture-form-grid,
+  .architecture-panel-controls {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .architecture-layout-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .architecture-layout-grid .architecture-panel-card {
+    grid-column: 1 / -1 !important;
   }
 }
 
 @media (max-width: 620px) {
   .system-strip,
+  .architecture-shell-head,
+  .architecture-tabs,
+  .architecture-driver-filter,
+  .architecture-form-grid,
+  .architecture-panel-controls,
+  .architecture-actions,
   .servo-command-grid,
   .arm-editor-grid,
   .arm-status-strip,
@@ -3115,6 +3712,11 @@ textarea {
     flex-wrap: wrap;
   }
 
+  .architecture-status {
+    grid-auto-flow: row;
+    justify-content: stretch;
+  }
+
   .module-tab {
     min-width: min(100%, 148px);
   }
@@ -3158,7 +3760,8 @@ textarea {
   }
 
   .drive-page-params,
-  .drive-status-grid {
+  .drive-status-grid,
+  .camera-mode-controls {
     grid-template-columns: 1fr;
   }
 

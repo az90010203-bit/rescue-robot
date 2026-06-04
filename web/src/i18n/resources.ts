@@ -16,6 +16,10 @@
         gimbalControls: "云台方向控制",
         driveBase: "底盘类型",
         driveTargets: "底盘电机输出",
+        cameraSource: "摄像头来源",
+        cameraVideoLayout: "摄像头窗口布局",
+        cameraLatencyProfile: "摄像头延迟档位",
+        cameraStreamMode: "摄像头播放模式",
         armSimulator: "机械臂模拟拖动图"
       },
       common: {
@@ -29,11 +33,15 @@
       },
       sections: {
         console: "主控台",
-        components: "组件调节",
+        plugins: "插件",
+        components: "组件",
+        robots: "机器人",
         tests: "功能测试",
         settings: "设置",
         consoleValue: "CONSOLE",
+        pluginsValue: "PLUGIN",
         componentsValue: "PARTS",
+        robotsValue: "ROBOT",
         testsValue: "TEST",
         settingsValue: "SET"
       },
@@ -207,7 +215,11 @@
         },
         panelSchemas: {
           "servo-control": "舵机控制",
-          "motor-control": "电机控制"
+          "motor-control": "电机控制",
+          "camera-gimbal-control": "摄像头云台控制",
+          "robot-arm-control": "机械臂控制",
+          "raspberry-pi-remote": "树莓派远程",
+          "firmware-upload": "固件刷写"
         },
         meta: {
           capsDevices: "{{caps}} 个能力 / {{devices}} 个设备",
@@ -227,6 +239,8 @@
           motor: "电机",
           camera: "摄像头",
           "robot-arm": "机械臂",
+          "raspberry-pi": "树莓派",
+          firmware: "固件",
           gpio: "GPIO",
           sensor: "传感器"
         },
@@ -253,20 +267,34 @@
           stream: "视频流",
           gimbal: "云台",
           joints: "关节",
-          live_drag: "实时拖动"
+          live_drag: "实时拖动",
+          ssh_remote: "SSH 远控",
+          sftp_upload: "SFTP 上传",
+          camera_stream: "摄像头视频",
+          python_runtime: "Python 运行环境",
+          platformio_compile: "PlatformIO 编译",
+          serial_port_scan: "串口扫描",
+          firmware_upload: "固件上传"
         },
         drivers: {
           feetech_servo: "飞特舵机",
           tb6618_motor: "TB6618 电机",
-          camera_gimbal: "摄像头云台"
+          camera_gimbal: "摄像头云台",
+          robot_arm_composite: "机械臂组合驱动",
+          raspberry_pi_ssh: "树莓派 SSH",
+          local_firmware_helper: "本机刷写助手"
         },
         transports: {
           web_serial: "Web Serial",
-          controller_json: "控制器串口"
+          controller_json: "控制器串口",
+          local_helper: "本机助手",
+          ssh: "SSH"
         },
         devices: {
           camera_main: "摄像头",
-          robot_arm_main: "机械臂"
+          robot_arm_main: "机械臂",
+          pi_main: "树莓派",
+          firmware_local: "固件助手"
         },
         labels: {
           target: "目标",
@@ -278,7 +306,10 @@
           position: "位置",
           speed: "速度",
           torqueEnabled: "扭矩开启",
-          stopMode: "停止方式"
+          stopMode: "停止方式",
+          command: "命令",
+          file: "文件",
+          output: "输出"
         },
         state: {
           connected: "连接",
@@ -299,13 +330,28 @@
           pulseHz: "脉冲",
           encoderTicks: "计数",
           streamUrl: "视频流",
+          webrtcOfferUrl: "WebRTC Offer",
+          streamMode: "播放模式",
+          latencyProfile: "延迟档位",
           panServoId: "水平舵机",
           tiltServoId: "俯仰舵机",
           panAngleDeg: "水平角",
           tiltAngleDeg: "俯仰角",
           jointCount: "关节",
           liveDragEnabled: "实时拖动",
-          selectedJointId: "已选关节"
+          selectedJointId: "已选关节",
+          target: "目标",
+          helperReady: "助手",
+          connectionReady: "连接",
+          cameraReady: "摄像头",
+          lastExitCode: "退出码",
+          lastOutput: "输出",
+          board: "开发板",
+          port: "端口",
+          busy: "忙碌",
+          status: "状态",
+          hexSizeBytes: "HEX 大小",
+          logs: "日志"
         },
         controls: {
           scan: "通信检测",
@@ -314,7 +360,29 @@
           enable_torque: "设置扭矩",
           read_position: "读取反馈",
           stop: "停止",
-          read_feedback: "读取反馈"
+          read_feedback: "读取反馈",
+          set_gimbal: "设置云台",
+          center_gimbal: "云台居中",
+          start_stream: "开启视频",
+          stop_stream: "停止视频",
+          set_pose: "发送姿态",
+          pause: "暂停",
+          teach_start: "开始示教",
+          teach_stop: "停止示教",
+          teach_play: "播放示教",
+          check: "检查连接",
+          setup: "自动配置",
+          upload_file: "上传文件",
+          exec: "执行命令",
+          upload_and_exec: "上传并执行",
+          camera_check: "检测摄像头",
+          camera_start: "开启摄像头",
+          camera_stop: "停止摄像头",
+          camera_install_tools: "安装摄像头服务",
+          helper_check: "检查助手",
+          ports_refresh: "刷新串口",
+          compile: "编译",
+          upload: "上传"
         }
       },
       meta: {
@@ -343,6 +411,14 @@
         stopMode: "停止方式",
         speedSlider: "速度滑杆",
         streamUrl: "视频流 URL",
+        activeVideoSource: "当前视频源",
+        videoLayout: "视频窗口",
+        sourceDevicePath: "设备路径",
+        sourcePort: "视频端口",
+        sourceStreamUrl: "当前源 URL",
+        webrtcOfferUrl: "WebRTC Offer URL",
+        cameraStreamMode: "播放模式",
+        latencyProfile: "延迟档位",
         panServoId: "水平舵机 ID",
         tiltServoId: "俯仰舵机 ID",
         panMinDeg: "水平最小角",
@@ -403,6 +479,7 @@
         selectServo: "选择舵机",
         selectMotor: "选择电机",
         streamUrl: "http://192.168.1.20:8080/stream.mjpg",
+        webrtcOfferUrl: "http://192.168.1.20:8080/offer",
         pwmPin: "如 D5 / PA8",
         in1Pin: "如 D4",
         in2Pin: "如 D7",
@@ -460,6 +537,10 @@
         panAngle: "水平角",
         tiltAngle: "俯仰角",
         stream: "视频流",
+        videoLatency: "视频延迟",
+        networkRtt: "网络 RTT",
+        streamMode: "播放模式",
+        latencyProfile: "延迟档位",
         serial: "串口",
         panServo: "水平舵机",
         tiltServo: "俯仰舵机",
@@ -591,7 +672,8 @@
           requestFailed: "固件刷写请求失败",
           helperUnavailable: "本机刷写助手未启动",
           platformioMissing: "本机刷写助手未找到 PlatformIO",
-          noCompleteMapping: "至少需要一个完整电机端口映射"
+          noCompleteMapping: "至少需要一个完整电机端口映射",
+          selectPort: "请选择刷写串口"
         }
       },
       piRemote: {
@@ -633,6 +715,7 @@
           requestFailed: "树莓派远程请求失败",
           helperUnavailable: "树莓派助手未启动",
           selectFile: "请选择要上传的文件",
+          commandRequired: "请输入要执行的命令",
           pythonMissing: "树莓派能连接，但没有找到 python3。请先在树莓派上安装 Python。",
           workspaceMissing: "连接成功。请点击“自动配置树莓派”创建工作目录。",
           setupFailed: "自动配置失败，请检查树莓派权限或工作目录。",
@@ -643,9 +726,11 @@
           statusLabel: "摄像头",
           device: "设备",
           tool: "视频服务",
+          webrtc: "WebRTC",
+          webrtcUnavailable: "不可用",
           toolMissing: "未安装",
           advanced: "高级摄像头设置",
-          installConfirm: "将通过 SSH 在树莓派上运行 apt-get 安装 ustreamer 和 v4l-utils。继续吗？",
+          installConfirm: "将通过 SSH 在树莓派上运行 apt-get 安装 ffmpeg、v4l-utils、python3-venv 和 pip。继续吗？",
           status: {
             idle: "待机",
             checking: "检测中",
@@ -658,9 +743,10 @@
           errors: {
             requestFailed: "摄像头远程请求失败",
             noCamera: "没有检测到 USB 摄像头。请确认摄像头插在树莓派上。",
-            ustreamerMissing: "树莓派还没有安装摄像头服务。请展开高级设置并点击“安装摄像头服务”。",
+            ustreamerMissing: "树莓派还没有可用的摄像头流工具。请展开高级设置并点击“安装摄像头服务”。",
             startFailed: "摄像头启动失败，请查看输出。",
             stopFailed: "摄像头停止失败，请查看输出。",
+            profileAuthRequired: "档位已保存；要实时应用到树莓派，请先填写远程连接密码或密钥，然后重新点击档位。",
             installFailed: "摄像头服务安装失败。若 sudo 需要密码，请先在树莓派终端手动安装。"
           }
         }
@@ -703,6 +789,21 @@
       },
       camera: {
         streamAlt: "摄像头视频流",
+        webrtcFallback: "WebRTC 已回退到 MJPEG：{{error}}",
+        streamModes: {
+          mjpeg: "MJPEG",
+          webrtc: "WebRTC",
+          mjpegFallback: "MJPEG 回退"
+        },
+        latencyProfiles: {
+          lowLatency: "低延迟",
+          balanced: "标准",
+          sharp: "清晰"
+        },
+        videoLayout: {
+          single: "单窗口",
+          dual: "双窗口"
+        },
         gimbalReady: "云台指令已就绪",
         enableDebug: "开启调试后可发送云台指令",
         connectSerial: "连接串口后可控制云台"
@@ -783,6 +884,10 @@
         gimbalControls: "Gimbal direction controls",
         driveBase: "Drive base",
         driveTargets: "Drive motor outputs",
+        cameraSource: "Camera source",
+        cameraVideoLayout: "Camera video layout",
+        cameraLatencyProfile: "Camera latency profile",
+        cameraStreamMode: "Camera stream mode",
         armSimulator: "Arm drag simulator"
       },
       common: {
@@ -796,11 +901,15 @@
       },
       sections: {
         console: "Main Console",
+        plugins: "Plugins",
         components: "Components",
+        robots: "Robots",
         tests: "Function Tests",
         settings: "Settings",
         consoleValue: "CONSOLE",
+        pluginsValue: "PLUGIN",
         componentsValue: "PARTS",
+        robotsValue: "ROBOT",
         testsValue: "TEST",
         settingsValue: "SET"
       },
@@ -974,7 +1083,11 @@
         },
         panelSchemas: {
           "servo-control": "Servo Control",
-          "motor-control": "Motor Control"
+          "motor-control": "Motor Control",
+          "camera-gimbal-control": "Camera Gimbal Control",
+          "robot-arm-control": "Robot Arm Control",
+          "raspberry-pi-remote": "Raspberry Pi Remote",
+          "firmware-upload": "Firmware Upload"
         },
         meta: {
           capsDevices: "{{caps}} caps / {{devices}} devices",
@@ -994,6 +1107,8 @@
           motor: "Motor",
           camera: "Camera",
           "robot-arm": "Robot Arm",
+          "raspberry-pi": "Raspberry Pi",
+          firmware: "Firmware",
           gpio: "GPIO",
           sensor: "Sensor"
         },
@@ -1020,20 +1135,34 @@
           stream: "Stream",
           gimbal: "Gimbal",
           joints: "Joints",
-          live_drag: "Live drag"
+          live_drag: "Live drag",
+          ssh_remote: "SSH remote",
+          sftp_upload: "SFTP upload",
+          camera_stream: "Camera stream",
+          python_runtime: "Python runtime",
+          platformio_compile: "PlatformIO compile",
+          serial_port_scan: "Serial scan",
+          firmware_upload: "Firmware upload"
         },
         drivers: {
           feetech_servo: "Feetech Servo",
           tb6618_motor: "TB6618 Motor",
-          camera_gimbal: "Camera Gimbal"
+          camera_gimbal: "Camera Gimbal",
+          robot_arm_composite: "Robot Arm Composite",
+          raspberry_pi_ssh: "Raspberry Pi SSH",
+          local_firmware_helper: "Local Firmware Helper"
         },
         transports: {
           web_serial: "Web Serial",
-          controller_json: "Controller JSON"
+          controller_json: "Controller JSON",
+          local_helper: "Local Helper",
+          ssh: "SSH"
         },
         devices: {
           camera_main: "Camera",
-          robot_arm_main: "Robot Arm"
+          robot_arm_main: "Robot Arm",
+          pi_main: "Raspberry Pi",
+          firmware_local: "Firmware Helper"
         },
         labels: {
           target: "Target",
@@ -1045,7 +1174,10 @@
           position: "Position",
           speed: "Speed",
           torqueEnabled: "Torque enabled",
-          stopMode: "Stop mode"
+          stopMode: "Stop mode",
+          command: "Command",
+          file: "File",
+          output: "Output"
         },
         state: {
           connected: "Connected",
@@ -1066,13 +1198,28 @@
           pulseHz: "Pulse",
           encoderTicks: "Ticks",
           streamUrl: "Stream",
+          webrtcOfferUrl: "WebRTC Offer",
+          streamMode: "Stream Mode",
+          latencyProfile: "Latency Profile",
           panServoId: "Pan servo",
           tiltServoId: "Tilt servo",
           panAngleDeg: "Pan",
           tiltAngleDeg: "Tilt",
           jointCount: "Joints",
           liveDragEnabled: "Live drag",
-          selectedJointId: "Selected"
+          selectedJointId: "Selected",
+          target: "Target",
+          helperReady: "Helper",
+          connectionReady: "Connection",
+          cameraReady: "Camera",
+          lastExitCode: "Exit code",
+          lastOutput: "Output",
+          board: "Board",
+          port: "Port",
+          busy: "Busy",
+          status: "Status",
+          hexSizeBytes: "HEX size",
+          logs: "Logs"
         },
         controls: {
           scan: "Ping",
@@ -1081,7 +1228,29 @@
           enable_torque: "Set Torque",
           read_position: "Read Feedback",
           stop: "Stop",
-          read_feedback: "Read Feedback"
+          read_feedback: "Read Feedback",
+          set_gimbal: "Set Gimbal",
+          center_gimbal: "Center Gimbal",
+          start_stream: "Start Stream",
+          stop_stream: "Stop Stream",
+          set_pose: "Send Pose",
+          pause: "Pause",
+          teach_start: "Start Teach",
+          teach_stop: "Stop Teach",
+          teach_play: "Play Teach",
+          check: "Check",
+          setup: "Setup",
+          upload_file: "Upload File",
+          exec: "Execute",
+          upload_and_exec: "Upload and Execute",
+          camera_check: "Check Camera",
+          camera_start: "Start Camera",
+          camera_stop: "Stop Camera",
+          camera_install_tools: "Install Camera Tools",
+          helper_check: "Check Helper",
+          ports_refresh: "Refresh Ports",
+          compile: "Compile",
+          upload: "Upload"
         }
       },
       meta: {
@@ -1110,6 +1279,14 @@
         stopMode: "Stop Mode",
         speedSlider: "Speed Slider",
         streamUrl: "Stream URL",
+        activeVideoSource: "Active Video Source",
+        videoLayout: "Video Layout",
+        sourceDevicePath: "Device Path",
+        sourcePort: "Stream Port",
+        sourceStreamUrl: "Active Source URL",
+        webrtcOfferUrl: "WebRTC Offer URL",
+        cameraStreamMode: "Stream Mode",
+        latencyProfile: "Latency Profile",
         panServoId: "Pan Servo ID",
         tiltServoId: "Tilt Servo ID",
         panMinDeg: "Pan Min",
@@ -1170,6 +1347,7 @@
         selectServo: "Select servo",
         selectMotor: "Select motor",
         streamUrl: "http://192.168.1.20:8080/stream.mjpg",
+        webrtcOfferUrl: "http://192.168.1.20:8080/offer",
         pwmPin: "e.g. D5 / PA8",
         in1Pin: "e.g. D4",
         in2Pin: "e.g. D7",
@@ -1227,6 +1405,10 @@
         panAngle: "Pan Angle",
         tiltAngle: "Tilt Angle",
         stream: "Stream",
+        videoLatency: "Video Latency",
+        networkRtt: "Network RTT",
+        streamMode: "Stream Mode",
+        latencyProfile: "Latency Profile",
         serial: "Serial",
         panServo: "Pan Servo",
         tiltServo: "Tilt Servo",
@@ -1358,7 +1540,8 @@
           requestFailed: "Firmware helper request failed",
           helperUnavailable: "Local firmware helper is not running",
           platformioMissing: "Local firmware helper could not find PlatformIO",
-          noCompleteMapping: "At least one complete motor port mapping is required"
+          noCompleteMapping: "At least one complete motor port mapping is required",
+          selectPort: "Select a firmware upload port"
         }
       },
       piRemote: {
@@ -1400,6 +1583,7 @@
           requestFailed: "Raspberry Pi remote request failed",
           helperUnavailable: "Raspberry Pi helper is not running",
           selectFile: "Select a file to upload",
+          commandRequired: "Enter a command to execute",
           pythonMissing: "The Pi is reachable, but python3 was not found. Install Python on the Pi first.",
           workspaceMissing: "Connection succeeded. Click Auto Setup Pi to create the workspace.",
           setupFailed: "Auto setup failed. Check Pi permissions or the workspace path.",
@@ -1410,9 +1594,11 @@
           statusLabel: "Camera",
           device: "Device",
           tool: "Video Service",
+          webrtc: "WebRTC",
+          webrtcUnavailable: "Unavailable",
           toolMissing: "Not installed",
           advanced: "Advanced Camera Settings",
-          installConfirm: "This will run apt-get over SSH on the Raspberry Pi to install ustreamer and v4l-utils. Continue?",
+          installConfirm: "This will run apt-get over SSH on the Raspberry Pi to install ffmpeg, v4l-utils, python3-venv, and pip. Continue?",
           status: {
             idle: "Idle",
             checking: "Checking",
@@ -1425,9 +1611,10 @@
           errors: {
             requestFailed: "Camera remote request failed",
             noCamera: "No USB camera was detected. Make sure the camera is plugged into the Raspberry Pi.",
-            ustreamerMissing: "The Pi does not have the camera service installed. Open Advanced Settings and click Install Camera Service.",
+            ustreamerMissing: "The Pi does not have a usable camera stream tool. Open Advanced Settings and click Install Camera Service.",
             startFailed: "Camera start failed. Check the output.",
             stopFailed: "Camera stop failed. Check the output.",
+            profileAuthRequired: "Profile saved. To apply it to the Raspberry Pi now, enter the remote password or key, then click the profile again.",
             installFailed: "Camera service installation failed. If sudo requires a password, install it manually from the Pi terminal."
           }
         }
@@ -1470,6 +1657,21 @@
       },
       camera: {
         streamAlt: "Camera video stream",
+        webrtcFallback: "WebRTC fell back to MJPEG: {{error}}",
+        streamModes: {
+          mjpeg: "MJPEG",
+          webrtc: "WebRTC",
+          mjpegFallback: "MJPEG fallback"
+        },
+        latencyProfiles: {
+          lowLatency: "Low Latency",
+          balanced: "Standard",
+          sharp: "Sharp"
+        },
+        videoLayout: {
+          single: "Single",
+          dual: "Dual"
+        },
         gimbalReady: "Gimbal command ready",
         enableDebug: "Enable debug mode to send gimbal commands",
         connectSerial: "Connect serial to control the gimbal"
@@ -1550,6 +1752,10 @@
         gimbalControls: "ジンバル方向制御",
         driveBase: "駆動ベース",
         driveTargets: "駆動モーター出力",
+        cameraSource: "カメラソース",
+        cameraVideoLayout: "カメラ表示レイアウト",
+        cameraLatencyProfile: "カメラ遅延プロファイル",
+        cameraStreamMode: "カメラ再生モード",
         armSimulator: "アームドラッグシミュレーター"
       },
       common: {
@@ -1563,11 +1769,15 @@
       },
       sections: {
         console: "主コンソール",
-        components: "コンポーネント調整",
+        plugins: "プラグイン",
+        components: "コンポーネント",
+        robots: "ロボット",
         tests: "機能テスト",
         settings: "設定",
         consoleValue: "CONSOLE",
+        pluginsValue: "PLUGIN",
         componentsValue: "PARTS",
+        robotsValue: "ROBOT",
         testsValue: "TEST",
         settingsValue: "SET"
       },
@@ -1741,7 +1951,11 @@
         },
         panelSchemas: {
           "servo-control": "サーボ制御",
-          "motor-control": "モーター制御"
+          "motor-control": "モーター制御",
+          "camera-gimbal-control": "カメラジンバル制御",
+          "robot-arm-control": "ロボットアーム制御",
+          "raspberry-pi-remote": "Raspberry Pi リモート",
+          "firmware-upload": "ファームウェア書込"
         },
         meta: {
           capsDevices: "{{caps}} 能力 / {{devices}} デバイス",
@@ -1761,6 +1975,8 @@
           motor: "モーター",
           camera: "カメラ",
           "robot-arm": "ロボットアーム",
+          "raspberry-pi": "Raspberry Pi",
+          firmware: "ファームウェア",
           gpio: "GPIO",
           sensor: "センサー"
         },
@@ -1787,20 +2003,34 @@
           stream: "映像ストリーム",
           gimbal: "ジンバル",
           joints: "関節",
-          live_drag: "リアルタイムドラッグ"
+          live_drag: "リアルタイムドラッグ",
+          ssh_remote: "SSH リモート",
+          sftp_upload: "SFTP アップロード",
+          camera_stream: "カメラ映像",
+          python_runtime: "Python ランタイム",
+          platformio_compile: "PlatformIO コンパイル",
+          serial_port_scan: "シリアルスキャン",
+          firmware_upload: "ファームウェア書込"
         },
         drivers: {
           feetech_servo: "Feetech サーボ",
           tb6618_motor: "TB6618 モーター",
-          camera_gimbal: "カメラジンバル"
+          camera_gimbal: "カメラジンバル",
+          robot_arm_composite: "ロボットアーム複合",
+          raspberry_pi_ssh: "Raspberry Pi SSH",
+          local_firmware_helper: "ローカル書込ヘルパー"
         },
         transports: {
           web_serial: "Web Serial",
-          controller_json: "コントローラーシリアル"
+          controller_json: "コントローラーシリアル",
+          local_helper: "ローカルヘルパー",
+          ssh: "SSH"
         },
         devices: {
           camera_main: "カメラ",
-          robot_arm_main: "ロボットアーム"
+          robot_arm_main: "ロボットアーム",
+          pi_main: "Raspberry Pi",
+          firmware_local: "ファームウェアヘルパー"
         },
         labels: {
           target: "対象",
@@ -1812,7 +2042,10 @@
           position: "位置",
           speed: "速度",
           torqueEnabled: "トルク有効",
-          stopMode: "停止方式"
+          stopMode: "停止方式",
+          command: "コマンド",
+          file: "ファイル",
+          output: "出力"
         },
         state: {
           connected: "接続",
@@ -1833,13 +2066,28 @@
           pulseHz: "パルス",
           encoderTicks: "カウント",
           streamUrl: "映像",
+          webrtcOfferUrl: "WebRTC Offer",
+          streamMode: "再生モード",
+          latencyProfile: "遅延プロファイル",
           panServoId: "パン軸サーボ",
           tiltServoId: "チルト軸サーボ",
           panAngleDeg: "パン角",
           tiltAngleDeg: "チルト角",
           jointCount: "関節",
           liveDragEnabled: "リアルタイムドラッグ",
-          selectedJointId: "選択中"
+          selectedJointId: "選択中",
+          target: "対象",
+          helperReady: "ヘルパー",
+          connectionReady: "接続",
+          cameraReady: "カメラ",
+          lastExitCode: "終了コード",
+          lastOutput: "出力",
+          board: "ボード",
+          port: "ポート",
+          busy: "実行中",
+          status: "状態",
+          hexSizeBytes: "HEX サイズ",
+          logs: "ログ"
         },
         controls: {
           scan: "通信確認",
@@ -1848,7 +2096,29 @@
           enable_torque: "トルク設定",
           read_position: "フィードバック読取",
           stop: "停止",
-          read_feedback: "フィードバック読取"
+          read_feedback: "フィードバック読取",
+          set_gimbal: "ジンバル設定",
+          center_gimbal: "ジンバル中央",
+          start_stream: "映像開始",
+          stop_stream: "映像停止",
+          set_pose: "姿勢送信",
+          pause: "一時停止",
+          teach_start: "教示開始",
+          teach_stop: "教示停止",
+          teach_play: "教示再生",
+          check: "確認",
+          setup: "設定",
+          upload_file: "ファイルアップロード",
+          exec: "実行",
+          upload_and_exec: "アップロードして実行",
+          camera_check: "カメラ確認",
+          camera_start: "カメラ開始",
+          camera_stop: "カメラ停止",
+          camera_install_tools: "カメラサービスをインストール",
+          helper_check: "ヘルパー確認",
+          ports_refresh: "ポート更新",
+          compile: "コンパイル",
+          upload: "アップロード"
         }
       },
       meta: {
@@ -1877,6 +2147,14 @@
         stopMode: "停止方式",
         speedSlider: "速度スライダー",
         streamUrl: "映像ストリーム URL",
+        activeVideoSource: "現在の映像ソース",
+        videoLayout: "映像レイアウト",
+        sourceDevicePath: "デバイスパス",
+        sourcePort: "映像ポート",
+        sourceStreamUrl: "現在ソース URL",
+        webrtcOfferUrl: "WebRTC Offer URL",
+        cameraStreamMode: "再生モード",
+        latencyProfile: "遅延プロファイル",
         panServoId: "パン軸サーボ ID",
         tiltServoId: "チルト軸サーボ ID",
         panMinDeg: "パン最小角",
@@ -1937,6 +2215,7 @@
         selectServo: "サーボを選択",
         selectMotor: "モーターを選択",
         streamUrl: "http://192.168.1.20:8080/stream.mjpg",
+        webrtcOfferUrl: "http://192.168.1.20:8080/offer",
         pwmPin: "例 D5 / PA8",
         in1Pin: "例 D4",
         in2Pin: "例 D7",
@@ -1994,6 +2273,10 @@
         panAngle: "パン角",
         tiltAngle: "チルト角",
         stream: "映像",
+        videoLatency: "映像遅延",
+        networkRtt: "ネットワーク RTT",
+        streamMode: "再生モード",
+        latencyProfile: "遅延プロファイル",
         serial: "シリアル",
         panServo: "パン軸サーボ",
         tiltServo: "チルト軸サーボ",
@@ -2125,7 +2408,8 @@
           requestFailed: "ファームウェア書き込みリクエストに失敗しました",
           helperUnavailable: "ローカル書き込みヘルパーが起動していません",
           platformioMissing: "ローカル書き込みヘルパーが PlatformIO を見つけられません",
-          noCompleteMapping: "完全なモーターポート設定が少なくとも 1 つ必要です"
+          noCompleteMapping: "完全なモーターポート設定が少なくとも 1 つ必要です",
+          selectPort: "書き込みポートを選択してください"
         }
       },
       piRemote: {
@@ -2167,6 +2451,7 @@
           requestFailed: "Raspberry Pi リモートリクエストに失敗しました",
           helperUnavailable: "Raspberry Pi ヘルパーが起動していません",
           selectFile: "アップロードするファイルを選択してください",
+          commandRequired: "実行するコマンドを入力してください",
           pythonMissing: "Pi には接続できましたが python3 が見つかりません。先に Pi に Python をインストールしてください。",
           workspaceMissing: "接続成功です。「Pi を自動設定」で作業ディレクトリを作成してください。",
           setupFailed: "自動設定に失敗しました。Pi の権限または作業ディレクトリを確認してください。",
@@ -2177,9 +2462,11 @@
           statusLabel: "カメラ",
           device: "デバイス",
           tool: "映像サービス",
+          webrtc: "WebRTC",
+          webrtcUnavailable: "利用不可",
           toolMissing: "未インストール",
           advanced: "高度なカメラ設定",
-          installConfirm: "SSH 経由で Raspberry Pi 上の apt-get を実行し、ustreamer と v4l-utils をインストールします。続行しますか？",
+          installConfirm: "SSH 経由で Raspberry Pi 上の apt-get を実行し、ffmpeg、v4l-utils、python3-venv、pip をインストールします。続行しますか？",
           status: {
             idle: "待機",
             checking: "確認中",
@@ -2192,9 +2479,10 @@
           errors: {
             requestFailed: "カメラのリモートリクエストに失敗しました",
             noCamera: "USB カメラを検出できません。カメラが Raspberry Pi に接続されているか確認してください。",
-            ustreamerMissing: "Pi にカメラサービスがインストールされていません。高度な設定を開き、カメラサービスをインストールしてください。",
+            ustreamerMissing: "Pi に利用可能なカメラストリームツールがありません。高度な設定を開き、カメラサービスをインストールしてください。",
             startFailed: "カメラの開始に失敗しました。出力を確認してください。",
             stopFailed: "カメラの停止に失敗しました。出力を確認してください。",
+            profileAuthRequired: "プロファイルを保存しました。Raspberry Pi にすぐ適用するには、リモート接続のパスワードまたは鍵を入力してから、もう一度プロファイルをクリックしてください。",
             installFailed: "カメラサービスのインストールに失敗しました。sudo がパスワードを要求する場合は Pi の端末で手動インストールしてください。"
           }
         }
@@ -2237,6 +2525,21 @@
       },
       camera: {
         streamAlt: "カメラ映像ストリーム",
+        webrtcFallback: "WebRTC から MJPEG にフォールバックしました: {{error}}",
+        streamModes: {
+          mjpeg: "MJPEG",
+          webrtc: "WebRTC",
+          mjpegFallback: "MJPEG フォールバック"
+        },
+        latencyProfiles: {
+          lowLatency: "低遅延",
+          balanced: "標準",
+          sharp: "高精細"
+        },
+        videoLayout: {
+          single: "単一",
+          dual: "二画面"
+        },
         gimbalReady: "ジンバルコマンド準備完了",
         enableDebug: "デバッグを有効にするとジンバルを制御できます",
         connectSerial: "シリアル接続後にジンバルを制御できます"

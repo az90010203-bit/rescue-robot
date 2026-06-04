@@ -1,4 +1,4 @@
-import { DriveInputState, ZERO_DRIVE_INPUT, applyDeadzone } from "./drive";
+import { DriveBase, DriveInputState, ZERO_DRIVE_INPUT, applyDeadzone } from "./drive";
 
 export type ControlAction =
   | "forward"
@@ -81,7 +81,7 @@ export const DEFAULT_INPUT_MAPPING: InputMapping = {
     axes: {
       forward: { index: 1, invert: true },
       strafe: { index: 0, invert: false },
-      turn: { index: 2, invert: false }
+      turn: { index: 0, invert: false }
     },
     buttons: {
       stop: 0,
@@ -103,7 +103,7 @@ export const GAMEPAD_PRESETS: Record<Exclude<GamepadPresetId, "auto">, GamepadPr
       axes: {
         forward: { index: 1, invert: true },
         strafe: { index: 0, invert: false },
-        turn: { index: 2, invert: false }
+        turn: { index: 0, invert: false }
       },
       buttons: {
         stop: 0,
@@ -123,7 +123,7 @@ export const GAMEPAD_PRESETS: Record<Exclude<GamepadPresetId, "auto">, GamepadPr
       axes: {
         forward: { index: 1, invert: true },
         strafe: { index: 0, invert: false },
-        turn: { index: 2, invert: false }
+        turn: { index: 0, invert: false }
       },
       buttons: {
         stop: 1,
@@ -143,7 +143,7 @@ export const GAMEPAD_PRESETS: Record<Exclude<GamepadPresetId, "auto">, GamepadPr
       axes: {
         forward: { index: 1, invert: true },
         strafe: { index: 0, invert: false },
-        turn: { index: 2, invert: false }
+        turn: { index: 0, invert: false }
       },
       buttons: {
         stop: 1,
@@ -162,6 +162,11 @@ export const GAMEPAD_PRESETS: Record<Exclude<GamepadPresetId, "auto">, GamepadPr
     mapping: cloneGamepadMapping(DEFAULT_INPUT_MAPPING.gamepad)
   }
 };
+
+const LEGACY_GAMEPAD_PRESET_MAPPINGS = [
+  legacyRightStickTurnMapping(0),
+  legacyRightStickTurnMapping(1)
+];
 
 export const KEYBOARD_ACTIONS: ControlAction[] = [
   "forward",
@@ -202,7 +207,9 @@ export function gamepadMappingSignature(mapping: GamepadMapping): string {
 
 export function isCustomGamepadMapping(mapping: GamepadMapping): boolean {
   const signature = gamepadMappingSignature(mapping);
-  return !Object.values(GAMEPAD_PRESETS).some((preset) => gamepadMappingSignature(preset.mapping) === signature);
+  return ![...Object.values(GAMEPAD_PRESETS).map((preset) => preset.mapping), ...LEGACY_GAMEPAD_PRESET_MAPPINGS].some(
+    (presetMapping) => gamepadMappingSignature(presetMapping) === signature
+  );
 }
 
 export function getGamepadPresetMapping(presetId: GamepadPresetId, descriptor?: GamepadDescriptor | null): GamepadMapping {
@@ -308,6 +315,16 @@ export function gamepadInputFromGamepad(gamepad: Gamepad | null | undefined, map
   };
 }
 
+export function gamepadDriveInputFromGamepad(gamepad: Gamepad | null | undefined, mapping: GamepadMapping, driveBase: DriveBase): DriveInputState {
+  const input = gamepadInputFromGamepad(gamepad, mapping);
+  if (mapping.axes.strafe.index !== mapping.axes.turn.index || mapping.axes.strafe.invert !== mapping.axes.turn.invert) {
+    return input;
+  }
+  return driveBase === "tracked"
+    ? { ...input, strafe: 0 }
+    : { ...input, turn: 0 };
+}
+
 export function cloneMapping(mapping: InputMapping): InputMapping {
   return JSON.parse(JSON.stringify(mapping)) as InputMapping;
 }
@@ -360,4 +377,24 @@ function normalizeDeadzone(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < 0.95
     ? value
     : DEFAULT_INPUT_MAPPING.gamepad.deadzone;
+}
+
+function legacyRightStickTurnMapping(stopButton: number): GamepadMapping {
+  return cloneGamepadMapping({
+    axes: {
+      forward: { index: 1, invert: true },
+      strafe: { index: 0, invert: false },
+      turn: { index: 2, invert: false }
+    },
+    buttons: {
+      stop: stopButton,
+      selectTracked: 4,
+      selectMecanum: 5,
+      cameraUp: 12,
+      cameraDown: 13,
+      cameraLeft: 14,
+      cameraRight: 15
+    },
+    deadzone: 0.12
+  });
 }

@@ -1,9 +1,27 @@
 import { InboundMessage, normalizeMotorChannel } from "../lib/protocol";
-import { ArmConfig, CameraConfig } from "../lib/storage";
+import { ArmConfig, CameraConfig, MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID } from "../lib/storage";
 import { DeviceStateSnapshot } from "./types";
 
 export type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 export type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;
+
+export interface PlatformGamepadStateInput {
+  index: number;
+  id: string;
+  axes: number;
+  buttons: number;
+  mapping: string;
+  axesValues?: number[];
+  pressedButtons?: number[];
+  input?: {
+    forward?: number;
+    strafe?: number;
+    turn?: number;
+    cameraPan?: number;
+    cameraTilt?: number;
+    stop?: boolean;
+  };
+}
 
 export interface PlatformStateInput {
   servoFeedback: ServoFeedbackMap;
@@ -12,11 +30,29 @@ export interface PlatformStateInput {
   armConfig: ArmConfig;
   connected: boolean;
   connectionMode: "servo-bus" | "controller" | null;
+  cameraReady?: boolean;
+  cameraReadyBySourceId?: Record<string, boolean>;
+  piHelperReady?: boolean;
+  piConnectionReady?: boolean;
+  piCameraReady?: boolean;
+  piTarget?: string;
+  piLastExitCode?: number | null;
+  piLastOutput?: string | null;
+  firmwareHelperReady?: boolean;
+  firmwareBusy?: boolean;
+  firmwareStatus?: string;
+  selectedFirmwarePort?: string;
+  firmwareBoard?: string;
+  firmwareHexSizeBytes?: number | null;
+  firmwareLogs?: string | null;
+  activeGamepad?: PlatformGamepadStateInput | null;
   updatedAt?: number;
 }
 
 export function createPlatformStateSnapshot(input: PlatformStateInput): Record<string, DeviceStateSnapshot> {
   const updatedAt = input.updatedAt ?? Date.now();
+  const mainCameraSource = input.cameraConfig.videoSources.find((source) => source.id === MAIN_CAMERA_SOURCE_ID) ?? input.cameraConfig.videoSources[0];
+  const secondaryCameraSource = input.cameraConfig.videoSources.find((source) => source.id === SECONDARY_CAMERA_SOURCE_ID);
   const state: Record<string, DeviceStateSnapshot> = {
     "connection:serial": {
       deviceId: "connection:serial",
@@ -29,9 +65,15 @@ export function createPlatformStateSnapshot(input: PlatformStateInput): Record<s
     },
     "camera:main": {
       deviceId: "camera:main",
-      status: input.connected && input.connectionMode === "controller" ? "standby" : "offline",
+      status: (input.cameraReadyBySourceId?.[MAIN_CAMERA_SOURCE_ID] ?? input.cameraReady) ? "online" : input.connected && input.connectionMode === "controller" ? "standby" : "offline",
       values: {
-        streamUrl: input.cameraConfig.streamUrl,
+        sourceId: MAIN_CAMERA_SOURCE_ID,
+        streamUrl: mainCameraSource?.streamUrl ?? input.cameraConfig.streamUrl,
+        devicePath: mainCameraSource?.devicePath ?? "/dev/video0",
+        port: mainCameraSource?.port ?? 8080,
+        webrtcOfferUrl: input.cameraConfig.webrtcOfferUrl,
+        streamMode: input.cameraConfig.streamMode,
+        latencyProfile: input.cameraConfig.latencyProfile,
         panServoId: input.cameraConfig.panServoId,
         tiltServoId: input.cameraConfig.tiltServoId,
         panAngleDeg: input.cameraConfig.panAngleDeg,
@@ -48,8 +90,70 @@ export function createPlatformStateSnapshot(input: PlatformStateInput): Record<s
         selectedJointId: input.armConfig.selectedJointId
       },
       updatedAt
+    },
+    "pi:main": {
+      deviceId: "pi:main",
+      status: input.piConnectionReady ? "online" : input.piHelperReady ? "standby" : "offline",
+      values: {
+        target: input.piTarget ?? null,
+        helperReady: input.piHelperReady ?? false,
+        connectionReady: input.piConnectionReady ?? false,
+        cameraReady: input.piCameraReady ?? false,
+        lastExitCode: input.piLastExitCode ?? null,
+        lastOutput: input.piLastOutput ?? null
+      },
+      updatedAt
+    },
+    "firmware:local": {
+      deviceId: "firmware:local",
+      status: input.firmwareBusy ? "standby" : input.firmwareHelperReady ? "online" : "offline",
+      values: {
+        board: input.firmwareBoard ?? null,
+        port: input.selectedFirmwarePort ?? null,
+        helperReady: input.firmwareHelperReady ?? false,
+        busy: input.firmwareBusy ?? false,
+        status: input.firmwareStatus ?? null,
+        hexSizeBytes: input.firmwareHexSizeBytes ?? null,
+        logs: input.firmwareLogs ?? null
+      },
+      updatedAt
+    },
+    "gamepad:active": {
+      deviceId: "gamepad:active",
+      status: input.activeGamepad ? "online" : "offline",
+      values: {
+        connected: Boolean(input.activeGamepad),
+        index: input.activeGamepad?.index ?? null,
+        id: input.activeGamepad?.id ?? null,
+        mapping: input.activeGamepad?.mapping ?? null,
+        axes: input.activeGamepad?.axes ?? null,
+        buttons: input.activeGamepad?.buttons ?? null,
+        axesValues: input.activeGamepad?.axesValues?.join(" ") ?? null,
+        pressedButtons: input.activeGamepad?.pressedButtons?.join(", ") ?? null,
+        forward: input.activeGamepad?.input?.forward ?? null,
+        strafe: input.activeGamepad?.input?.strafe ?? null,
+        turn: input.activeGamepad?.input?.turn ?? null,
+        cameraPan: input.activeGamepad?.input?.cameraPan ?? null,
+        cameraTilt: input.activeGamepad?.input?.cameraTilt ?? null,
+        stop: input.activeGamepad?.input?.stop ?? null
+      },
+      updatedAt
     }
   };
+
+  if (secondaryCameraSource) {
+    state["camera:secondary"] = {
+      deviceId: "camera:secondary",
+      status: input.cameraReadyBySourceId?.[SECONDARY_CAMERA_SOURCE_ID] ? "online" : secondaryCameraSource.streamUrl ? "standby" : "offline",
+      values: {
+        sourceId: SECONDARY_CAMERA_SOURCE_ID,
+        streamUrl: secondaryCameraSource.streamUrl,
+        devicePath: secondaryCameraSource.devicePath,
+        port: secondaryCameraSource.port
+      },
+      updatedAt
+    };
+  }
 
   for (const feedback of Object.values(input.servoFeedback)) {
     state[`servo:${feedback.id}`] = {

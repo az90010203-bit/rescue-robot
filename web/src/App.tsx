@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Bot,
+  Boxes,
   Cable,
   Camera,
   Crosshair,
@@ -35,7 +37,7 @@ import {
   Video,
   VideoOff
 } from "lucide-react";
-import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   DebugModule,
@@ -58,6 +60,7 @@ import {
   buildPingFrame,
   buildReadFeedbackFrame,
   buildServoMoveCommand,
+  buildServoSpeedCommand,
   buildTorqueFrame,
   buildWheelModeSetupFrames,
   buildWritePositionFrame,
@@ -67,6 +70,7 @@ import {
   clampServoLogicalAngle,
   isMotorDebugDisabledError,
   isMotorPcCommand,
+  isValidServoId,
   motorDirectionFromSpeed,
   normalizeMotorChannel,
   normalizeServoProfile,
@@ -109,8 +113,11 @@ import {
   saveArmTeachTrack,
   saveProjectState,
   selectProject,
-  startSession
+  startSession,
+  updatePluginInstance
 } from "./lib/dataService";
+import { ThreeLayerWorkspace } from "./components/ThreeLayerWorkspace";
+import { PluginInstance, pluginInstanceDeviceId, pluginInstancesToMotorProfiles, pluginInstancesToServoProfiles } from "./platform/architecture";
 import {
   ARM_TEACH_SAMPLE_INTERVAL_MS,
   ArmTeachSample,
@@ -167,7 +174,7 @@ import {
   KEYBOARD_ACTIONS,
   cloneMapping,
   getGamepadPresetMapping,
-  gamepadInputFromGamepad,
+  gamepadDriveInputFromGamepad,
   isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
   normalizeInputMapping,
@@ -181,13 +188,20 @@ import {
   ArmJointConfig,
   ArmSegmentPose,
   CameraConfig,
+  CameraLatencyProfile,
+  CameraStreamMode,
+  CameraVideoLayout,
+  CameraVideoSource,
+  CAMERA_LATENCY_PROFILE_SETTINGS,
   DEFAULT_CAMERA_CONFIG,
   DEFAULT_LINKAGE_MEMBER_ACC,
   DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   DEFAULT_LINKAGE_WHEEL_TURNS_TARGET,
   DEFAULT_MOTORS,
   DEFAULT_SERVOS,
+  MAIN_CAMERA_SOURCE_ID,
   MotorLinkageGroup,
+  SECONDARY_CAMERA_SOURCE_ID,
   ServoLinkageGroup,
   ServoLinkageWheelDirection,
   ServoLinkageWheelTarget,
@@ -197,6 +211,7 @@ import {
   calculateMotorLinkageTargets,
   calculateServoLinkageTargets,
   calculateServoLinkageWheelTargets,
+  buildCameraOfferUrl,
   createDefaultArmConfig,
   normalizeArmConfig,
   normalizeMotorLinkageGroups,
@@ -240,6 +255,7 @@ import {
   stopPiCameraStream,
   setupPiWorkspace,
   testPiConnection,
+  uploadAndExecPiFile,
   uploadPiFile
 } from "./lib/piRemote";
 import { BUILTIN_PLATFORM_PLUGINS, BUILTIN_UI_PANELS } from "./platform/builtinPlugins";
@@ -247,14 +263,14 @@ import {
   PlatformCommand,
   PlatformCommandResult,
   createPlatformCommand,
-  platformCommandEventType,
-  validatePlatformCommand
+  platformCommandEventType
 } from "./platform/commands";
 import { createPlatformDevices } from "./platform/deviceModel";
 import { PlatformEventBus } from "./platform/events";
+import { executePlatformCommand, PlatformCommandHandlerMap } from "./platform/executor";
 import { createPlatformRegistry } from "./platform/registry";
 import { createPlatformStateSnapshot } from "./platform/stateStore";
-import { PlatformEvent } from "./platform/types";
+import { PlatformEvent, UiControlSchema } from "./platform/types";
 import {
   findPlatformUiPanelForDevice,
   formatPlatformStateValue,
@@ -277,9 +293,10 @@ interface LogEntry {
 }
 
 type ActiveModule = "servo" | "arm" | "motor" | "camera" | "mapping";
-type AppSection = "console" | "components" | "tests" | "settings";
+type ArchitectureSection = "plugins" | "components" | "robots";
+type AppSection = "console" | ArchitectureSection | "tests" | "settings";
 type ComponentPanel = "arm" | "drive" | "camera";
-type TestPanel = "servo" | "motor" | "pi";
+type TestPanel = "pi";
 type ConnectionMode = "servo-bus" | "controller";
 type ServoControlMode = "position" | "wheel";
 type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused";
@@ -290,6 +307,7 @@ type MotorDebugHandshakeStatus = "unknown" | "syncing" | "ready" | "error";
 type FirmwareUploadStatus = "idle" | "checking" | "loadingPorts" | "compiling" | "compiled" | "uploading" | "uploaded" | "error";
 type PiRemoteStatus = "idle" | "checking" | "settingUp" | "ready" | "uploading" | "running" | "complete" | "error";
 type PiCameraStatus = "idle" | "checking" | "installing" | "starting" | "streaming" | "stopping" | "error";
+type CameraEffectiveMode = CameraStreamMode | "mjpegFallback";
 interface PiRemoteForm {
   host: string;
   port: string;
@@ -331,10 +349,12 @@ interface PendingLiveAngleMove {
   servo: ServoProfile;
   state: ServoCommandState;
   angle: number;
+  direct?: boolean;
 }
 interface PendingLiveWheelMove {
   servo: ServoProfile;
   state: ServoCommandState;
+  direct?: boolean;
 }
 interface PendingSingleMotorMove {
   channel: string;
@@ -389,12 +409,40 @@ interface ServoSafetyMonitor {
   stop: () => Promise<void>;
   polling: boolean;
 }
-type CameraNumberField = Exclude<keyof CameraConfig, "streamUrl">;
+type CameraNumberField = Exclude<keyof CameraConfig, "streamUrl" | "webrtcOfferUrl" | "streamMode" | "latencyProfile" | "videoSources" | "activeVideoSourceId" | "videoLayout">;
 type MotorMappingField = "pwmPin" | "in1Pin" | "in2Pin" | "enablePin" | "sensorPin";
 type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;
 type GamepadAxisName = keyof InputMapping["gamepad"]["axes"];
 type GamepadButtonName = keyof InputMapping["gamepad"]["buttons"];
+type PluginServoLimitDraftResult = { minDeg: number; maxDeg: number; resetDeg: number } | { error: string };
+interface CameraLatencyStatus {
+  estimateMs: number | null;
+  frameAgeMs: number | null;
+  rttMs: number | null;
+  updatedAt: number;
+  error: string | null;
+}
+
+interface CameraSourceRuntimeStatus {
+  loaded: boolean;
+  failed: boolean;
+  webrtcFallback: boolean;
+  webrtcError: string | null;
+  latency: CameraLatencyStatus | null;
+}
+
+interface CameraViewerProps {
+  alt: string;
+  streamUrl: string;
+  offerUrl: string;
+  mode: CameraStreamMode;
+  forceMjpeg: boolean;
+  onLoad: () => void;
+  onError: () => void;
+  onWebrtcFallback: (error: string) => void;
+  placeholder: ReactNode;
+}
 
 interface GamepadSummary {
   index: number;
@@ -409,15 +457,15 @@ interface GamepadSummary {
 const defaultServoDraft = { id: "23", name: "ID23" };
 const defaultMotorDraft = { channel: "M7", name: "Motor 7" };
 const defaultPiRemoteForm: PiRemoteForm = {
-  host: "raspberrypi.local",
+  host: "192.168.55.220",
   port: "22",
-  username: "pi",
+  username: "robot1",
   password: "",
   authMode: "password",
   privateKeyPath: "",
   workspaceDir: "~/rescue-robot",
-  remotePath: "/home/pi/rescue/uploaded.py",
-  command: "python3 /home/pi/rescue/uploaded.py",
+  remotePath: "/home/robot1/rescue-robot/uploads/uploaded.py",
+  command: "python3 /home/robot1/rescue-robot/uploads/uploaded.py",
   cwd: "",
   timeoutSeconds: "30"
 };
@@ -444,6 +492,197 @@ function getServoCommandState(commands: ServoCommandStateMap, id: number): Servo
 
 function formatServoAngle(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function buildCameraLatencyUrl(streamUrl: string): string {
+  try {
+    const url = new URL(streamUrl);
+    url.pathname = "/latency";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function defaultCameraSourceRuntimeStatus(): CameraSourceRuntimeStatus {
+  return {
+    loaded: false,
+    failed: false,
+    webrtcFallback: false,
+    webrtcError: null,
+    latency: null
+  };
+}
+
+function cameraSourceById(config: CameraConfig, sourceId: string): CameraVideoSource {
+  return config.videoSources.find((source) => source.id === sourceId) ?? config.videoSources.find((source) => source.id === MAIN_CAMERA_SOURCE_ID) ?? config.videoSources[0] ?? DEFAULT_CAMERA_CONFIG.videoSources[0];
+}
+
+function cameraSourceForDevice(config: CameraConfig, deviceId: string): CameraVideoSource {
+  return cameraSourceById(config, deviceId === "camera:secondary" ? SECONDARY_CAMERA_SOURCE_ID : MAIN_CAMERA_SOURCE_ID);
+}
+
+function visibleCameraSources(config: CameraConfig): CameraVideoSource[] {
+  if (config.videoLayout === "dual") {
+    return [MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID]
+      .map((sourceId) => config.videoSources.find((source) => source.id === sourceId))
+      .filter((source): source is CameraVideoSource => Boolean(source));
+  }
+  return [cameraSourceById(config, config.activeVideoSourceId)];
+}
+
+function cameraStreamOfferUrl(source: CameraVideoSource, config: CameraConfig): string {
+  return source.id === MAIN_CAMERA_SOURCE_ID ? config.webrtcOfferUrl.trim() || buildCameraOfferUrl(source.streamUrl) : buildCameraOfferUrl(source.streamUrl);
+}
+
+function updateCameraSource(sources: CameraVideoSource[], sourceId: string, patch: Partial<CameraVideoSource>): CameraVideoSource[] {
+  return sources.map((source) => (source.id === sourceId ? { ...source, ...patch } : source));
+}
+
+function waitForIceGatheringComplete(peerConnection: RTCPeerConnection, timeoutMs = 1200): Promise<void> {
+  if (peerConnection.iceGatheringState === "complete") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(done, timeoutMs);
+
+    function done() {
+      window.clearTimeout(timeout);
+      peerConnection.removeEventListener("icegatheringstatechange", handleStateChange);
+      resolve();
+    }
+
+    function handleStateChange() {
+      if (peerConnection.iceGatheringState === "complete") {
+        done();
+      }
+    }
+
+    peerConnection.addEventListener("icegatheringstatechange", handleStateChange);
+  });
+}
+
+function CameraViewer({ alt, streamUrl, offerUrl, mode, forceMjpeg, onLoad, onError, onWebrtcFallback, placeholder }: CameraViewerProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const effectiveMode: CameraEffectiveMode = mode === "webrtc" && !forceMjpeg ? "webrtc" : mode === "webrtc" ? "mjpegFallback" : "mjpeg";
+
+  useEffect(() => {
+    if (!streamUrl || effectiveMode !== "webrtc") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let peerConnection: RTCPeerConnection | null = null;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+
+    async function connectWebrtc() {
+      try {
+        if (!offerUrl) {
+          throw new Error("WebRTC offer URL is not configured");
+        }
+
+        peerConnection = new RTCPeerConnection({ iceServers: [] });
+        peerConnection.addTransceiver("video", { direction: "recvonly" });
+        peerConnection.addEventListener("connectionstatechange", () => {
+          if (!cancelled && peerConnection && ["failed", "closed", "disconnected"].includes(peerConnection.connectionState)) {
+            onWebrtcFallback(`WebRTC ${peerConnection.connectionState}`);
+          }
+        });
+        peerConnection.addEventListener("track", (event) => {
+          const [stream] = event.streams;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream ?? new MediaStream([event.track]);
+          }
+        });
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        await waitForIceGatheringComplete(peerConnection);
+
+        const localDescription = peerConnection.localDescription;
+        if (!localDescription) {
+          throw new Error("WebRTC local description was not created");
+        }
+
+        const response = await fetch(offerUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sdp: localDescription.sdp, type: localDescription.type }),
+          cache: "no-store",
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`WebRTC offer returned ${response.status}`);
+        }
+
+        const answer = (await response.json()) as { sdp?: unknown; type?: unknown; error?: unknown };
+        if (typeof answer.sdp !== "string" || typeof answer.type !== "string") {
+          throw new Error(typeof answer.error === "string" ? answer.error : "WebRTC answer is invalid");
+        }
+
+        await peerConnection.setRemoteDescription({ sdp: answer.sdp, type: answer.type as RTCSdpType });
+      } catch (error) {
+        if (!cancelled) {
+          onWebrtcFallback(error instanceof Error && error.message ? error.message : "WebRTC failed");
+        }
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    void connectWebrtc();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      peerConnection?.close();
+    };
+  }, [effectiveMode, offerUrl, onWebrtcFallback, streamUrl]);
+
+  useEffect(() => {
+    if (!streamUrl || effectiveMode === "webrtc") {
+      return undefined;
+    }
+
+    const markLoadedIfReady = () => {
+      if (imageRef.current?.complete && imageRef.current.naturalWidth > 0) {
+        onLoad();
+        return true;
+      }
+      return false;
+    };
+
+    if (markLoadedIfReady()) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      if (markLoadedIfReady()) {
+        window.clearInterval(timer);
+      }
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [effectiveMode, onLoad, streamUrl]);
+
+  if (!streamUrl) {
+    return <>{placeholder}</>;
+  }
+
+  if (effectiveMode === "webrtc") {
+    return <video ref={videoRef} autoPlay muted playsInline aria-label={alt} onCanPlay={onLoad} onError={onError} />;
+  }
+
+  return <img ref={imageRef} alt={alt} src={streamUrl} onError={onError} onLoad={onLoad} />;
 }
 
 function servoMotionStatusLabel(status: ServoMotionDisplayStatus): string {
@@ -490,7 +729,7 @@ export default function App() {
   const currentLanguage = isSupportedLanguage(i18n.language) ? i18n.language : defaultLanguage;
   const [activeSection, setActiveSection] = useState<AppSection>("console");
   const [activeComponent, setActiveComponent] = useState<ComponentPanel>("drive");
-  const [activeTest, setActiveTest] = useState<TestPanel>("servo");
+  const [activeTest, setActiveTest] = useState<TestPanel>("pi");
   const [activeModule, setActiveModule] = useState<ActiveModule>("camera");
   const [selectedPlatformDeviceId, setSelectedPlatformDeviceId] = useState("");
   const [platformEvents, setPlatformEvents] = useState<PlatformEvent[]>([]);
@@ -508,6 +747,10 @@ export default function App() {
   const [armTeachUnsavedTrack, setArmTeachUnsavedTrack] = useState<ArmTeachTrack | null>(null);
   const [servoLinkageGroups, setServoLinkageGroups] = useState<ServoLinkageGroup[]>([]);
   const [motors, setMotors] = useState<MotorProfile[]>(() => DEFAULT_MOTORS);
+  const [architecturePluginInstances, setArchitecturePluginInstances] = useState<PluginInstance[]>([]);
+  const [pluginServoLimitDraftByInstanceId, setPluginServoLimitDraftByInstanceId] = useState<Record<string, { minDeg: string; maxDeg: string; resetDeg: string }>>({});
+  const [pluginServoLimitErrorByInstanceId, setPluginServoLimitErrorByInstanceId] = useState<Record<string, string>>({});
+  const [pluginMotorDraftByInstanceId, setPluginMotorDraftByInstanceId] = useState<Record<string, MotorProfile>>({});
   const [motorLinkageGroups, setMotorLinkageGroups] = useState<MotorLinkageGroup[]>([]);
   const [cameraConfig, setCameraConfig] = useState<CameraConfig>(() => DEFAULT_CAMERA_CONFIG);
   const [servoDraft, setServoDraft] = useState(defaultServoDraft);
@@ -516,12 +759,13 @@ export default function App() {
   const [motorLibraryError, setMotorLibraryError] = useState<ValidationErrorKey | null>(null);
   const [motorConfigError, setMotorConfigError] = useState<ValidationErrorKey | null>(null);
   const [cameraConfigError, setCameraConfigError] = useState<ValidationErrorKey | null>(null);
-  const [cameraStreamLoaded, setCameraStreamLoaded] = useState(false);
-  const [cameraStreamFailed, setCameraStreamFailed] = useState(false);
+  const [cameraSourceRuntimeById, setCameraSourceRuntimeById] = useState<Record<string, CameraSourceRuntimeStatus>>({});
+  const [cameraStreamReloadToken, setCameraStreamReloadToken] = useState(0);
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState] = useState<MotorDebugHandshakeStatus>("unknown");
   const [lastMotorError, setLastMotorError] = useState<MotorErrorDisplay | null>(null);
   const [connected, setConnected] = useState(false);
+  const [serialConnecting, setSerialConnecting] = useState(false);
   const [connectionMode, setConnectionMode] = useState<ConnectionMode | null>(null);
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [selectedChannel, setSelectedChannel] = useState("");
@@ -677,10 +921,74 @@ export default function App() {
     selectedMotor && Number.isFinite(numericMotorSpeed)
       ? safeMotorCommandPreview(selectedMotor.channel, numericMotorSpeed, stopMode)
       : "";
-  const cameraStreamUrl = cameraConfig.streamUrl.trim();
+  const activeCameraSource = cameraSourceById(cameraConfig, cameraConfig.activeVideoSourceId);
+  const cameraVideoSources = useMemo(() => visibleCameraSources(cameraConfig), [cameraConfig]);
+  const cameraRuntimeResetSignature = cameraConfig.videoSources.map((source) => `${source.id}:${source.streamUrl}`).join("|");
+  const cameraVisibleLatencySignature = cameraVideoSources.map((source) => `${source.id}:${source.streamUrl}`).join("|");
+  const activeCameraRuntime = cameraSourceRuntimeById[activeCameraSource.id] ?? defaultCameraSourceRuntimeStatus();
+  const cameraStreamUrl = activeCameraSource.streamUrl.trim();
+  const cameraStreamLoaded = activeCameraRuntime.loaded;
+  const cameraStreamFailed = activeCameraRuntime.failed;
+  const cameraWebrtcFallback = activeCameraRuntime.webrtcFallback;
+  const cameraLatency = activeCameraRuntime.latency;
+  const cameraReadyBySourceId = useMemo(
+    () =>
+      Object.fromEntries(
+        cameraConfig.videoSources.map((source) => [source.id, Boolean(source.streamUrl.trim()) && cameraSourceRuntimeById[source.id]?.loaded === true])
+      ),
+    [cameraConfig.videoSources, cameraSourceRuntimeById]
+  );
+  const setCameraSourceRuntime = useCallback((sourceId: string, patch: Partial<CameraSourceRuntimeStatus>) => {
+    setCameraSourceRuntimeById((current) => ({
+      ...current,
+      [sourceId]: {
+        ...defaultCameraSourceRuntimeStatus(),
+        ...current[sourceId],
+        ...patch
+      }
+    }));
+  }, []);
+  const resetCameraSourceRuntime = useCallback((sourceId: string) => {
+    setCameraSourceRuntimeById((current) => ({
+      ...current,
+      [sourceId]: defaultCameraSourceRuntimeStatus()
+    }));
+  }, []);
+  const setCameraStreamLoaded = useCallback((loaded: boolean) => {
+    setCameraSourceRuntime(activeCameraSource.id, { loaded });
+  }, [activeCameraSource.id, setCameraSourceRuntime]);
+  const setCameraStreamFailed = useCallback((failed: boolean) => {
+    setCameraSourceRuntime(activeCameraSource.id, { failed });
+  }, [activeCameraSource.id, setCameraSourceRuntime]);
+  const cameraProfileSettings = CAMERA_LATENCY_PROFILE_SETTINGS[cameraConfig.latencyProfile] ?? CAMERA_LATENCY_PROFILE_SETTINGS.lowLatency;
+  const activeCameraStreamMode: CameraStreamMode = activeCameraSource.id === MAIN_CAMERA_SOURCE_ID ? cameraConfig.streamMode : "mjpeg";
+  const cameraEffectiveMode: CameraEffectiveMode = activeCameraStreamMode === "webrtc" && cameraWebrtcFallback ? "mjpegFallback" : activeCameraStreamMode;
+  const cameraModeLabel =
+    cameraEffectiveMode === "webrtc"
+      ? t("camera.streamModes.webrtc")
+      : cameraEffectiveMode === "mjpegFallback"
+        ? t("camera.streamModes.mjpegFallback")
+        : t("camera.streamModes.mjpeg");
+  const cameraProfileLabel = t(`camera.latencyProfiles.${cameraConfig.latencyProfile}`);
+  const cameraProfileMeta = `${cameraProfileSettings.width}x${cameraProfileSettings.height} @ ${cameraProfileSettings.fps}fps`;
   const cameraValidationError = validateCameraConfig(cameraConfig);
   const cameraCanCommand = connected && debugEnabled && !cameraValidationError;
   const cameraPreviewCommand = cameraValidationError ? "" : safeCameraGimbalCommandPreview(cameraConfig);
+  const cameraLatencyLabel = cameraLatency?.estimateMs === null || cameraLatency?.estimateMs === undefined ? "--" : `≈${Math.round(cameraLatency.estimateMs)} ms`;
+  const cameraLatencyDetail =
+    cameraLatency?.rttMs === null || cameraLatency?.rttMs === undefined
+      ? "--"
+      : `${Math.round(cameraLatency.rttMs)} ms`;
+  const cameraLatencyTone: "neutral" | "online" | "warning" | "danger" =
+    cameraLatency?.error
+      ? "danger"
+      : cameraLatency?.estimateMs === null || cameraLatency?.estimateMs === undefined
+        ? "neutral"
+        : cameraLatency.estimateMs > 800
+          ? "danger"
+          : cameraLatency.estimateMs > 350
+            ? "warning"
+            : "online";
   const speedLimitPercent = Number.isFinite(Number(driveSpeedLimit)) ? clamp(Number(driveSpeedLimit), 0, 100) : 0;
   const completeMotorMappingCount = useMemo(
     () => motors.filter((motor) => validateMotorMapping(motor) === null).length,
@@ -726,6 +1034,9 @@ export default function App() {
   const piOutputLabel = piRemoteExecResult
     ? `${t("piRemote.exitCode")} ${piRemoteExecResult.exitCode} · ${Math.max(1, Math.round(piRemoteExecResult.durationMs))} ms`
     : "--";
+  const piTargetLabel = `${piRemoteForm.username.trim() || "pi"}@${piRemoteForm.host.trim() || "raspberrypi.local"}`;
+  const piPlatformOnline = piRemoteStatus === "ready" || piRemoteStatus === "complete";
+  const piLastOutput = [piRemoteExecResult?.stdout, piRemoteExecResult?.stderr].filter(Boolean).join("\n").trim();
   const keyboardInput = useMemo(
     () => keyboardInputFromPressedKeys(pressedKeys, inputMapping.keyboard),
     [inputMapping.keyboard, pressedKeys]
@@ -761,9 +1072,20 @@ export default function App() {
         motorFeedback,
         connected,
         connectionMode,
-        cameraReady: Boolean(cameraStreamUrl) && !cameraValidationError
+        cameraReady: (cameraReadyBySourceId[MAIN_CAMERA_SOURCE_ID] ?? false) && !cameraValidationError,
+        cameraReadyBySourceId,
+        piHelperReady: Boolean(piHelperHealth),
+        piConnectionReady: piPlatformOnline,
+        piCameraReady: piCameraStatus === "streaming" || Boolean(piCameraCheck?.streamRunning),
+        piTarget: piTargetLabel,
+        firmwareHelperReady: firmwareHelperHealth?.pioAvailable === true,
+        firmwareBusy,
+        firmwareStatus,
+        selectedFirmwarePort,
+        firmwareBoard,
+        activeGamepad: activeGamepad ? { ...activeGamepad, input: gamepadInput } : null
       }),
-    [armConfig, cameraConfig, cameraStreamUrl, cameraValidationError, connected, connectionMode, motorFeedback, motors, servoFeedback, servos]
+    [activeGamepad, armConfig, cameraConfig, cameraReadyBySourceId, cameraStreamUrl, cameraValidationError, connected, connectionMode, firmwareBoard, firmwareBusy, firmwareHelperHealth, firmwareStatus, gamepadInput, motorFeedback, motors, piCameraCheck, piCameraStatus, piHelperHealth, piPlatformOnline, piTargetLabel, selectedFirmwarePort, servoFeedback, servos]
   );
   const platformState = useMemo(
     () =>
@@ -773,9 +1095,25 @@ export default function App() {
         cameraConfig,
         armConfig,
         connected,
-        connectionMode
+        connectionMode,
+        cameraReady: (cameraReadyBySourceId[MAIN_CAMERA_SOURCE_ID] ?? false) && !cameraValidationError,
+        cameraReadyBySourceId,
+        piHelperReady: Boolean(piHelperHealth),
+        piConnectionReady: piPlatformOnline,
+        piCameraReady: piCameraStatus === "streaming" || Boolean(piCameraCheck?.streamRunning),
+        piTarget: piTargetLabel,
+        piLastExitCode: piRemoteExecResult?.exitCode ?? null,
+        piLastOutput: piLastOutput || null,
+        firmwareHelperReady: firmwareHelperHealth?.pioAvailable === true,
+        firmwareBusy,
+        firmwareStatus,
+        selectedFirmwarePort,
+        firmwareBoard,
+        firmwareHexSizeBytes: firmwareJob?.hexSizeBytes ?? null,
+        firmwareLogs: firmwareLogs || null,
+        activeGamepad: activeGamepad ? { ...activeGamepad, input: gamepadInput } : null
       }),
-    [armConfig, cameraConfig, connected, connectionMode, motorFeedback, servoFeedback]
+    [activeGamepad, armConfig, cameraConfig, cameraReadyBySourceId, cameraStreamUrl, cameraValidationError, connected, connectionMode, firmwareBoard, firmwareBusy, firmwareHelperHealth, firmwareJob, firmwareLogs, firmwareStatus, gamepadInput, motorFeedback, piCameraCheck, piCameraStatus, piHelperHealth, piLastOutput, piPlatformOnline, piRemoteExecResult, piTargetLabel, selectedFirmwarePort, servoFeedback]
   );
   const preferredPlatformDeviceId =
     activeModule === "servo" && selectedId !== ""
@@ -785,7 +1123,9 @@ export default function App() {
         : activeModule === "arm"
           ? "robot-arm:main"
           : activeModule === "camera"
-            ? "camera:main"
+            ? activeCameraSource.id === SECONDARY_CAMERA_SOURCE_ID
+              ? "camera:secondary"
+              : "camera:main"
             : null;
   const resolvedPlatformDeviceId = resolveSelectedPlatformDeviceId(platformDevices, selectedPlatformDeviceId, preferredPlatformDeviceId);
   const selectedPlatformDevice = platformDevices.find((device) => device.id === resolvedPlatformDeviceId);
@@ -799,7 +1139,7 @@ export default function App() {
   const currentServoSmoothConfig = resolveServoMotionConfig(servoSmoothPreset);
   const currentServoSafetyConfig = resolveServoSafetyConfig(servoSafetyPreset);
   const activeModuleLabel =
-    activeSection === "tests" && activeTest === "pi"
+    activeSection === "tests"
       ? t("testTabs.pi")
       : activeModule === "servo"
       ? t("module.servo")
@@ -813,13 +1153,17 @@ export default function App() {
   const activeSectionLabel =
     activeSection === "console"
       ? t("sections.console")
+      : activeSection === "plugins"
+        ? t("sections.plugins")
       : activeSection === "components"
         ? t("sections.components")
-        : activeSection === "tests"
-          ? t("sections.tests")
-          : t("sections.settings");
+        : activeSection === "robots"
+          ? t("sections.robots")
+          : activeSection === "tests"
+            ? t("sections.tests")
+            : t("sections.settings");
   const activeModuleMeta =
-    activeSection === "tests" && activeTest === "pi"
+    activeSection === "tests"
       ? t("meta.piRemote")
       : activeModule === "servo"
       ? t("meta.servoCount", { count: servos.length })
@@ -1119,13 +1463,102 @@ export default function App() {
   }, [motors, selectedChannel]);
 
   useEffect(() => {
-    setCameraStreamLoaded(false);
-    setCameraStreamFailed(false);
-  }, [cameraConfig.streamUrl]);
+    setPiCameraCheck(null);
+    setPiCameraExecResult(null);
+    setPiCameraError(null);
+    setPiCameraStatus("idle");
+  }, [activeCameraSource.id]);
+
+  useEffect(() => {
+    for (const source of cameraConfig.videoSources) {
+      resetCameraSourceRuntime(source.id);
+    }
+  }, [cameraConfig.latencyProfile, cameraConfig.streamMode, cameraConfig.webrtcOfferUrl, cameraRuntimeResetSignature, resetCameraSourceRuntime]);
+
+  useEffect(() => {
+    if (cameraVideoSources.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const timers: number[] = [];
+
+    const pollLatency = async (source: CameraVideoSource) => {
+      const streamUrl = source.streamUrl.trim();
+      if (!streamUrl) {
+        setCameraSourceRuntime(source.id, { latency: null });
+        return;
+      }
+
+      const latencyUrl = buildCameraLatencyUrl(streamUrl);
+      if (!latencyUrl) {
+        setCameraSourceRuntime(source.id, { latency: { estimateMs: null, frameAgeMs: null, rttMs: null, updatedAt: Date.now(), error: "invalid latency URL" } });
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 1800);
+      const startedAt = performance.now();
+      try {
+        const response = await fetch(`${latencyUrl}?t=${Date.now()}`, { cache: "no-store", signal: controller.signal });
+        const finishedAt = performance.now();
+        if (!response.ok) {
+          throw new Error(`latency endpoint returned ${response.status}`);
+        }
+        const payload = (await response.json()) as { frameAgeMs?: unknown };
+        const rttMs = Math.max(0, finishedAt - startedAt);
+        const frameAgeMs = typeof payload.frameAgeMs === "number" && Number.isFinite(payload.frameAgeMs) ? payload.frameAgeMs : null;
+        if (!cancelled) {
+          setCameraSourceRuntime(source.id, {
+            latency: {
+              estimateMs: frameAgeMs === null ? rttMs : frameAgeMs + rttMs / 2,
+              frameAgeMs,
+              rttMs,
+              updatedAt: Date.now(),
+              error: null
+            }
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCameraSourceRuntime(source.id, {
+            latency: {
+              estimateMs: null,
+              frameAgeMs: null,
+              rttMs: null,
+              updatedAt: Date.now(),
+              error: error instanceof Error && error.message ? error.message : "latency check failed"
+            }
+          });
+        }
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+
+    for (const source of cameraVideoSources) {
+      void pollLatency(source);
+      timers.push(window.setInterval(() => void pollLatency(source), 2000));
+    }
+    return () => {
+      cancelled = true;
+      timers.forEach((timer) => window.clearInterval(timer));
+    };
+  }, [cameraVideoSources, cameraVisibleLatencySignature, setCameraSourceRuntime]);
 
   useEffect(() => {
     driveTargetsRef.current = driveTargets;
   }, [driveTargets]);
+
+  useEffect(() => {
+    if (isArchitectureSection(activeSection)) {
+      return;
+    }
+    const expectedModule = moduleForSection(activeSection);
+    if (activeModule !== expectedModule) {
+      void selectModule(expectedModule);
+    }
+  }, [activeComponent, activeModule, activeSection, activeTest]);
 
   useEffect(() => {
     const mappedCodes = new Set(Object.values(inputMapping.keyboard));
@@ -1200,7 +1633,7 @@ export default function App() {
         selectedGamepadIndex === ""
           ? pads[0]
           : pads.find((gamepad) => gamepad.index === selectedGamepadIndex);
-      const nextInput = gamepadInputFromGamepad(selectedPad, effectiveGamepadMapping);
+      const nextInput = gamepadDriveInputFromGamepad(selectedPad, effectiveGamepadMapping, activeDriveBase);
       const inputSignature = JSON.stringify(nextInput);
       if (inputSignature !== gamepadInputSignatureRef.current) {
         gamepadInputSignatureRef.current = inputSignature;
@@ -1233,7 +1666,7 @@ export default function App() {
 
     frameId = window.requestAnimationFrame(pollGamepads);
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeModule, effectiveGamepadMapping, selectedGamepadIndex]);
+  }, [activeDriveBase, activeModule, effectiveGamepadMapping, selectedGamepadIndex]);
 
   useEffect(() => {
     if (!driveInput.stop) {
@@ -1665,6 +2098,74 @@ export default function App() {
     await runRaspberryPiFile();
   }
 
+  async function uploadRaspberryPiFileWith(file: File) {
+    setPiRemoteFile(file);
+    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi"));
+    setPiRemoteStatus("uploading");
+    setPiRemoteError(null);
+    setPiRemoteUploadResult(null);
+    try {
+      const result = await uploadPiFile({
+        ...piConnectionRequest(),
+        file,
+        remotePath: piRemoteForm.remotePath.trim()
+      });
+      setPiRemoteUploadResult(result);
+      setPiRemoteStatus("complete");
+      addSystemLog("logs.piFileUploaded", "info", { path: result.remotePath, size: result.sizeBytes });
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function execRaspberryPiCommandWith(command: string) {
+    const timeoutSeconds = Number(piRemoteForm.timeoutSeconds);
+    setPiRemoteForm((current) => ({ ...current, command }));
+    setPiRemoteStatus("running");
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await execPiCommand({
+        ...piConnectionRequest(),
+        command,
+        cwd: piRemoteForm.cwd.trim() || undefined,
+        timeoutMs: Number.isFinite(timeoutSeconds) ? Math.round(timeoutSeconds * 1000) : undefined
+      });
+      setPiRemoteExecResult(result);
+      setPiRemoteStatus(result.exitCode === 0 ? "complete" : "error");
+      addSystemLog("logs.piCommandComplete", result.exitCode === 0 ? "info" : "warn", { code: result.exitCode });
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function uploadAndExecRaspberryPiFileWith(file: File, command: string) {
+    const timeoutSeconds = Number(piRemoteForm.timeoutSeconds);
+    setPiRemoteFile(file);
+    setPiRemoteForm((current) => ({ ...current, command }));
+    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi"));
+    setPiRemoteStatus("running");
+    setPiRemoteError(null);
+    setPiRemoteUploadResult(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await uploadAndExecPiFile({
+        ...piConnectionRequest(),
+        file,
+        remotePath: piRemoteForm.remotePath.trim(),
+        command,
+        cwd: piRemoteForm.cwd.trim() || undefined,
+        timeoutMs: Number.isFinite(timeoutSeconds) ? Math.round(timeoutSeconds * 1000) : undefined
+      });
+      setPiRemoteUploadResult(result.upload);
+      setPiRemoteExecResult(result.exec);
+      setPiRemoteStatus(result.exec.exitCode === 0 ? "complete" : "error");
+      addSystemLog("logs.piUploadAndExecComplete", result.exec.exitCode === 0 ? "info" : "warn", { code: result.exec.exitCode });
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
   function clearPiOutput() {
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -1680,14 +2181,14 @@ export default function App() {
     addLog("system", message, "error");
   }
 
-  async function checkRaspberryPiCamera() {
+  async function checkRaspberryPiCamera(source: CameraVideoSource = activeCameraSource) {
     setPiCameraStatus("checking");
     setPiCameraError(null);
     setPiCameraExecResult(null);
     try {
       const health = await requestPiHelperHealth();
       setPiHelperHealth(health);
-      const result = await checkPiCamera(piConnectionRequest(), piSetupProfile());
+      const result = await checkPiCamera(piConnectionRequest(), piSetupProfile(), source);
       setPiCameraCheck(result);
       setPiCameraStatus(result.streamRunning ? "streaming" : "idle");
       addSystemLog("logs.piCameraChecked", result.cameraAvailable ? "info" : "warn", { device: result.device ?? "--" });
@@ -1701,29 +2202,38 @@ export default function App() {
     }
   }
 
-  async function startRaspberryPiCameraStream() {
+  async function startRaspberryPiCameraStream(source: CameraVideoSource = activeCameraSource, profile: CameraLatencyProfile = cameraConfig.latencyProfile) {
+    const profileSettings = CAMERA_LATENCY_PROFILE_SETTINGS[profile] ?? CAMERA_LATENCY_PROFILE_SETTINGS.lowLatency;
     setPiCameraStatus("starting");
     setPiCameraError(null);
     setPiCameraExecResult(null);
+    resetCameraSourceRuntime(source.id);
     try {
       const health = await requestPiHelperHealth();
       setPiHelperHealth(health);
-      const result = await startPiCameraStream(piConnectionRequest(), piSetupProfile());
+      const result = await startPiCameraStream(piConnectionRequest(), piSetupProfile(), source, profileSettings);
       setPiCameraExecResult(result.exec);
       setPiCameraStatus(result.ok ? "streaming" : "error");
       if (result.ok) {
+        const webrtcAvailable = /webrtc:0/.test(result.exec.stdout);
         setPiCameraCheck((current) => ({
           cameraAvailable: true,
           device: result.device,
           ustreamerAvailable: true,
+          webrtcAvailable,
           streamRunning: true,
           streamUrl: result.streamUrl,
+          webrtcOfferUrl: result.webrtcOfferUrl,
           stdout: result.exec.stdout,
           stderr: result.exec.stderr
         }));
-        setCameraConfig((current) => ({ ...current, streamUrl: result.streamUrl }));
-        setCameraStreamLoaded(false);
-        setCameraStreamFailed(false);
+        setCameraConfig((current) => ({
+          ...current,
+          videoSources: updateCameraSource(current.videoSources, source.id, { streamUrl: result.streamUrl }),
+          ...(source.id === MAIN_CAMERA_SOURCE_ID ? { streamUrl: result.streamUrl, webrtcOfferUrl: result.webrtcOfferUrl } : {})
+        }));
+        resetCameraSourceRuntime(source.id);
+        setCameraStreamReloadToken((current) => current + 1);
         addSystemLog("logs.piCameraStarted", "info", { url: result.streamUrl });
       } else {
         setPiCameraError(result.exec.stderr || result.exec.stdout || t("piRemote.camera.errors.startFailed"));
@@ -1734,11 +2244,11 @@ export default function App() {
     }
   }
 
-  async function stopRaspberryPiCameraStream() {
+  async function stopRaspberryPiCameraStream(source: CameraVideoSource = activeCameraSource) {
     setPiCameraStatus("stopping");
     setPiCameraError(null);
     try {
-      const result = await stopPiCameraStream(piConnectionRequest(), piSetupProfile());
+      const result = await stopPiCameraStream(piConnectionRequest(), piSetupProfile(), source);
       setPiCameraExecResult(result);
       setPiCameraStatus(result.exitCode === 0 ? "idle" : "error");
       setPiCameraCheck((current) => (current ? { ...current, streamRunning: false } : current));
@@ -1861,12 +2371,12 @@ export default function App() {
     }
   }
 
-  async function uploadCompiledArduinoFirmware() {
+  async function uploadCompiledArduinoFirmware(portOverride = selectedFirmwarePort) {
     if (!firmwareJob) {
       addSystemLog("logs.firmwareCompileFirst", "warn");
       return;
     }
-    if (!selectedFirmwarePort) {
+    if (!portOverride) {
       addSystemLog("logs.firmwareSelectPort", "warn");
       return;
     }
@@ -1880,7 +2390,7 @@ export default function App() {
       if (connected && connectionMode === "controller") {
         await disconnectSerial();
       }
-      const result = await uploadFirmware({ jobId: firmwareJob.jobId, port: selectedFirmwarePort });
+      const result = await uploadFirmware({ jobId: firmwareJob.jobId, port: portOverride });
       setFirmwareJob(null);
       setFirmwareLogs(result.logs);
       setFirmwareStatus("uploaded");
@@ -2078,6 +2588,7 @@ export default function App() {
       setLastDatabaseSavedAt(result.updatedAt);
     }
     await applyAppStateSnapshot(state);
+    syncArchitecturePluginInstances(payload.architecture?.pluginInstances ?? []);
 
     const session = await startSession(payload.project.id);
     currentSessionIdRef.current = session.id;
@@ -2113,6 +2624,35 @@ export default function App() {
     } catch (error) {
       setDatabaseErrorMessage(error instanceof Error && error.message ? error.message : t("database.error"));
       setDatabaseStatus("error");
+    }
+  }
+
+  function syncArchitecturePluginInstances(instances: PluginInstance[]) {
+    setArchitecturePluginInstances(instances);
+    const architectureServos = pluginInstancesToServoProfiles(instances);
+    const architectureMotors = pluginInstancesToMotorProfiles(instances);
+    if (architectureServos.length > 0) {
+      setServos((current) => mergeServoProfiles(current, architectureServos));
+    }
+    if (architectureMotors.length > 0) {
+      setMotors((current) => mergeMotorProfiles(current, architectureMotors));
+    }
+  }
+
+  async function prepareArchitectureCommand(capability: string) {
+    const module =
+      capability === "servo"
+        ? "servo"
+        : capability === "motor"
+          ? "motor"
+          : capability === "robot-arm"
+            ? "arm"
+            : capability === "camera"
+              ? "camera"
+              : activeModule;
+    const targetMode: ConnectionMode = isServoBusModule(module) ? "servo-bus" : "controller";
+    if (module !== activeModule || (connected && connectionMode !== targetMode)) {
+      await selectModule(module);
     }
   }
 
@@ -3320,8 +3860,18 @@ export default function App() {
     }
   }
 
-  function calculateArmMotionTargets(config: ArmConfig): ArmMotionTarget[] {
-    const servoById = new Map(servos.map((servo) => [servo.id, normalizeServoProfile(servo)]));
+  function armMotionServoProfiles(extraServos: ServoProfile[] = []): ServoProfile[] {
+    const byId = new Map<number, ServoProfile>();
+    for (const servo of [...servos, ...pluginInstancesToServoProfiles(architecturePluginInstances), ...extraServos]) {
+      if (Number.isInteger(servo.id) && isValidServoId(servo.id)) {
+        byId.set(servo.id, normalizeServoProfile(servo));
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+  }
+
+  function calculateArmMotionTargets(config: ArmConfig, extraServos: ServoProfile[] = []): ArmMotionTarget[] {
+    const servoById = new Map(armMotionServoProfiles(extraServos).map((servo) => [servo.id, servo]));
     return config.joints
       .filter((joint) => joint.enabled)
       .map((joint) => {
@@ -3345,8 +3895,8 @@ export default function App() {
       .filter((target): target is ArmMotionTarget => target !== null);
   }
 
-  async function runArmPositionMotion(config: ArmConfig, live = false) {
-    const targets = calculateArmMotionTargets(config);
+  async function runArmPositionMotion(config: ArmConfig, live = false, extraServos: ServoProfile[] = []) {
+    const targets = calculateArmMotionTargets(config, extraServos);
 
     if (targets.length === 0) {
       if (!live) {
@@ -3837,6 +4387,26 @@ export default function App() {
       cancelServoSafetyMonitor(servo.id);
       cancelServoMotionForServo(servo.id, "paused");
       cancelWheelTurnMonitor(singleWheelTurnProgressKey(servo.id));
+      if (connected && connectionMode === "controller") {
+        if (state.mode === "wheel") {
+          await send(
+            buildServoSpeedCommand(
+              nextSeq(),
+              {
+                id: servo.id,
+                name: servo.name,
+                speedRaw: 0,
+                acc: state.acc.trim() === "" ? undefined : Number(state.acc)
+              },
+              true
+            )
+          );
+          lastServoWheelSpeedRef.current[servo.id] = 0;
+          updateServoCommandField(servo.id, "wheelSliderDeg", String(WHEEL_SLIDER_CENTER_DEG));
+        }
+        addSystemLog("logs.servoPaused");
+        return;
+      }
       if (state.mode === "wheel") {
         await pauseWheelServo(servo, state);
       } else {
@@ -4383,7 +4953,7 @@ export default function App() {
     updateServoCommandField(servo.id, "angleDeg", formatServoAngle(clampServoLogicalAngle(servo, numericValue)));
   }
 
-  function scheduleLiveAngleMove(servo: ServoProfile, state: ServoCommandState, angle: number) {
+  function scheduleLiveAngleMove(servo: ServoProfile, state: ServoCommandState, angle: number, options: { direct?: boolean } = {}) {
     if (
       !state.liveDragEnabled ||
       state.mode !== "position" ||
@@ -4394,7 +4964,7 @@ export default function App() {
       return;
     }
 
-    pendingLiveAngleRef.current[servo.id] = { servo, state: { ...state, angleDeg: String(angle) }, angle };
+    pendingLiveAngleRef.current[servo.id] = { servo, state: { ...state, angleDeg: String(angle) }, angle, direct: options.direct };
     if (liveAngleTimerRef.current[servo.id] !== undefined || liveAngleSendingRef.current[servo.id]) {
       return;
     }
@@ -4424,7 +4994,9 @@ export default function App() {
 
     liveAngleSendingRef.current[id] = true;
     try {
-      if (servoSmoothingEnabled) {
+      if (pending.direct) {
+        await sendDirectMoveForServo(pending.servo, pending.state, { live: true });
+      } else if (servoSmoothingEnabled) {
         void runServoPositionMotion(pending.servo, pending.state, pending.angle, { live: true });
       } else {
         await runServoPositionMotion(pending.servo, pending.state, pending.angle, { live: true });
@@ -4442,12 +5014,12 @@ export default function App() {
     }
   }
 
-  function scheduleLiveWheelMove(servo: ServoProfile, state: ServoCommandState) {
+  function scheduleLiveWheelMove(servo: ServoProfile, state: ServoCommandState, options: { direct?: boolean } = {}) {
     if (state.mode !== "wheel" || !connected || connectionMode !== "servo-bus") {
       return;
     }
 
-    pendingLiveWheelRef.current[servo.id] = { servo, state };
+    pendingLiveWheelRef.current[servo.id] = { servo, state, direct: options.direct };
     if (liveWheelTimerRef.current[servo.id] !== undefined || liveWheelSendingRef.current[servo.id]) {
       return;
     }
@@ -4471,7 +5043,9 @@ export default function App() {
 
     liveWheelSendingRef.current[id] = true;
     try {
-      if (servoSmoothingEnabled) {
+      if (pending.direct) {
+        await sendDirectMoveForServo(pending.servo, pending.state, { live: true });
+      } else if (servoSmoothingEnabled) {
         void sendMoveForServo(pending.servo, pending.state, { live: true });
       } else {
         await sendMoveForServo(pending.servo, pending.state, { live: true });
@@ -4489,13 +5063,23 @@ export default function App() {
     }
   }
 
-  function handleAngleSliderChange(servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) {
+  function handleAngleSliderChange(
+    servo: ServoProfile,
+    state: ServoCommandState,
+    event: ChangeEvent<HTMLInputElement>,
+    options: { direct?: boolean } = {}
+  ) {
     const nextAngle = event.target.value;
     updateServoLogicalAngle(servo, nextAngle);
-    scheduleLiveAngleMove(servo, state, Number(nextAngle));
+    scheduleLiveAngleMove(servo, state, Number(nextAngle), options);
   }
 
-  function updateServoWheelSlider(servo: ServoProfile, state: ServoCommandState, value: string) {
+  function updateServoWheelSlider(
+    servo: ServoProfile,
+    state: ServoCommandState,
+    value: string,
+    options: { direct?: boolean } = {}
+  ) {
     if (value.trim() === "") {
       updateServoCommandField(servo.id, "wheelSliderDeg", "");
       return;
@@ -4509,10 +5093,15 @@ export default function App() {
     const wheelSliderDeg = clampWheelSliderDeg(numericValue);
     const nextState = { ...state, wheelSliderDeg: formatServoAngle(wheelSliderDeg) };
     updateServoCommand(servo.id, () => nextState);
-    scheduleLiveWheelMove(servo, nextState);
+    scheduleLiveWheelMove(servo, nextState, options);
   }
 
-  function updateServoWheelMaxSpeed(servo: ServoProfile, state: ServoCommandState, value: string) {
+  function updateServoWheelMaxSpeed(
+    servo: ServoProfile,
+    state: ServoCommandState,
+    value: string,
+    options: { direct?: boolean } = {}
+  ) {
     if (value.trim() === "") {
       updateServoCommandField(servo.id, "speedRaw", "");
       return;
@@ -4525,11 +5114,16 @@ export default function App() {
 
     const nextState = { ...state, speedRaw: String(normalizeWheelMaxSpeedRaw(numericValue)) };
     updateServoCommand(servo.id, () => nextState);
-    scheduleLiveWheelMove(servo, nextState);
+    scheduleLiveWheelMove(servo, nextState, options);
   }
 
-  function handleWheelSliderChange(servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) {
-    updateServoWheelSlider(servo, state, event.target.value);
+  function handleWheelSliderChange(
+    servo: ServoProfile,
+    state: ServoCommandState,
+    event: ChangeEvent<HTMLInputElement>,
+    options: { direct?: boolean } = {}
+  ) {
+    updateServoWheelSlider(servo, state, event.target.value, options);
   }
 
   function updateArmConfigState(updater: (current: ArmConfig) => ArmConfig, live = false) {
@@ -5109,30 +5703,80 @@ export default function App() {
     await runArmPositionMotion(armConfig);
   }
 
-  async function pauseArm() {
-    cancelArmLiveMove("paused");
-    const targets = calculateArmMotionTargets(armConfig);
+  function servoProfilesFromCommandPayload(payload: Record<string, unknown>): ServoProfile[] {
+    if (!Array.isArray(payload.servos)) {
+      return [];
+    }
+    return payload.servos
+      .map((item) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+        const draft = item as Partial<ServoProfile>;
+        const id = Number(draft.id);
+        if (!Number.isInteger(id) || !isValidServoId(id)) {
+          return null;
+        }
+        return normalizeServoProfile({
+          id,
+          name: typeof draft.name === "string" && draft.name.trim() ? draft.name : `ID${id}`,
+          minDeg: typeof draft.minDeg === "number" ? draft.minDeg : undefined,
+          maxDeg: typeof draft.maxDeg === "number" ? draft.maxDeg : undefined,
+          zeroOffset: typeof draft.zeroOffset === "number" ? draft.zeroOffset : undefined,
+          direction: draft.direction === -1 ? -1 : 1
+        });
+      })
+      .filter((servo): servo is ServoProfile => servo !== null);
+  }
+
+  function armConfigFromCommandPayload(payload: Record<string, unknown>, extraServos = servoProfilesFromCommandPayload(payload)): ArmConfig {
+    return normalizeArmConfig(
+      {
+        joints: Array.isArray(payload.joints) ? payload.joints : [],
+        liveDragEnabled: payload.live === true,
+        selectedJointId: null
+      },
+      armMotionServoProfiles(extraServos)
+    );
+  }
+
+  async function sendArmPoseForConfig(config: ArmConfig, live = false, extraServos: ServoProfile[] = []) {
+    return runArmPositionMotion(config, live, extraServos);
+  }
+
+  async function pauseArmForConfig(config: ArmConfig, extraServos: ServoProfile[] = []) {
+    const targets = calculateArmMotionTargets(config, extraServos);
     if (targets.length === 0) {
       addSystemLog("logs.armNoTargets", "warn");
-      return;
+      return false;
     }
     if (!servoBusConnected()) {
       addSystemLog("logs.servoBusRequired", "warn");
-      return;
+      return false;
     }
     for (const target of targets) {
       cancelServoSafetyMonitor(target.servoId);
       await holdServoAtCurrentPosition(target.servo, target.speedRaw, target.acc);
     }
     addSystemLog("logs.armPaused");
+    return true;
+  }
+
+  async function pauseArm() {
+    cancelArmLiveMove("paused");
+    await pauseArmForConfig(armConfig);
   }
 
   async function connectSerial() {
+    if (serialConnecting || connected) {
+      return;
+    }
     if (!webSerialAvailable) {
       addSystemLog("serial.errors.unsupportedWebSerial", "error");
       return;
     }
 
+    setSerialConnecting(true);
     try {
       const mode: ConnectionMode = isServoBusModule(activeModule) ? "servo-bus" : "controller";
       const client = new WebSerialClient(handleMessage);
@@ -5152,7 +5796,12 @@ export default function App() {
         await writeDebugSetToClient(client, activeModule, debugEnabled);
       }
     } catch (error) {
+      serialRef.current = null;
+      setConnectionMode(null);
+      setConnected(false);
       addErrorLog(error, "logs.serialConnectFailed");
+    } finally {
+      setSerialConnecting(false);
     }
   }
 
@@ -5195,22 +5844,28 @@ export default function App() {
     return panel === "arm" ? "arm" : "camera";
   }
 
+  function isArchitectureSection(section: AppSection): section is ArchitectureSection {
+    return section === "plugins" || section === "components" || section === "robots";
+  }
+
   function moduleForSection(section: AppSection): ActiveModule {
     if (section === "console") {
       return "camera";
     }
-    if (section === "components") {
-      return moduleForComponentPanel(activeComponent);
+    if (isArchitectureSection(section)) {
+      return activeModule;
     }
     if (section === "tests") {
-      return activeTest === "pi" ? "motor" : activeTest;
+      return "motor";
     }
     return "mapping";
   }
 
   async function selectSection(section: AppSection) {
     setActiveSection(section);
-    await selectModule(moduleForSection(section));
+    if (!isArchitectureSection(section)) {
+      await selectModule(moduleForSection(section));
+    }
   }
 
   async function selectComponentPanel(panel: ComponentPanel) {
@@ -5267,9 +5922,83 @@ export default function App() {
     await i18n.changeLanguage(language);
   }
 
-  function updateCameraText(value: string) {
-    setCameraConfig((current) => ({ ...current, streamUrl: value }));
+  function updateCameraText(field: "streamUrl" | "webrtcOfferUrl", value: string) {
+    setCameraConfig((current) => ({
+      ...current,
+      [field]: value,
+      ...(field === "streamUrl"
+        ? {
+            webrtcOfferUrl: buildCameraOfferUrl(value),
+            videoSources: updateCameraSource(current.videoSources, MAIN_CAMERA_SOURCE_ID, { streamUrl: value })
+          }
+        : {})
+    }));
     setCameraConfigError(null);
+  }
+
+  function updateCameraActiveSource(sourceId: string) {
+    setCameraConfig((current) => ({
+      ...current,
+      activeVideoSourceId: current.videoSources.some((source) => source.id === sourceId) ? sourceId : MAIN_CAMERA_SOURCE_ID,
+      videoLayout: "single"
+    }));
+  }
+
+  function updateCameraVideoLayout(layout: CameraVideoLayout) {
+    setCameraConfig((current) => ({ ...current, videoLayout: layout }));
+  }
+
+  function updateCameraSourceText(sourceId: string, field: "label" | "devicePath" | "streamUrl", value: string) {
+    setCameraConfig((current) => {
+      const videoSources = updateCameraSource(current.videoSources, sourceId, { [field]: value });
+      const mainSource = videoSources.find((source) => source.id === MAIN_CAMERA_SOURCE_ID);
+      return {
+        ...current,
+        videoSources,
+        ...(sourceId === MAIN_CAMERA_SOURCE_ID
+          ? {
+              streamUrl: mainSource?.streamUrl ?? value,
+              webrtcOfferUrl: field === "streamUrl" ? buildCameraOfferUrl(value) : current.webrtcOfferUrl
+            }
+          : {})
+      };
+    });
+    setCameraConfigError(null);
+  }
+
+  function updateCameraSourcePort(sourceId: string, value: string) {
+    const port = Number(value);
+    setCameraConfig((current) => ({
+      ...current,
+      videoSources: updateCameraSource(current.videoSources, sourceId, { port: Number.isInteger(port) ? clamp(port, 1, 65535) : cameraSourceById(current, sourceId).port })
+    }));
+    setCameraConfigError(null);
+  }
+
+  function updateCameraStreamMode(mode: CameraStreamMode) {
+    setCameraConfig((current) => ({ ...current, streamMode: mode }));
+    setCameraConfigError(null);
+  }
+
+  function updateCameraLatencyProfile(profile: CameraLatencyProfile) {
+    setCameraConfig((current) => ({ ...current, latencyProfile: profile }));
+    setCameraConfigError(null);
+    setCameraStreamLoaded(false);
+    setCameraStreamFailed(false);
+    const sourceHasStream = Boolean(activeCameraSource.streamUrl.trim());
+    const hasRemoteTarget = Boolean(piRemoteForm.host.trim()) && Boolean(piRemoteForm.username.trim());
+    const hasRemoteAuth = piRemoteForm.authMode === "privateKey" ? Boolean(piRemoteForm.privateKeyPath.trim()) : Boolean(piRemoteForm.password);
+    const canApplyRemoteProfile =
+      !piCameraBusy &&
+      sourceHasStream &&
+      hasRemoteTarget &&
+      hasRemoteAuth;
+    if (canApplyRemoteProfile) {
+      void startRaspberryPiCameraStream(activeCameraSource, profile);
+    } else if (sourceHasStream && hasRemoteTarget && !hasRemoteAuth) {
+      setPiCameraError(t("piRemote.camera.errors.profileAuthRequired"));
+      addSystemLog("piRemote.camera.errors.profileAuthRequired", "warn");
+    }
   }
 
   function updateCameraNumber(field: CameraNumberField, value: string) {
@@ -5428,6 +6157,266 @@ export default function App() {
     return true;
   }
 
+  function updatePluginMotorMapping(instance: PluginInstance, field: MotorMappingField, value: string) {
+    const baseMotor = pluginInstancesToMotorProfiles([instance])[0];
+    if (!baseMotor) {
+      return;
+    }
+    setMotorConfigError(null);
+    setPluginMotorDraftByInstanceId((current) => ({
+      ...current,
+      [instance.id]: {
+        ...baseMotor,
+        ...current[instance.id],
+        [field]: value
+      }
+    }));
+  }
+
+  function pluginServoLimitDraft(instance: PluginInstance, servo: ServoProfile) {
+    const minDeg = servo.minDeg ?? 0;
+    const maxDeg = servo.maxDeg ?? 360;
+    const resetDeg = pluginServoResetDeg(instance, servo, minDeg, maxDeg);
+    return pluginServoLimitDraftByInstanceId[instance.id] ?? {
+      minDeg: formatServoAngle(minDeg),
+      maxDeg: formatServoAngle(maxDeg),
+      resetDeg: formatServoAngle(resetDeg)
+    };
+  }
+
+  function pluginServoResetDeg(instance: PluginInstance, servo: ServoProfile, minDeg = servo.minDeg ?? 0, maxDeg = servo.maxDeg ?? 360) {
+    const configured = Number(instance.config.resetDeg);
+    const fallback = (minDeg + maxDeg) / 2;
+    return clamp(Number.isFinite(configured) ? configured : fallback, minDeg, maxDeg);
+  }
+
+  function updatePluginServoLimitDraft(instance: PluginInstance, servo: ServoProfile, field: "minDeg" | "maxDeg" | "resetDeg", value: string) {
+    setPluginServoLimitErrorByInstanceId((current) => {
+      const next = { ...current };
+      delete next[instance.id];
+      return next;
+    });
+    setPluginServoLimitDraftByInstanceId((current) => ({
+      ...current,
+      [instance.id]: {
+        ...pluginServoLimitDraft(instance, servo),
+        [field]: value
+      }
+    }));
+  }
+
+  function resolvePluginServoLimitDraft(instance: PluginInstance, servo: ServoProfile, resetDegOverride?: number): PluginServoLimitDraftResult {
+    const draft = pluginServoLimitDraft(instance, servo);
+    const minDeg = clamp(Number(draft.minDeg), 0, 360);
+    const maxDeg = clamp(Number(draft.maxDeg), 0, 360);
+    if (!Number.isFinite(minDeg) || !Number.isFinite(maxDeg) || minDeg >= maxDeg) {
+      return { error: "限位范围必须在 0-360 度，且最小值小于最大值" };
+    }
+    const resetDraftValue = draft.resetDeg.trim() === "" ? pluginServoResetDeg(instance, servo, minDeg, maxDeg) : Number(draft.resetDeg);
+    const resetDeg = clamp(resetDegOverride ?? resetDraftValue, minDeg, maxDeg);
+    if (!Number.isFinite(resetDeg)) {
+      return { error: "复位角度必须是有效数字" };
+    }
+    return { minDeg, maxDeg, resetDeg };
+  }
+
+  async function savePluginServoLimits(
+    instance: PluginInstance,
+    servo: ServoProfile,
+    refreshArchitecture: () => Promise<void>,
+    replacePluginInstance?: (instance: PluginInstance) => void,
+    resetDegOverride?: number
+  ) {
+    if (!currentProject) {
+      return false;
+    }
+
+    const resolved = resolvePluginServoLimitDraft(instance, servo, resetDegOverride);
+    if ("error" in resolved) {
+      setPluginServoLimitErrorByInstanceId((current) => ({
+        ...current,
+        [instance.id]: resolved.error
+      }));
+      return false;
+    }
+    const { minDeg, maxDeg, resetDeg } = resolved;
+
+    try {
+      const updated = await updatePluginInstance(currentProject.id, instance.id, {
+        config: {
+          ...instance.config,
+          minDeg,
+          maxDeg,
+          resetDeg
+        }
+      });
+      const updatedServo = pluginInstancesToServoProfiles([updated])[0];
+      replacePluginInstance?.(updated);
+      setArchitecturePluginInstances((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      if (updatedServo) {
+        setServos((current) => mergeServoProfiles(current, [updatedServo]));
+        updateServoCommand(updatedServo.id, (state) => clampServoCommandStateToLimits(state, updatedServo));
+        cancelLiveAngleMove(updatedServo.id);
+        cancelLiveWheelMove(updatedServo.id);
+      }
+      setPluginServoLimitDraftByInstanceId((current) => {
+        return {
+          ...current,
+          [instance.id]: {
+            minDeg: formatServoAngle(minDeg),
+            maxDeg: formatServoAngle(maxDeg),
+            resetDeg: formatServoAngle(resetDeg)
+          }
+        };
+      });
+      setPluginServoLimitErrorByInstanceId((current) => {
+        const next = { ...current };
+        delete next[instance.id];
+        return next;
+      });
+      addLog("system", `ID${updated.config.servoId ?? servo.id} limit saved ${formatServoAngle(minDeg)}-${formatServoAngle(maxDeg)} deg`);
+      addLog("system", `ID${updated.config.servoId ?? servo.id} reset saved ${formatServoAngle(resetDeg)} deg`);
+      await refreshArchitecture();
+      return true;
+    } catch (error) {
+      setPluginServoLimitErrorByInstanceId((current) => ({
+        ...current,
+        [instance.id]: error instanceof Error && error.message ? error.message : "保存限位失败"
+      }));
+      return false;
+    }
+  }
+
+  async function setPluginServoResetToCurrent(
+    instance: PluginInstance,
+    servo: ServoProfile,
+    refreshArchitecture: () => Promise<void>,
+    replacePluginInstance?: (instance: PluginInstance) => void
+  ) {
+    const feedback = servoFeedback[servo.id];
+    const physicalDeg = feedback?.positionDeg ?? (feedback?.positionRaw === undefined ? undefined : rawToAngleDeg(feedback.positionRaw));
+    if (physicalDeg === undefined || !Number.isFinite(physicalDeg)) {
+      setPluginServoLimitErrorByInstanceId((current) => ({
+        ...current,
+        [instance.id]: "还没有当前位置反馈，请先读取反馈"
+      }));
+      addLog("system", `ID${servo.id} reset save skipped: no feedback`, "warn");
+      return false;
+    }
+    return savePluginServoLimits(instance, servo, refreshArchitecture, replacePluginInstance, physicalDeg);
+  }
+
+  async function sendPluginServoReset(instance: PluginInstance, servo: ServoProfile) {
+    const resolved = resolvePluginServoLimitDraft(instance, servo);
+    if ("error" in resolved) {
+      setPluginServoLimitErrorByInstanceId((current) => ({
+        ...current,
+        [instance.id]: resolved.error
+      }));
+      return false;
+    }
+    const { resetDeg } = resolved;
+    const resetLogicalDeg = servoPhysicalToLogicalAngleWithReverse(servo, resetDeg, false);
+    const currentState = getServoCommandState(servoCommandById, servo.id);
+    const resetState: ServoCommandState = {
+      ...currentState,
+      mode: "position",
+      angleDeg: formatServoAngle(resetLogicalDeg),
+      reverse: false
+    };
+    const speedRaw = Number(resetState.speedRaw);
+    const acc = parseServoAcc(resetState);
+
+    cancelLiveAngleMove(servo.id);
+    cancelLiveWheelMove(servo.id);
+    cancelWheelTurnMonitor(singleWheelTurnProgressKey(servo.id));
+    cancelServoMotionForServo(servo.id, "idle");
+    updateServoCommand(servo.id, () => clampServoCommandStateToLimits(resetState, servo));
+
+    try {
+      const sent =
+        connected && connectionMode === "controller"
+          ? await send(
+              buildServoMoveCommand(nextSeq(), {
+                id: servo.id,
+                name: servo.name,
+                angleDeg: resetDeg,
+                speedRaw,
+                acc
+              })
+            )
+          : await enqueueServoSerialTask(() =>
+              writeServoPositionUnlocked({
+                servo,
+                physicalAngleDeg: resetDeg,
+                speedRaw,
+                acc,
+                waitMs: 80,
+                logFrame: true
+              })
+            );
+      if (sent) {
+        lastServoPhysicalAngleRef.current[servo.id] = resetDeg;
+        lastServoWheelSpeedRef.current[servo.id] = 0;
+        beginServoSafetyMonitor({
+          servo,
+          mode: "position",
+          targetPositionRaw: angleDegToRaw(resetDeg),
+          reset: true,
+          stop: () => pauseServo(servo, resetState)
+        });
+        addLog("system", `ID${servo.id} reset sent ${formatServoAngle(resetDeg)} deg`);
+      }
+      return Boolean(sent);
+    } catch {
+      addSystemLog("logs.commandInvalid", "error");
+      return false;
+    }
+  }
+
+  async function savePluginMotorMapping(instance: PluginInstance, motor: MotorProfile, refreshArchitecture: () => Promise<void>) {
+    if (!currentProject) {
+      return false;
+    }
+
+    const error = validateMotorMapping(motor);
+    if (error) {
+      setMotorConfigError(error);
+      addSystemLog("logs.motorMappingInvalid", "error");
+      return false;
+    }
+
+    try {
+      const updated = await updatePluginInstance(currentProject.id, instance.id, {
+        config: {
+          ...instance.config,
+          channel: motor.channel,
+          pwmPin: motor.pwmPin ?? "",
+          in1Pin: motor.in1Pin ?? "",
+          in2Pin: motor.in2Pin ?? "",
+          enablePin: motor.enablePin ?? "",
+          sensorPin: motor.sensorPin ?? ""
+        }
+      });
+
+      setArchitecturePluginInstances((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setMotors((current) => mergeMotorProfiles(current, pluginInstancesToMotorProfiles([updated])));
+      setPluginMotorDraftByInstanceId((current) => {
+        const next = { ...current };
+        delete next[instance.id];
+        return next;
+      });
+      setMotorConfigError(null);
+      addSystemLog("logs.motorMappingSaved");
+      await refreshArchitecture();
+      return true;
+    } catch (error) {
+      setMotorConfigError("validation.invalidMotorPin");
+      addSystemLog(error instanceof Error && error.message ? error.message : "Motor plugin mapping save failed", "error");
+      return false;
+    }
+  }
+
   function downloadArduinoFirmware() {
     const blob = new Blob([buildTb6618MotorDebuggerIno(motors)], { type: "text/x-arduino;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -5473,6 +6462,34 @@ export default function App() {
     }
   }
 
+  async function sendPluginMotorConfig(motor: MotorProfile) {
+    const error = validateMotorMapping(motor);
+    if (error) {
+      setMotorConfigError(error);
+      addSystemLog("logs.motorMappingInvalid", "error");
+      return;
+    }
+
+    try {
+      const result = await dispatchPlatformCommand(
+        createPlatformCommand("motor.configure", `motor:${motor.channel}`, {
+          pwmPin: motor.pwmPin ?? "",
+          in1Pin: motor.in1Pin ?? "",
+          in2Pin: motor.in2Pin ?? "",
+          enablePin: motor.enablePin,
+          sensorPin: motor.sensorPin
+        })
+      );
+      if (result.status === "sent") {
+        setMotorConfigError(null);
+        addSystemLog("logs.motorConfigSent");
+      }
+    } catch {
+      setMotorConfigError("validation.invalidMotorPin");
+      addSystemLog("logs.motorMappingInvalid", "error");
+    }
+  }
+
   function emitPlatformCommandResult(command: PlatformCommand, result: PlatformCommandResult) {
     platformEventBusRef.current.emit({
       type: platformCommandEventType(result.status),
@@ -5489,67 +6506,68 @@ export default function App() {
 
   function servoForPlatformCommand(command: PlatformCommand): ServoProfile | null {
     const servoId = Number(command.targetDeviceId.replace("servo:", ""));
-    return servos.find((servo) => servo.id === servoId) ?? null;
+    return pluginInstancesToServoProfiles(architecturePluginInstances).find((servo) => servo.id === servoId) ?? servos.find((servo) => servo.id === servoId) ?? null;
   }
 
   async function dispatchPlatformCommand(command: PlatformCommand): Promise<PlatformCommandResult> {
-    const validationError = validatePlatformCommand(command);
-    if (validationError) {
-      const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: validationError };
-      emitPlatformCommandResult(command, result);
-      return result;
-    }
-
-    try {
-      if (command.type === "servo.ping") {
+    const handlers: PlatformCommandHandlerMap = {
+      "servo.ping": async () => {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        if (connectionMode === "controller") {
+          const response = await writeCommandAndWait({ type: "servo.ping", seq: nextSeq(), id: servoId });
+          return { status: response && response.type !== "error" ? "sent" : "timeout", response: response ?? undefined };
+        }
         const packet = await sendServoFrames(buildPingFrame(servoId), 140);
-        const result: PlatformCommandResult = {
-          commandId: command.id,
-          deviceId: command.targetDeviceId,
-          status: packet ? "sent" : "timeout",
-          response: packet ?? undefined
-        };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-
-      if (command.type === "servo.read_feedback") {
+        return { status: packet ? "sent" : "timeout", response: packet ?? undefined };
+      },
+      "servo.read_feedback": async () => {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        if (connectionMode === "controller") {
+          const response = await writeCommandAndWait({ type: "servo.read", seq: nextSeq(), id: servoId });
+          if (response?.type === "servo.feedback") {
+            rememberServoFeedback(response);
+          }
+          return { status: response && response.type !== "error" ? "sent" : "timeout", response: response ?? undefined };
+        }
         const packet = await sendServoFrames(buildReadFeedbackFrame(servoId), 180);
         if (packet?.status === 0) {
-          rememberServoFeedback(parseServoFeedback(packet));
+          const feedback = parseServoFeedback(packet);
+          rememberServoFeedback(feedback);
+          return { status: "sent", response: feedback };
         }
-        const result: PlatformCommandResult = {
-          commandId: command.id,
-          deviceId: command.targetDeviceId,
-          status: packet ? "sent" : "timeout",
-          response: packet ?? undefined
-        };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-
-      if (command.type === "servo.set_torque") {
+        return { status: packet ? "sent" : "timeout", response: packet ?? undefined };
+      },
+      "servo.set_torque": async () => {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        if (connectionMode === "controller") {
+          const response = await writeCommandAndWait({
+            type: "servo.torque",
+            seq: nextSeq(),
+            id: servoId,
+            enabled: Boolean(command.payload.enabled)
+          });
+          return { status: response && response.type !== "error" ? "sent" : "timeout", response: response ?? undefined };
+        }
         const packet = await sendServoFrames(buildTorqueFrame(servoId, Boolean(command.payload.enabled)));
-        const result: PlatformCommandResult = {
-          commandId: command.id,
-          deviceId: command.targetDeviceId,
-          status: packet ? "sent" : "timeout",
-          response: packet ?? undefined
-        };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-
-      if (command.type === "servo.set_position") {
+        return { status: packet ? "sent" : "timeout", response: packet ?? undefined };
+      },
+      "servo.set_position": async () => {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
         const servo = servoForPlatformCommand(command);
         if (!servo) {
-          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: `servo ${servoId} is not configured` };
-          emitPlatformCommandResult(command, result);
-          return result;
+          return { status: "failed", message: `servo ${servoId} is not configured` };
+        }
+        if (connectionMode === "controller") {
+          const sent = await send(
+            buildServoMoveCommand(nextSeq(), {
+              id: servo.id,
+              name: servo.name,
+              angleDeg: servoLogicalToPhysicalAngle(servo, Number(command.payload.angleDeg)),
+              speedRaw: Number(command.payload.speedRaw),
+              acc: typeof command.payload.acc === "number" ? command.payload.acc : undefined
+            })
+          );
+          return { status: sent ? "sent" : "timeout", response: sent };
         }
         const sent = await enqueueServoSerialTask(() =>
           writeServoPositionUnlocked({
@@ -5561,23 +6579,24 @@ export default function App() {
             logFrame: true
           })
         );
-        const result: PlatformCommandResult = {
-          commandId: command.id,
-          deviceId: command.targetDeviceId,
-          status: sent ? "sent" : "timeout",
-          response: sent ?? undefined
-        };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-
-      if (command.type === "servo.set_speed") {
+        return { status: sent ? "sent" : "timeout", response: sent ?? undefined };
+      },
+      "servo.set_speed": async () => {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
         const servo = servoForPlatformCommand(command);
         if (!servo) {
-          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "failed", message: `servo ${servoId} is not configured` };
-          emitPlatformCommandResult(command, result);
-          return result;
+          return { status: "failed", message: `servo ${servoId} is not configured` };
+        }
+        if (connectionMode === "controller") {
+          const sent = await send(
+            buildServoSpeedCommand(nextSeq(), {
+              id: servo.id,
+              name: servo.name,
+              speedRaw: applyServoWheelDirection(servo, Number(command.payload.speedRaw)),
+              acc: typeof command.payload.acc === "number" ? command.payload.acc : undefined
+            })
+          );
+          return { status: sent ? "sent" : "timeout", response: sent };
         }
         const sent = await enqueueServoSerialTask(() =>
           writeServoWheelSpeedUnlocked({
@@ -5589,36 +6608,25 @@ export default function App() {
             logFrame: true
           })
         );
-        const result: PlatformCommandResult = {
-          commandId: command.id,
-          deviceId: command.targetDeviceId,
-          status: sent ? "sent" : "timeout",
-          response: sent ?? undefined
-        };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-
-      const channel = command.targetDeviceId.replace("motor:", "");
-      if (command.type === "motor.set_speed") {
+        return { status: sent ? "sent" : "timeout", response: sent ?? undefined };
+      },
+      "motor.set_speed": async () => {
+        const channel = command.targetDeviceId.replace("motor:", "");
         const response = await sendMotorCommand(buildMotorSetCommand(nextSeq(), { channel, speedPercent: Number(command.payload.speedPercent), stopMode: command.payload.stopMode as MotorStopMode | undefined }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-      if (command.type === "motor.stop") {
+        return { status: response ? "sent" : "timeout", response: response ?? undefined };
+      },
+      "motor.stop": async () => {
+        const channel = command.targetDeviceId.replace("motor:", "");
         const response = await sendMotorCommand(buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-      if (command.type === "motor.read_feedback") {
+        return { status: response ? "sent" : "timeout", response: response ?? undefined };
+      },
+      "motor.read_feedback": async () => {
+        const channel = command.targetDeviceId.replace("motor:", "");
         const response = await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel });
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
-        emitPlatformCommandResult(command, result);
-        return result;
-      }
-      if (command.type === "motor.configure") {
+        return { status: response ? "sent" : "timeout", response: response ?? undefined };
+      },
+      "motor.configure": async () => {
+        const channel = command.targetDeviceId.replace("motor:", "");
         const response = await sendMotorCommand(buildMotorConfigCommand(nextSeq(), {
           channel,
           driver: "tb6618",
@@ -5628,22 +6636,149 @@ export default function App() {
           enablePin: typeof command.payload.enablePin === "string" ? command.payload.enablePin : undefined,
           sensorPin: typeof command.payload.sensorPin === "string" ? command.payload.sensorPin : undefined
         }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
-        emitPlatformCommandResult(command, result);
-        return result;
+        return { status: response ? "sent" : "timeout", response: response ?? undefined };
+      },
+      "camera.set_gimbal": async () => {
+        if (command.targetDeviceId !== "camera:main") {
+          return { status: "failed", message: "secondary camera does not support gimbal control" };
+        }
+        const error = validateCameraConfig(cameraConfig);
+        if (error) {
+          return { status: "failed", message: t(error) };
+        }
+        await sendCameraGimbalMove(Number(command.payload.panAngleDeg), Number(command.payload.tiltAngleDeg));
+        return { response: { panAngleDeg: command.payload.panAngleDeg, tiltAngleDeg: command.payload.tiltAngleDeg } };
+      },
+      "camera.center_gimbal": async () => {
+        if (command.targetDeviceId !== "camera:main") {
+          return { status: "failed", message: "secondary camera does not support gimbal control" };
+        }
+        const panAngleDeg = (cameraConfig.panMinDeg + cameraConfig.panMaxDeg) / 2;
+        const tiltAngleDeg = (cameraConfig.tiltMinDeg + cameraConfig.tiltMaxDeg) / 2;
+        await sendCameraGimbalMove(panAngleDeg, tiltAngleDeg);
+        return { response: { panAngleDeg, tiltAngleDeg } };
+      },
+      "camera.stream.start": async () => {
+        const source = cameraSourceForDevice(cameraConfig, command.targetDeviceId);
+        if (!source.streamUrl.trim()) {
+          return { status: "skipped", message: "camera stream URL is not configured" };
+        }
+        await startRaspberryPiCameraStream(source);
+        return { response: { streamUrl: source.streamUrl, sourceId: source.id } };
+      },
+      "camera.stream.stop": async () => {
+        const source = cameraSourceForDevice(cameraConfig, command.targetDeviceId);
+        await stopRaspberryPiCameraStream(source);
+        resetCameraSourceRuntime(source.id);
+        return { response: { streamUrl: source.streamUrl || null, sourceId: source.id } };
+      },
+      "robot-arm.set_pose": async () => {
+        const commandServos = servoProfilesFromCommandPayload(command.payload);
+        const commandArmConfig = Array.isArray(command.payload.joints) ? armConfigFromCommandPayload(command.payload, commandServos) : armConfig;
+        const sent = await sendArmPoseForConfig(commandArmConfig, command.payload.live === true, commandServos);
+        return sent
+          ? { response: { jointCount: commandArmConfig.joints.length } }
+          : { status: "failed", message: "robot arm command was not sent", response: { jointCount: commandArmConfig.joints.length } };
+      },
+      "robot-arm.pause": async () => {
+        if (Array.isArray(command.payload.joints)) {
+          const commandServos = servoProfilesFromCommandPayload(command.payload);
+          const commandArmConfig = armConfigFromCommandPayload(command.payload, commandServos);
+          const paused = await pauseArmForConfig(commandArmConfig, commandServos);
+          return paused
+            ? { response: { jointCount: commandArmConfig.joints.length } }
+            : { status: "failed", message: "robot arm pause was not sent", response: { jointCount: commandArmConfig.joints.length } };
+        }
+        await pauseArm();
+        return { response: { jointCount: armConfig.joints.length } };
+      },
+      "robot-arm.teach.start": async () => {
+        await startArmTeachRecording();
+        return { response: { status: armTeachStatus } };
+      },
+      "robot-arm.teach.stop": async () => {
+        await stopArmTeachRecording();
+        return { response: { status: armTeachStatus } };
+      },
+      "robot-arm.teach.play": async () => {
+        await playArmTeachTrack();
+        return { response: { trackId: selectedArmTeachTrack?.id ?? null } };
+      },
+      "pi.check": async () => {
+        await testRaspberryPiConnection();
+        return { response: { target: piTargetLabel } };
+      },
+      "pi.setup": async () => {
+        await setupRaspberryPiWorkspace();
+        return { response: { target: piTargetLabel } };
+      },
+      "pi.upload_file": async () => {
+        const file = command.payload.file instanceof File ? command.payload.file : piRemoteFile;
+        if (!file) {
+          return { status: "failed", message: t("piRemote.errors.selectFile") };
+        }
+        await uploadRaspberryPiFileWith(file);
+        return { response: { fileName: file.name } };
+      },
+      "pi.exec": async () => {
+        const runCommand = String(command.payload.command ?? piRemoteForm.command).trim();
+        if (!runCommand) {
+          return { status: "failed", message: t("piRemote.errors.commandRequired") };
+        }
+        await execRaspberryPiCommandWith(runCommand);
+        return { response: { command: runCommand } };
+      },
+      "pi.upload_and_exec": async () => {
+        const file = command.payload.file instanceof File ? command.payload.file : piRemoteFile;
+        const runCommand = String(command.payload.command ?? piRemoteForm.command).trim();
+        if (!file) {
+          return { status: "failed", message: t("piRemote.errors.selectFile") };
+        }
+        if (!runCommand) {
+          return { status: "failed", message: t("piRemote.errors.commandRequired") };
+        }
+        await uploadAndExecRaspberryPiFileWith(file, runCommand);
+        return { response: { fileName: file.name, command: runCommand } };
+      },
+      "pi.camera.check": async () => {
+        await checkRaspberryPiCamera(activeCameraSource);
+        return { response: { target: piTargetLabel } };
+      },
+      "pi.camera.start": async () => {
+        await startRaspberryPiCameraStream(activeCameraSource);
+        return { response: { target: piTargetLabel } };
+      },
+      "pi.camera.stop": async () => {
+        await stopRaspberryPiCameraStream(activeCameraSource);
+        return { response: { target: piTargetLabel } };
+      },
+      "pi.camera.install_tools": async () => {
+        await installRaspberryPiCameraTools();
+        return { response: { target: piTargetLabel } };
+      },
+      "firmware.helper.check": async () => {
+        const health = await checkFirmwareHelper();
+        return { status: health ? "sent" : "failed", response: health ?? undefined };
+      },
+      "firmware.ports.refresh": async () => {
+        await refreshFirmwarePorts();
+        return { response: { count: firmwarePorts.length } };
+      },
+      "firmware.compile": async () => {
+        await compileArduinoFirmware();
+        return { response: { board: firmwareBoard } };
+      },
+      "firmware.upload": async () => {
+        const port = String(command.payload.port || selectedFirmwarePort).trim();
+        if (!port) {
+          return { status: "failed", message: t("firmware.errors.selectPort") };
+        }
+        await uploadCompiledArduinoFirmware(port);
+        return { response: { port } };
       }
-    } catch (error) {
-      const result: PlatformCommandResult = {
-        commandId: command.id,
-        deviceId: command.targetDeviceId,
-        status: "failed",
-        message: error instanceof Error && error.message ? error.message : "platform command failed"
-      };
-      emitPlatformCommandResult(command, result);
-      return result;
-    }
+    };
 
-    const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: "skipped", message: "platform command was not handled" };
+    const result = await executePlatformCommand(command, { handlers });
     emitPlatformCommandResult(command, result);
     return result;
   }
@@ -5957,6 +7092,134 @@ export default function App() {
     }
   }
 
+  async function sendDirectMoveForServo(servo: ServoProfile, state: ServoCommandState, options: { live?: boolean } = {}): Promise<boolean> {
+    try {
+      const live = options.live ?? false;
+      const wheelMaxSpeedRaw = normalizeWheelMaxSpeedRaw(Number(state.speedRaw));
+      const wheelSliderDeg = state.wheelSliderDeg.trim() === "" ? WHEEL_SLIDER_CENTER_DEG : Number(state.wheelSliderDeg);
+      const commandWheelSpeedRaw = wheelSliderToCommandSpeedRaw(wheelSliderDeg, wheelMaxSpeedRaw);
+      const effectiveWheelSpeed = applyServoWheelDirection(servo, commandWheelSpeedRaw, state.reverse);
+      const acc = parseServoAcc(state);
+
+      if (connected && connectionMode === "controller") {
+        const sent =
+          state.mode === "wheel"
+            ? await send(
+                buildServoSpeedCommand(
+                  nextSeq(),
+                  {
+                    id: servo.id,
+                    name: servo.name,
+                    speedRaw: effectiveWheelSpeed,
+                    acc
+                  },
+                  true
+                ),
+                { log: !live }
+              )
+            : await send(
+                buildServoMoveCommand(nextSeq(), {
+                  id: servo.id,
+                  name: servo.name,
+                  angleDeg: servoLogicalToPhysicalAngleWithReverse(servo, Number(state.angleDeg), state.reverse),
+                  speedRaw: Number(state.speedRaw),
+                  acc
+                }),
+                { log: !live }
+              );
+
+        if (sent) {
+          if (state.mode === "wheel") {
+            lastServoWheelSpeedRef.current[servo.id] = effectiveWheelSpeed;
+          } else {
+            lastServoPhysicalAngleRef.current[servo.id] = servoLogicalToPhysicalAngleWithReverse(servo, Number(state.angleDeg), state.reverse);
+            lastServoWheelSpeedRef.current[servo.id] = 0;
+          }
+          if (!live) {
+            addLog("system", `ID${servo.id} controller ${state.mode === "wheel" ? "speed" : "position"} sent`);
+          }
+        }
+        return sent;
+      }
+
+      const sent =
+        state.mode === "wheel"
+          ? await (async () => {
+              cancelLiveAngleMove(servo.id);
+              cancelServoMotionForServo(servo.id, "idle");
+              const result = await enqueueServoSerialTask(() =>
+                writeServoWheelSpeedUnlocked({
+                  servo,
+                  speedRaw: effectiveWheelSpeed,
+                  acc,
+                  setupMode: true,
+                  waitMs: live ? 18 : 60,
+                  logFrame: !live
+                })
+              );
+              if (result) {
+                beginServoSafetyMonitor({
+                  servo,
+                  mode: "wheel",
+                  targetSpeedRaw: effectiveWheelSpeed,
+                  reset: !live,
+                  stop: () => pauseServo(servo, state)
+                });
+              }
+              return result;
+            })()
+          : await (async () => {
+              const targetPhysicalAngle = servoLogicalToPhysicalAngleWithReverse(servo, Number(state.angleDeg), state.reverse);
+              cancelWheelTurnMonitor(singleWheelTurnProgressKey(servo.id));
+              cancelServoMotionForServo(servo.id, "idle");
+              const result = await enqueueServoSerialTask(() =>
+                writeServoPositionUnlocked({
+                  servo,
+                  physicalAngleDeg: targetPhysicalAngle,
+                  speedRaw: Number(state.speedRaw),
+                  acc,
+                  waitMs: live ? 18 : 80,
+                  logFrame: !live
+                })
+              );
+              if (result) {
+                beginServoSafetyMonitor({
+                  servo,
+                  mode: "position",
+                  targetPositionRaw: angleDegToRaw(targetPhysicalAngle),
+                  reset: !live,
+                  stop: () => pauseServo(servo, state)
+                });
+              }
+              return result;
+            })();
+
+      if (!sent) {
+        return false;
+      }
+      if (!live) {
+        addLog("system", `ID${servo.id} direct ${state.mode === "wheel" ? "speed" : "position"} sent`);
+      }
+      if (connected && connectionMode === "servo-bus" && state.mode === "wheel") {
+        if (state.wheelTurnsEnabled && effectiveWheelSpeed !== 0) {
+          await startWheelTurnMonitor({
+            key: singleWheelTurnProgressKey(servo.id),
+            servo,
+            targetTurns: Number(state.wheelTurnsTarget),
+            effectiveSpeedRaw: effectiveWheelSpeed,
+            pause: () => pauseWheelServo(servo, state)
+          });
+        } else {
+          cancelWheelTurnMonitor(singleWheelTurnProgressKey(servo.id));
+        }
+      }
+      return true;
+    } catch {
+      addSystemLog("logs.commandInvalid", "error");
+      return false;
+    }
+  }
+
   async function sendMoveForServo(servo: ServoProfile, state: ServoCommandState, options: { live?: boolean } = {}) {
     try {
       const live = options.live ?? false;
@@ -6055,6 +7318,10 @@ export default function App() {
 
   async function pingServo(servo: ServoProfile) {
     const result = await dispatchPlatformCommand(createPlatformCommand("servo.ping", `servo:${servo.id}`));
+    if (result.response && typeof result.response === "object" && "type" in result.response) {
+      addLog("system", `ID${servo.id} controller ping ${result.status === "sent" ? "ok" : "timeout"}`, result.status === "sent" ? "info" : "warn");
+      return;
+    }
     const packet = result.response as ReturnType<typeof parseFeetechStatusPacket>;
     if (packet?.status === 0) {
       addLog("system", `ID${servo.id} ping ok`);
@@ -6067,6 +7334,14 @@ export default function App() {
 
   async function readServo(servo: ServoProfile) {
     const result = await dispatchPlatformCommand(createPlatformCommand("servo.read_feedback", `servo:${servo.id}`));
+    if (result.response && typeof result.response === "object" && "type" in result.response) {
+      if (result.response.type === "servo.feedback") {
+        addLog("system", `ID${servo.id} controller feedback ok`);
+      } else {
+        addLog("system", `ID${servo.id} controller read ${result.status === "sent" ? "ok" : "timeout"}`, result.status === "sent" ? "info" : "warn");
+      }
+      return;
+    }
     const packet = result.response as ReturnType<typeof parseFeetechStatusPacket>;
     if (!packet) {
       addLog("system", `ID${servo.id} 读取无回包`, "warn");
@@ -6091,14 +7366,14 @@ export default function App() {
   }
 
   async function nudgeCamera(deltaPan: number, deltaTilt: number) {
-    await sendCameraGimbalMove(cameraConfig.panAngleDeg + deltaPan, cameraConfig.tiltAngleDeg + deltaTilt);
+    await dispatchPlatformCommand(createPlatformCommand("camera.set_gimbal", "camera:main", {
+      panAngleDeg: cameraConfig.panAngleDeg + deltaPan,
+      tiltAngleDeg: cameraConfig.tiltAngleDeg + deltaTilt
+    }));
   }
 
   async function centerCamera() {
-    await sendCameraGimbalMove(
-      (cameraConfig.panMinDeg + cameraConfig.panMaxDeg) / 2,
-      (cameraConfig.tiltMinDeg + cameraConfig.tiltMaxDeg) / 2
-    );
+    await dispatchPlatformCommand(createPlatformCommand("camera.center_gimbal", "camera:main"));
   }
 
   async function sendCameraGimbalMove(panAngleDeg: number, tiltAngleDeg: number) {
@@ -6192,6 +7467,30 @@ export default function App() {
       return;
     }
     await dispatchPlatformCommand(createPlatformCommand("motor.read_feedback", `motor:${selectedMotor.channel}`));
+  }
+
+  async function sendPluginMotorSet(motor: MotorProfile) {
+    try {
+      cancelSingleMotorMove(motor.channel);
+      cancelMotorLinkageMovesForChannels([motor.channel]);
+      const result = await dispatchPlatformCommand(createPlatformCommand("motor.set_speed", `motor:${motor.channel}`, { speedPercent: Number(motorSpeed), stopMode }));
+      if (result.status !== "sent") {
+        addSystemLog("logs.motorCommandInvalid", "error");
+      }
+    } catch {
+      addSystemLog("logs.motorCommandInvalid", "error");
+    }
+  }
+
+  async function stopPluginMotor(motor: MotorProfile) {
+    cancelSingleMotorMove(motor.channel);
+    cancelMotorLinkageMovesForChannels([motor.channel]);
+    await dispatchPlatformCommand(createPlatformCommand("motor.stop", `motor:${motor.channel}`, { stopMode }));
+    setMotorSpeed("0");
+  }
+
+  async function readPluginMotor(motor: MotorProfile) {
+    await dispatchPlatformCommand(createPlatformCommand("motor.read_feedback", `motor:${motor.channel}`));
   }
 
   async function selectDriveBase(base: DriveBase) {
@@ -6947,6 +8246,29 @@ export default function App() {
         selectedJointId: t("platform.state.selectedJointId")
       };
     }
+    if (deviceType === "raspberry-pi") {
+      return {
+        ...common,
+        target: t("platform.state.target"),
+        helperReady: t("platform.state.helperReady"),
+        connectionReady: t("platform.state.connectionReady"),
+        cameraReady: t("platform.state.cameraReady"),
+        lastExitCode: t("platform.state.lastExitCode"),
+        lastOutput: t("platform.state.lastOutput")
+      };
+    }
+    if (deviceType === "firmware") {
+      return {
+        ...common,
+        board: t("platform.state.board"),
+        port: t("platform.state.port"),
+        helperReady: t("platform.state.helperReady"),
+        busy: t("platform.state.busy"),
+        status: t("platform.state.status"),
+        hexSizeBytes: t("platform.state.hexSizeBytes"),
+        logs: t("platform.state.logs")
+      };
+    }
     return common;
   }
 
@@ -6961,7 +8283,7 @@ export default function App() {
     return actionId ? t(`platform.controls.${actionId}`, { defaultValue: fallback }) : fallback;
   }
 
-  function updatePlatformControlDraft(deviceId: string, key: string, value: string | number | boolean) {
+  function updatePlatformControlDraft(deviceId: string, key: string, value: unknown) {
     const defaults = platformControlDefaultsForDevice(platformDevices.find((device) => device.id === deviceId));
     setPlatformControlDraftByDeviceId((current) => ({
       ...current,
@@ -6971,6 +8293,184 @@ export default function App() {
         [key]: value
       }
     }));
+  }
+
+  function handlePlatformControlValueChange(control: UiControlSchema, value: unknown) {
+    if (!selectedPlatformDevice) {
+      return;
+    }
+    updatePlatformControlDraft(selectedPlatformDevice.id, control.id, value);
+    if (selectedPlatformDevice.type === "raspberry-pi" && control.id === "command" && typeof value === "string") {
+      updatePiRemoteField("command", value);
+    }
+    if (selectedPlatformDevice.type === "firmware" && control.id === "port" && typeof value === "string") {
+      setSelectedFirmwarePort(value);
+    }
+  }
+
+  function platformControlDraftValue(control: UiControlSchema): unknown {
+    if (control.id in selectedPlatformControlDraft) {
+      return selectedPlatformControlDraft[control.id];
+    }
+    if (control.stateField && selectedPlatformState?.values && control.stateField in selectedPlatformState.values) {
+      return selectedPlatformState.values[control.stateField];
+    }
+    return "";
+  }
+
+  function platformControlDisplayValue(control: UiControlSchema): string {
+    const value = platformControlDraftValue(control);
+    if (value instanceof File) {
+      return value.name;
+    }
+    return formatPlatformDisplayValue(value as string | number | boolean | null | undefined);
+  }
+
+  function platformControlButtonIcon(actionId: string | undefined) {
+    if (actionId === "stop" || actionId === "pause" || actionId === "teach_stop" || actionId === "camera_stop" || actionId === "stop_stream") {
+      return <Square size={18} />;
+    }
+    if (actionId?.includes("read") || actionId?.includes("check") || actionId === "helper_check") {
+      return <Activity size={18} />;
+    }
+    if (actionId?.includes("upload")) {
+      return <Upload size={18} />;
+    }
+    if (actionId?.includes("stream") || actionId?.includes("camera")) {
+      return <Video size={18} />;
+    }
+    return <Send size={18} />;
+  }
+
+  function renderPlatformSchemaControl(control: UiControlSchema): ReactNode {
+    const value = platformControlDraftValue(control);
+
+    if (control.kind === "button") {
+      return null;
+    }
+
+    if (control.kind === "group") {
+      return (
+        <div className="platform-control-group" key={control.id}>
+          <span>{control.label}</span>
+          <div className="platform-control-grid">
+            {(control.controls ?? []).map((child) => renderPlatformSchemaControl(child))}
+          </div>
+        </div>
+      );
+    }
+
+    if (control.kind === "metric") {
+      return <Metric key={control.id} label={control.label} value={platformControlDisplayValue(control)} />;
+    }
+
+    if (control.kind === "output") {
+      return (
+        <label className="platform-control-output" key={control.id}>
+          <span>{control.label}</span>
+          <pre>{platformControlDisplayValue(control)}</pre>
+        </label>
+      );
+    }
+
+    if (control.kind === "cameraView") {
+      const streamUrl = String(value || cameraStreamUrl || "");
+      return (
+        <div className="platform-control-camera" key={control.id}>
+          <span>{control.label}</span>
+          {streamUrl ? <img alt={control.label} src={streamUrl} /> : <div className="empty-state">{t("empty.noCameraStream")}</div>}
+        </div>
+      );
+    }
+
+    if (control.kind === "file") {
+      return (
+        <label key={control.id}>
+          <span>{control.label}</span>
+          <input
+            type="file"
+            onChange={(event) => {
+              const file = event.target.files?.[0] ?? null;
+              handlePlatformControlValueChange(control, file);
+              if (selectedPlatformDevice?.type === "raspberry-pi") {
+                updatePiRemoteFile(file);
+              }
+            }}
+          />
+        </label>
+      );
+    }
+
+    if (control.kind === "textarea") {
+      return (
+        <label className="platform-control-wide" key={control.id}>
+          <span>{control.label}</span>
+          <textarea
+            placeholder={control.placeholder}
+            value={typeof value === "string" || typeof value === "number" ? String(value) : ""}
+            onChange={(event) => handlePlatformControlValueChange(control, event.target.value)}
+          />
+        </label>
+      );
+    }
+
+    if (control.kind === "toggle") {
+      return (
+        <label className="checkbox-field platform-control-toggle" key={control.id}>
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(event) => handlePlatformControlValueChange(control, event.target.checked)}
+          />
+          <span>{control.label}</span>
+        </label>
+      );
+    }
+
+    if (control.kind === "select") {
+      return (
+        <label key={control.id}>
+          <span>{control.label}</span>
+          <select value={String(value ?? "")} onChange={(event) => handlePlatformControlValueChange(control, event.target.value)}>
+            {(control.options ?? []).map((option) => (
+              <option key={String(option.value)} value={String(option.value)}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
+    }
+
+    if (control.kind === "joystick") {
+      return (
+        <div className="platform-control-joystick" key={control.id}>
+          <span>{control.label}</span>
+          <div className="virtual-stick-pad idle"><span /></div>
+        </div>
+      );
+    }
+
+    return (
+      <label key={control.id}>
+        <span>{control.label}</span>
+        <input
+          type={control.kind === "slider" ? "range" : "number"}
+          min={control.min}
+          max={control.max}
+          step={control.step}
+          value={typeof value === "string" || typeof value === "number" ? String(value) : ""}
+          onChange={(event) => handlePlatformControlValueChange(control, event.target.value)}
+        />
+      </label>
+    );
+  }
+
+  function platformActionControls(controls: UiControlSchema[]): UiControlSchema[] {
+    return controls.flatMap((control) => {
+      const children = control.kind === "group" ? platformActionControls(control.controls ?? []) : [];
+      return control.actionId ? [control, ...children] : children;
+    });
   }
 
   async function runPlatformControlAction(actionId: string | undefined) {
@@ -7011,7 +8511,7 @@ export default function App() {
         />
         {!device ? (
           <div className="empty-state">{t("platform.empty.noDeviceSelected")}</div>
-        ) : !panel || (device.type !== "servo" && device.type !== "motor") ? (
+        ) : !panel ? (
           <div className="empty-state">{t("platform.empty.dedicatedPanel", { type: platformTypeLabel(device.type) })}</div>
         ) : (
           <div className="platform-control-stack">
@@ -7020,66 +8520,9 @@ export default function App() {
               <Metric label={t("platform.labels.capability")} value={platformTypeLabel(device.type)} />
             </div>
 
-            {device.type === "servo" && (
-              <div className="platform-control-grid">
-                <label>
-                  <span>{t("platform.labels.position")}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={360}
-                    step={1}
-                    value={String(selectedPlatformControlDraft.angleDeg ?? 90)}
-                    onChange={(event) => updatePlatformControlDraft(device.id, "angleDeg", event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>{t("platform.labels.speed")}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={4095}
-                    step={1}
-                    value={String(selectedPlatformControlDraft.speedRaw ?? 800)}
-                    onChange={(event) => updatePlatformControlDraft(device.id, "speedRaw", event.target.value)}
-                  />
-                </label>
-                <label className="checkbox-field platform-control-toggle">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedPlatformControlDraft.enabled ?? true)}
-                    onChange={(event) => updatePlatformControlDraft(device.id, "enabled", event.target.checked)}
-                  />
-                  <span>{t("platform.labels.torqueEnabled")}</span>
-                </label>
-              </div>
-            )}
-
-            {device.type === "motor" && (
-              <div className="platform-control-grid">
-                <label>
-                  <span>{t("platform.labels.speed")}</span>
-                  <input
-                    type="number"
-                    min={-100}
-                    max={100}
-                    step={1}
-                    value={String(selectedPlatformControlDraft.speedPercent ?? 0)}
-                    onChange={(event) => updatePlatformControlDraft(device.id, "speedPercent", event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>{t("platform.labels.stopMode")}</span>
-                  <select
-                    value={String(selectedPlatformControlDraft.stopMode ?? "coast")}
-                    onChange={(event) => updatePlatformControlDraft(device.id, "stopMode", event.target.value)}
-                  >
-                    <option value="coast">{t("stopMode.coast")}</option>
-                    <option value="brake">{t("stopMode.brake")}</option>
-                  </select>
-                </label>
-              </div>
-            )}
+            <div className="platform-control-grid">
+              {panel.controls.map((control) => renderPlatformSchemaControl(control))}
+            </div>
 
             <div className="action-grid platform-control-actions">
               {device.type === "servo" && (
@@ -7088,16 +8531,15 @@ export default function App() {
                   <span>{t("platform.controls.scan")}</span>
                 </button>
               )}
-              {panel.controls
-                .filter((control) => control.actionId)
+              {platformActionControls(panel.controls)
                 .map((control) => (
                   <button
-                    className={control.actionId === "stop" ? "icon-button danger" : control.kind === "button" || control.kind === "toggle" ? "icon-button" : "icon-button primary"}
-                    key={control.id}
+                    className={control.actionId === "stop" || control.actionId === "pause" || control.actionId === "teach_stop" || control.actionId === "camera_stop" || control.actionId === "stop_stream" ? "icon-button danger" : control.kind === "button" || control.kind === "toggle" ? "icon-button" : "icon-button primary"}
+                    key={`action:${control.id}`}
                     onClick={() => void runPlatformControlAction(control.actionId)}
                     type="button"
                   >
-                    {control.actionId === "stop" ? <Square size={18} /> : control.actionId?.includes("read") ? <Activity size={18} /> : <Send size={18} />}
+                    {platformControlButtonIcon(control.actionId)}
                     <span>{platformControlLabel(control.actionId, control.label)}</span>
                   </button>
                 ))}
@@ -7488,7 +8930,9 @@ export default function App() {
     );
   }
 
-  function renderServoCommandCard(servo: ServoProfile) {
+  function renderServoCommandCard(servo: ServoProfile, options: { directSend?: boolean } = {}) {
+    const directSend = options.directSend ?? false;
+    const liveMoveOptions = { direct: directSend };
     const state = getServoCommandState(servoCommandById, servo.id);
     const numericAngle = Number(state.angleDeg);
     const numericSpeed = Number(state.speedRaw);
@@ -7566,7 +9010,7 @@ export default function App() {
                   max={WHEEL_SLIDER_MAX_DEG}
                   step={1}
                   value={formatServoAngle(wheelSliderValue)}
-                  onChange={(event) => handleWheelSliderChange(servo, state, event)}
+                  onChange={(event) => handleWheelSliderChange(servo, state, event, liveMoveOptions)}
                 />
                 <input
                   className="angle-number"
@@ -7576,7 +9020,7 @@ export default function App() {
                   max={WHEEL_SLIDER_MAX_DEG}
                   step={1}
                   value={wheelSliderInputValue}
-                  onChange={(event) => updateServoWheelSlider(servo, state, event.target.value)}
+                  onChange={(event) => updateServoWheelSlider(servo, state, event.target.value, liveMoveOptions)}
                 />
               </div>
             </div>
@@ -7602,7 +9046,7 @@ export default function App() {
                   max={logicalSpan}
                   step={1}
                   value={angleSliderValue}
-                  onChange={(event) => handleAngleSliderChange(servo, state, event)}
+                  onChange={(event) => handleAngleSliderChange(servo, state, event, liveMoveOptions)}
                 />
                 <input
                   className="angle-number"
@@ -7627,7 +9071,7 @@ export default function App() {
               value={state.speedRaw}
               onChange={(event) =>
                 state.mode === "wheel"
-                  ? updateServoWheelMaxSpeed(servo, state, event.target.value)
+                  ? updateServoWheelMaxSpeed(servo, state, event.target.value, liveMoveOptions)
                   : updateServoCommandField(servo.id, "speedRaw", event.target.value)
               }
             />
@@ -7730,7 +9174,11 @@ export default function App() {
         </div>
 
         <div className="action-grid servo-card-actions">
-          <button className="icon-button primary" onClick={() => sendMoveForServo(servo, state)} type="button">
+          <button
+            className="icon-button primary"
+            onClick={() => void (directSend ? sendDirectMoveForServo(servo, state) : sendMoveForServo(servo, state))}
+            type="button"
+          >
             <Send size={18} />
             <span>{t("actions.sendCommand")}</span>
           </button>
@@ -7757,6 +9205,282 @@ export default function App() {
         </div>
       </article>
     );
+  }
+
+  function renderPluginMotorDebugPanel(instance: PluginInstance, refreshArchitecture: () => Promise<void>) {
+    const baseMotor = pluginInstancesToMotorProfiles([instance])[0];
+    if (!baseMotor) {
+      return null;
+    }
+
+    const motor = pluginMotorDraftByInstanceId[instance.id] ?? baseMotor;
+    const numericSpeed = Number(motorSpeed);
+    const duty = Number.isFinite(numericSpeed) ? Math.abs(numericSpeed) : 0;
+    const direction = Number.isFinite(numericSpeed) ? motorDirectionFromSpeed(numericSpeed) : "stopped";
+    const previewCommand = Number.isFinite(numericSpeed) ? safeMotorCommandPreview(motor.channel, numericSpeed, stopMode) : "";
+    const feedback = motorFeedback[motor.channel];
+
+    return (
+      <div className="plugin-instance-debug-panel">
+        <div className="command-grid motor-command-grid">
+          <label>
+            <span>{t("fields.targetPort")}</span>
+            <input disabled value={`${motor.channel} · ${motor.name}`} />
+          </label>
+          <label>
+            <span>{t("fields.speedPercent")}</span>
+            <input type="number" min={-100} max={100} step={1} value={motorSpeed} onChange={(event) => updateSingleMotorSpeed(event.target.value)} />
+          </label>
+          <label>
+            <span>{t("fields.stopMode")}</span>
+            <select value={stopMode} onChange={(event) => setStopMode(event.target.value as MotorStopMode)}>
+              <option value="coast">{t("stopMode.coast")}</option>
+              <option value="brake">{t("stopMode.brake")}</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="preview-grid motor-debug-status-grid">
+          <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
+          <Metric label={t("metrics.uiDebug")} value={debugEnabled ? t("status.debug") : t("status.standby")} tone={debugEnabled ? "warning" : "neutral"} />
+          <Metric label={t("metrics.arduinoDebug")} value={motorDebugHandshakeLabel} tone={motorDebugHandshakeTone} />
+          <Metric label={t("metrics.lastError")} value={lastMotorErrorLabel} tone={lastMotorError ? "danger" : "neutral"} />
+        </div>
+
+        <div className="port-config-panel">
+          <div className="port-config-title">
+            <Settings size={17} />
+            <span>{t("panels.motorPortMapping")}</span>
+          </div>
+          <div className="port-config-grid">
+            <label>
+              <span>{t("fields.pwmPin")}</span>
+              <input placeholder={t("placeholders.pwmPin")} value={motor.pwmPin ?? ""} onChange={(event) => updatePluginMotorMapping(instance, "pwmPin", event.target.value)} />
+            </label>
+            <label>
+              <span>{t("fields.in1Pin")}</span>
+              <input placeholder={t("placeholders.in1Pin")} value={motor.in1Pin ?? ""} onChange={(event) => updatePluginMotorMapping(instance, "in1Pin", event.target.value)} />
+            </label>
+            <label>
+              <span>{t("fields.in2Pin")}</span>
+              <input placeholder={t("placeholders.in2Pin")} value={motor.in2Pin ?? ""} onChange={(event) => updatePluginMotorMapping(instance, "in2Pin", event.target.value)} />
+            </label>
+            <label>
+              <span>{t("fields.enablePin")}</span>
+              <input placeholder={t("placeholders.optionalPin")} value={motor.enablePin ?? ""} onChange={(event) => updatePluginMotorMapping(instance, "enablePin", event.target.value)} />
+            </label>
+            <label>
+              <span>{t("fields.sensorPin")}</span>
+              <input placeholder={t("placeholders.optionalPin")} value={motor.sensorPin ?? ""} onChange={(event) => updatePluginMotorMapping(instance, "sensorPin", event.target.value)} />
+            </label>
+          </div>
+          {motorConfigError && <p className="form-error">{t(motorConfigError)}</p>}
+          <div className="action-grid port-config-actions">
+            <button className="icon-button" onClick={() => void savePluginMotorMapping(instance, motor, refreshArchitecture)} type="button">
+              <Save size={18} />
+              <span>{t("actions.savePortMapping")}</span>
+            </button>
+            <button className="icon-button primary" disabled={!connected || connectionMode === "servo-bus"} onClick={() => void sendPluginMotorConfig(motor)} type="button">
+              <Send size={18} />
+              <span>{t("actions.sendPortMapping")}</span>
+            </button>
+          </div>
+        </div>
+
+        <label className="speed-slider-field">
+          <span>{t("fields.speedSlider")}</span>
+          <input
+            type="range"
+            min={-100}
+            max={100}
+            step={1}
+            value={Number.isFinite(numericSpeed) ? String(numericSpeed) : "0"}
+            onChange={(event) => updateSingleMotorSpeed(event.target.value, true)}
+          />
+        </label>
+
+        <div className="preview-grid motor-preview-grid">
+          <Metric label={t("metrics.direction")} value={formatDirectionLabel(direction)} />
+          <Metric label={t("metrics.duty")} value={Number.isFinite(duty) ? duty.toFixed(0) : "--"} suffix={Number.isFinite(duty) ? "%" : ""} />
+          <Metric className="frame-preview" label={t("metrics.json")} value={previewCommand || "--"} code />
+        </div>
+
+        <div className="action-grid">
+          <button className="icon-button primary" disabled={!connected || connectionMode === "servo-bus"} onClick={() => void sendPluginMotorSet(motor)} type="button">
+            <Send size={18} />
+            <span>{t("actions.sendCommand")}</span>
+          </button>
+          <button className="icon-button danger" disabled={!connected || connectionMode === "servo-bus"} onClick={() => void stopPluginMotor(motor)} type="button">
+            <Square size={18} />
+            <span>{t("actions.stop")}</span>
+          </button>
+          <button className="icon-button" disabled={!connected || connectionMode === "servo-bus"} onClick={() => void readPluginMotor(motor)} type="button">
+            <Activity size={18} />
+            <span>{t("actions.readFeedback")}</span>
+          </button>
+        </div>
+
+        {feedback ? (
+          <div className="preview-grid motor-preview-grid">
+            <Metric label={t("metrics.command")} value={feedback.commandedSpeedPercent} suffix="%" />
+            <Metric label={t("metrics.duty")} value={feedback.dutyPercent} suffix="%" />
+            <Metric label={t("metrics.direction")} value={formatDirectionLabel(feedback.direction ?? "stopped")} />
+            <Metric label={t("metrics.rpm")} value={feedback.speedRpm} />
+            <Metric label={t("metrics.pulseHz")} value={feedback.pulseHz} />
+            <Metric label={t("metrics.ticks")} value={feedback.encoderTicks} />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderPluginServoLimiter(
+    instance: PluginInstance,
+    servo: ServoProfile,
+    refreshArchitecture: () => Promise<void>,
+    replacePluginInstance?: (instance: PluginInstance) => void
+  ) {
+    const draft = pluginServoLimitDraft(instance, servo);
+    const error = pluginServoLimitErrorByInstanceId[instance.id];
+    const minValue = Number(draft.minDeg);
+    const maxValue = Number(draft.maxDeg);
+    const resetValue = Number(draft.resetDeg);
+    const rangeLabel = Number.isFinite(minValue) && Number.isFinite(maxValue) && minValue < maxValue
+      ? `${formatServoAngle(maxValue - minValue)} deg`
+      : "--";
+    const resetClampMin = Number.isFinite(minValue) ? clamp(minValue, 0, 360) : servo.minDeg ?? 0;
+    const resetClampMax = Number.isFinite(maxValue) ? clamp(maxValue, 0, 360) : servo.maxDeg ?? 360;
+    const resetLabel =
+      Number.isFinite(resetValue) && resetClampMin < resetClampMax
+        ? `${formatServoAngle(clamp(resetValue, resetClampMin, resetClampMax))} deg`
+        : "--";
+
+    return (
+      <section className="plugin-servo-limiter">
+        <div className="plugin-servo-limiter-head">
+          <div>
+            <strong>限位器</strong>
+            <span>限制实际运行角度，发送前会自动夹到范围内</span>
+          </div>
+          <div className="plugin-servo-limiter-metrics">
+            <Metric label="可运行范围" value={rangeLabel} />
+            <Metric label="复位角" value={resetLabel} />
+          </div>
+        </div>
+        <div className="command-grid plugin-servo-limit-grid">
+          <label>
+            <span>最小角度</span>
+            <input
+              type="number"
+              min={0}
+              max={360}
+              step={1}
+              value={draft.minDeg}
+              onChange={(event) => updatePluginServoLimitDraft(instance, servo, "minDeg", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>最大角度</span>
+            <input
+              type="number"
+              min={0}
+              max={360}
+              step={1}
+              value={draft.maxDeg}
+              onChange={(event) => updatePluginServoLimitDraft(instance, servo, "maxDeg", event.target.value)}
+            />
+          </label>
+          <label>
+            <span>复位角度</span>
+            <input
+              type="number"
+              min={0}
+              max={360}
+              step={1}
+              value={draft.resetDeg}
+              onChange={(event) => updatePluginServoLimitDraft(instance, servo, "resetDeg", event.target.value)}
+            />
+          </label>
+        </div>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="action-grid plugin-servo-limit-actions">
+          <button className="icon-button primary" onClick={() => void savePluginServoLimits(instance, servo, refreshArchitecture, replacePluginInstance)} type="button">
+            <Save size={18} />
+            <span>保存限位</span>
+          </button>
+          <button className="icon-button" onClick={() => void setPluginServoResetToCurrent(instance, servo, refreshArchitecture, replacePluginInstance)} type="button">
+            <Crosshair size={18} />
+            <span>设为当前位置</span>
+          </button>
+          <button className="icon-button" onClick={() => void sendPluginServoReset(instance, servo)} type="button">
+            <RotateCcw size={18} />
+            <span>复位</span>
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderPluginSerialMonitor(instance: PluginInstance) {
+    const recentLogs = logs.slice(0, 32);
+    const modeLabel = connected
+      ? connectionMode === "servo-bus"
+        ? "Feetech Bus 1000000 baud"
+        : "Controller 115200 baud"
+      : "未连接";
+    const targetLabel = instance.type === "servo" ? `ID ${instance.config.servoId ?? "--"}` : pluginInstanceDeviceId(instance);
+
+    return (
+      <section className="plugin-serial-monitor" aria-label="串口收发窗口">
+        <div className="plugin-serial-monitor-head">
+          <div>
+            <strong>串口收发窗口</strong>
+            <span>{modeLabel} · {targetLabel}</span>
+          </div>
+          <button className="icon-button" onClick={() => setLogs([])} type="button">
+            <Trash2 size={16} />
+            <span>清空</span>
+          </button>
+        </div>
+        <div className="plugin-serial-log-list">
+          {recentLogs.length === 0 ? (
+            <div className="empty-state">暂无收发记录</div>
+          ) : (
+            recentLogs.map((log) => (
+              <div className={`log-entry ${log.direction} ${log.level ?? "info"}`} key={log.id}>
+                <span>{log.direction.toUpperCase()}</span>
+                <code>{log.text ?? t(log.messageKey ?? "", log.values)}</code>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderPluginInstanceDebugPanel(
+    instance: PluginInstance,
+    context: { refreshArchitecture: () => Promise<void>; replacePluginInstance: (instance: PluginInstance) => void }
+  ): ReactNode | null {
+    if (instance.type === "servo") {
+      const servo = pluginInstancesToServoProfiles([instance])[0];
+      return servo ? (
+        <div className="plugin-instance-debug-stack">
+          {renderPluginServoLimiter(instance, servo, context.refreshArchitecture, context.replacePluginInstance)}
+          {renderServoCommandCard(servo, { directSend: true })}
+          {renderPluginSerialMonitor(instance)}
+        </div>
+      ) : null;
+    }
+    if (instance.type === "motor") {
+      return (
+        <div className="plugin-instance-debug-stack">
+          {renderPluginMotorDebugPanel(instance, context.refreshArchitecture)}
+          {renderPluginSerialMonitor(instance)}
+        </div>
+      );
+    }
+    return renderPluginSerialMonitor(instance);
   }
 
   function renderSimplePiRemotePage() {
@@ -8085,7 +9809,7 @@ export default function App() {
   }
 
   function renderContextTabs() {
-    if (activeSection === "console") {
+    if (activeSection === "console" || isArchitectureSection(activeSection)) {
       return null;
     }
 
@@ -8095,31 +9819,8 @@ export default function App() {
           <strong>{activeSectionLabel}</strong>
           <span>{activeModuleLabel}</span>
         </div>
-        {activeSection === "components" ? (
+        {activeSection === "tests" ? (
           <div className="context-tabs" role="tablist">
-            <button className={activeComponent === "arm" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("arm")} type="button">
-              <SlidersHorizontal size={17} />
-              <span>{t("componentTabs.arm")}</span>
-            </button>
-            <button className={activeComponent === "drive" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("drive")} type="button">
-              <Gamepad2 size={17} />
-              <span>{t("componentTabs.drive")}</span>
-            </button>
-            <button className={activeComponent === "camera" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("camera")} type="button">
-              <Camera size={17} />
-              <span>{t("componentTabs.camera")}</span>
-            </button>
-          </div>
-        ) : activeSection === "tests" ? (
-          <div className="context-tabs" role="tablist">
-            <button className={activeTest === "servo" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("servo")} type="button">
-              <Settings size={17} />
-              <span>{t("testTabs.servo")}</span>
-            </button>
-            <button className={activeTest === "motor" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("motor")} type="button">
-              <Cpu size={17} />
-              <span>{t("testTabs.motor")}</span>
-            </button>
             <button className={activeTest === "pi" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("pi")} type="button">
               <Terminal size={17} />
               <span>{t("testTabs.pi")}</span>
@@ -8165,16 +9866,129 @@ export default function App() {
     );
   }
 
+  function renderCameraModeControls() {
+    const profiles: CameraLatencyProfile[] = ["lowLatency", "balanced", "sharp"];
+    const modes: CameraStreamMode[] = ["mjpeg", "webrtc"];
+
+    return (
+      <div className="camera-mode-controls">
+        <div className="drive-base-switch camera-segmented-control" aria-label={t("aria.cameraSource")}>
+          {cameraConfig.videoSources.map((source) => (
+            <button className={cameraConfig.videoLayout === "single" && activeCameraSource.id === source.id ? "module-tab active" : "module-tab"} key={source.id} onClick={() => updateCameraActiveSource(source.id)} type="button">
+              <span>{source.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="drive-base-switch camera-segmented-control" aria-label={t("aria.cameraVideoLayout")}>
+          <button className={cameraConfig.videoLayout === "single" ? "module-tab active" : "module-tab"} onClick={() => updateCameraVideoLayout("single")} type="button">
+            <span>{t("camera.videoLayout.single")}</span>
+          </button>
+          <button className={cameraConfig.videoLayout === "dual" ? "module-tab active" : "module-tab"} onClick={() => updateCameraVideoLayout("dual")} type="button">
+            <span>{t("camera.videoLayout.dual")}</span>
+          </button>
+        </div>
+        <div className="drive-base-switch camera-segmented-control" aria-label={t("aria.cameraLatencyProfile")}>
+          {profiles.map((profile) => (
+            <button className={cameraConfig.latencyProfile === profile ? "module-tab active" : "module-tab"} key={profile} onClick={() => updateCameraLatencyProfile(profile)} type="button">
+              <span>{t(`camera.latencyProfiles.${profile}`)}</span>
+            </button>
+          ))}
+        </div>
+        <div className="drive-base-switch camera-segmented-control" aria-label={t("aria.cameraStreamMode")}>
+          {modes.map((mode) => (
+            <button className={cameraConfig.streamMode === mode ? "module-tab active" : "module-tab"} key={mode} onClick={() => updateCameraStreamMode(mode)} type="button">
+              <span>{t(`camera.streamModes.${mode}`)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderCameraVideoGrid(extraClassName = "") {
+    const layoutClass = cameraConfig.videoLayout === "dual" ? "dual" : "single";
+    return (
+      <div className={`camera-video-grid ${layoutClass} ${extraClassName}`.trim()}>
+        {cameraVideoSources.map((source) => renderCameraSourceViewer(source))}
+      </div>
+    );
+  }
+
+  function renderCameraSourceViewer(source: CameraVideoSource) {
+    const runtime = cameraSourceRuntimeById[source.id] ?? defaultCameraSourceRuntimeStatus();
+    const sourceMode: CameraStreamMode = source.id === MAIN_CAMERA_SOURCE_ID ? cameraConfig.streamMode : "mjpeg";
+    const effectiveMode: CameraEffectiveMode = sourceMode === "webrtc" && runtime.webrtcFallback ? "mjpegFallback" : sourceMode;
+    const modeLabel =
+      effectiveMode === "webrtc"
+        ? t("camera.streamModes.webrtc")
+        : effectiveMode === "mjpegFallback"
+          ? t("camera.streamModes.mjpegFallback")
+          : t("camera.streamModes.mjpeg");
+    const latencyLabel = runtime.latency?.estimateMs === null || runtime.latency?.estimateMs === undefined ? "--" : `≈${Math.round(runtime.latency.estimateMs)} ms`;
+    const rttLabel = runtime.latency?.rttMs === null || runtime.latency?.rttMs === undefined ? "--" : `${Math.round(runtime.latency.rttMs)} ms`;
+    const tone: "neutral" | "online" | "warning" | "danger" =
+      runtime.latency?.error
+        ? "danger"
+        : runtime.latency?.estimateMs === null || runtime.latency?.estimateMs === undefined
+          ? "neutral"
+          : runtime.latency.estimateMs > 800
+            ? "danger"
+            : runtime.latency.estimateMs > 350
+              ? "warning"
+              : "online";
+
+    return (
+      <div className="camera-source-panel" key={source.id}>
+        <div className="camera-viewer camera-source-viewer">
+          <CameraViewer
+            key={`${source.id}-${sourceMode}-${cameraConfig.latencyProfile}-${source.streamUrl}-${cameraStreamReloadToken}`}
+            alt={`${source.label} ${t("camera.streamAlt")}`}
+            forceMjpeg={runtime.webrtcFallback || source.id !== MAIN_CAMERA_SOURCE_ID}
+            mode={sourceMode}
+            offerUrl={cameraStreamOfferUrl(source, cameraConfig)}
+            onError={() => setCameraSourceRuntime(source.id, { loaded: false, failed: true })}
+            onLoad={() => setCameraSourceRuntime(source.id, { loaded: true, failed: false })}
+            onWebrtcFallback={(error) => setCameraSourceRuntime(source.id, { webrtcFallback: true, webrtcError: error, loaded: false, failed: false })}
+            placeholder={
+              <div className="camera-placeholder">
+                <VideoOff size={42} />
+                <span>{t("empty.noCameraStream")}</span>
+              </div>
+            }
+            streamUrl={source.streamUrl.trim()}
+          />
+          <span className="camera-source-name">{source.label}</span>
+          <span className={runtime.failed ? "camera-stream-badge error" : runtime.loaded ? "camera-stream-badge online" : "camera-stream-badge"}>
+            {source.streamUrl.trim()
+              ? runtime.failed
+                ? t("status.streamError")
+                : runtime.loaded
+                  ? `${t("status.streamOnline")} · ${modeLabel}`
+                  : t("status.streamLoading")
+              : t("status.streamMissing")}
+          </span>
+        </div>
+        <div className="preview-grid camera-source-metrics">
+          <Metric label={t("metrics.videoLatency")} value={latencyLabel} tone={tone} />
+          <Metric label={t("metrics.networkRtt")} value={rttLabel} tone={tone} />
+          <Metric label={t("fields.sourceDevicePath")} value={source.devicePath} />
+          <Metric label={t("fields.sourcePort")} value={source.port} />
+        </div>
+        {runtime.webrtcError && runtime.webrtcFallback && source.id === MAIN_CAMERA_SOURCE_ID && <p className="camera-mode-note">{t("camera.webrtcFallback", { error: runtime.webrtcError })}</p>}
+      </div>
+    );
+  }
+
   function renderConsolePage() {
     const servoTelemetryItems = Object.values(servoFeedback);
     const voltageValue = metricNumber(servoTelemetryItems.find((item) => item.voltageV !== undefined)?.voltageV);
     const currentValue = metricNumber(servoTelemetryItems.find((item) => item.currentMa !== undefined)?.currentMa);
     const temperatureValue = servoTelemetryItems.find((item) => item.temperatureC !== undefined)?.temperatureC ?? "--";
     const movingServoCount = servoTelemetryItems.filter((item) => item.moving).length;
-    const driveStickX = activeDriveBase === "mecanum" ? virtualDriveInput.strafe : virtualDriveInput.turn;
-    const driveStickY = -virtualDriveInput.forward;
-    const cameraStickX = virtualDriveInput.cameraPan;
-    const cameraStickY = -virtualDriveInput.cameraTilt;
+    const driveStickX = activeDriveBase === "mecanum" ? driveInput.strafe : driveInput.turn;
+    const driveStickY = -driveInput.forward;
+    const cameraStickX = driveInput.cameraPan;
+    const cameraStickY = -driveInput.cameraTilt;
 
     return (
       <section className="panel console-page-panel" aria-labelledby="main-console-title">
@@ -8206,36 +10020,8 @@ export default function App() {
               <Video size={17} />
               <h3 id="console-camera-title">{t("console.camera")}</h3>
             </div>
-            <div className="camera-viewer console-camera-viewer">
-              {cameraStreamUrl ? (
-                <img
-                  alt={t("camera.streamAlt")}
-                  src={cameraStreamUrl}
-                  onError={() => {
-                    setCameraStreamLoaded(false);
-                    setCameraStreamFailed(true);
-                  }}
-                  onLoad={() => {
-                    setCameraStreamLoaded(true);
-                    setCameraStreamFailed(false);
-                  }}
-                />
-              ) : (
-                <div className="camera-placeholder">
-                  <VideoOff size={42} />
-                  <span>{t("empty.noCameraStream")}</span>
-                </div>
-              )}
-              <span className={cameraStreamFailed ? "camera-stream-badge error" : cameraStreamLoaded ? "camera-stream-badge online" : "camera-stream-badge"}>
-                {cameraStreamUrl
-                  ? cameraStreamFailed
-                    ? t("status.streamError")
-                    : cameraStreamLoaded
-                      ? t("status.streamOnline")
-                      : t("status.streamLoading")
-                  : t("status.streamMissing")}
-              </span>
-            </div>
+            {renderCameraModeControls()}
+            {renderCameraVideoGrid("console-camera-viewer")}
           </section>
 
           <section className="console-card console-pose" aria-labelledby="robot-pose-title">
@@ -8303,9 +10089,10 @@ export default function App() {
 
   function renderPiCameraCard() {
     const cameraTarget = `${piRemoteForm.username || "pi"}@${piRemoteForm.host || "raspberrypi.local"}`;
-    const deviceLabel = piCameraCheck?.device ?? "--";
+    const deviceLabel = piCameraCheck?.device ?? activeCameraSource.devicePath;
     const toolLabel = piCameraCheck ? (piCameraCheck.ustreamerAvailable ? t("status.ready") : t("piRemote.camera.toolMissing")) : t("status.unknown");
-    const streamLabel = piCameraCheck?.streamUrl || cameraStreamUrl || "--";
+    const webrtcToolLabel = piCameraCheck ? (piCameraCheck.webrtcAvailable ? t("status.ready") : t("piRemote.camera.webrtcUnavailable")) : t("status.unknown");
+    const streamLabel = piCameraCheck?.streamUrl || activeCameraSource.streamUrl || "--";
     const statusTone: "neutral" | "online" | "warning" | "danger" =
       piCameraStatus === "error" ? "danger" : piCameraStatus === "streaming" ? "online" : piCameraBusy ? "warning" : "neutral";
 
@@ -8318,20 +10105,23 @@ export default function App() {
         <div className="preview-grid pi-camera-status-grid">
           <Metric label={t("metrics.piTarget")} value={cameraTarget} />
           <Metric label={t("piRemote.camera.statusLabel")} value={t(`piRemote.camera.status.${piCameraStatus}`)} tone={statusTone} />
+          <Metric label={t("fields.activeVideoSource")} value={activeCameraSource.label} />
           <Metric label={t("piRemote.camera.device")} value={deviceLabel} tone={piCameraCheck?.cameraAvailable ? "online" : piCameraCheck ? "danger" : "neutral"} />
+          <Metric label={t("fields.sourcePort")} value={activeCameraSource.port} />
           <Metric label={t("piRemote.camera.tool")} value={toolLabel} tone={piCameraCheck?.ustreamerAvailable ? "online" : piCameraCheck ? "warning" : "neutral"} />
+          <Metric label={t("piRemote.camera.webrtc")} value={webrtcToolLabel} tone={piCameraCheck?.webrtcAvailable ? "online" : piCameraCheck ? "warning" : "neutral"} />
           <Metric className="frame-preview" code label={t("metrics.stream")} value={streamLabel} />
         </div>
         <div className="action-grid pi-camera-actions">
-          <button className="icon-button" disabled={!canUsePiCamera} onClick={checkRaspberryPiCamera} type="button">
+          <button className="icon-button" disabled={!canUsePiCamera} onClick={() => void checkRaspberryPiCamera(activeCameraSource)} type="button">
             <Radar size={18} />
             <span>{t("actions.checkPiCamera")}</span>
           </button>
-          <button className="icon-button primary" disabled={!canUsePiCamera} onClick={startRaspberryPiCameraStream} type="button">
+          <button className="icon-button primary" disabled={!canUsePiCamera} onClick={() => void startRaspberryPiCameraStream(activeCameraSource)} type="button">
             <Play size={18} />
             <span>{t("actions.startPiCamera")}</span>
           </button>
-          <button className="icon-button" disabled={!piConnectionReady || piCameraBusy} onClick={stopRaspberryPiCameraStream} type="button">
+          <button className="icon-button" disabled={!piConnectionReady || piCameraBusy} onClick={() => void stopRaspberryPiCameraStream(activeCameraSource)} type="button">
             <Square size={18} />
             <span>{t("actions.stopPiCamera")}</span>
           </button>
@@ -8391,12 +10181,16 @@ export default function App() {
                     ? cameraStreamFailed
                       ? t("status.streamError")
                       : cameraStreamLoaded
-                        ? t("status.streamOnline")
+                        ? `${t("status.streamOnline")} · ${cameraModeLabel}`
                         : t("status.streamLoading")
                     : t("status.streamMissing")
                 }
                 tone={cameraStreamFailed ? "danger" : cameraStreamLoaded ? "online" : "neutral"}
               />
+              <Metric label={t("metrics.videoLatency")} value={cameraLatencyLabel} tone={cameraLatencyTone} />
+              <Metric label={t("metrics.networkRtt")} value={cameraLatencyDetail} tone={cameraLatencyTone} />
+              <Metric label={t("metrics.streamMode")} value={cameraModeLabel} tone={cameraWebrtcFallback ? "warning" : activeCameraStreamMode === "webrtc" ? "online" : "neutral"} />
+              <Metric label={t("metrics.latencyProfile")} value={`${cameraProfileLabel} · ${cameraProfileMeta}`} />
               <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
               <Metric label={t("status.debugMode")} value={debugEnabled ? t("status.debug") : t("status.standby")} tone={debugEnabled ? "warning" : "neutral"} />
               <Metric label={t("metrics.gimbal")} value={cameraValidationError ? t("status.configInvalid") : cameraCanCommand ? t("status.ready") : t("status.standby")} tone={cameraValidationError ? "danger" : cameraCanCommand ? "online" : "neutral"} />
@@ -8420,36 +10214,8 @@ export default function App() {
           </section>
 
           <section className="drive-page-camera" aria-label={t("panels.driveCamera")}>
-            <div className="camera-viewer">
-              {cameraStreamUrl ? (
-                <img
-                  alt={t("camera.streamAlt")}
-                  src={cameraStreamUrl}
-                  onError={() => {
-                    setCameraStreamLoaded(false);
-                    setCameraStreamFailed(true);
-                  }}
-                  onLoad={() => {
-                    setCameraStreamLoaded(true);
-                    setCameraStreamFailed(false);
-                  }}
-                />
-              ) : (
-                <div className="camera-placeholder">
-                  <VideoOff size={42} />
-                  <span>{t("empty.noCameraStream")}</span>
-                </div>
-              )}
-              <span className={cameraStreamFailed ? "camera-stream-badge error" : cameraStreamLoaded ? "camera-stream-badge online" : "camera-stream-badge"}>
-                {cameraStreamUrl
-                  ? cameraStreamFailed
-                    ? t("status.streamError")
-                    : cameraStreamLoaded
-                      ? t("status.streamOnline")
-                      : t("status.streamLoading")
-                  : t("status.streamMissing")}
-              </span>
-            </div>
+            {renderCameraModeControls()}
+            {renderCameraVideoGrid()}
             {renderPiCameraCard()}
           </section>
 
@@ -8528,13 +10294,71 @@ export default function App() {
                 <option value="brake">{t("stopMode.brake")}</option>
               </select>
             </label>
+            <label>
+              <span>{t("fields.activeVideoSource")}</span>
+              <select value={activeCameraSource.id} onChange={(event) => updateCameraActiveSource(event.target.value)}>
+                {cameraConfig.videoSources.map((source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t("fields.videoLayout")}</span>
+              <select value={cameraConfig.videoLayout} onChange={(event) => updateCameraVideoLayout(event.target.value as CameraVideoLayout)}>
+                <option value="single">{t("camera.videoLayout.single")}</option>
+                <option value="dual">{t("camera.videoLayout.dual")}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t("fields.sourceDevicePath")}</span>
+              <input value={activeCameraSource.devicePath} onChange={(event) => updateCameraSourceText(activeCameraSource.id, "devicePath", event.target.value)} />
+            </label>
+            <label>
+              <span>{t("fields.sourcePort")}</span>
+              <input inputMode="numeric" min={1} max={65535} step={1} type="number" value={activeCameraSource.port} onChange={(event) => updateCameraSourcePort(activeCameraSource.id, event.target.value)} />
+            </label>
+            <label className="drive-param-wide">
+              <span>{t("fields.sourceStreamUrl")}</span>
+              <input
+                placeholder={t("placeholders.streamUrl")}
+                type="url"
+                value={activeCameraSource.streamUrl}
+                onChange={(event) => updateCameraSourceText(activeCameraSource.id, "streamUrl", event.target.value)}
+              />
+            </label>
             <label className="drive-param-wide">
               <span>{t("fields.streamUrl")}</span>
               <input
                 placeholder={t("placeholders.streamUrl")}
                 type="url"
                 value={cameraConfig.streamUrl}
-                onChange={(event) => updateCameraText(event.target.value)}
+                onChange={(event) => updateCameraText("streamUrl", event.target.value)}
+              />
+            </label>
+            <label>
+              <span>{t("fields.cameraStreamMode")}</span>
+              <select value={cameraConfig.streamMode} onChange={(event) => updateCameraStreamMode(event.target.value as CameraStreamMode)}>
+                <option value="mjpeg">{t("camera.streamModes.mjpeg")}</option>
+                <option value="webrtc">{t("camera.streamModes.webrtc")}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t("fields.latencyProfile")}</span>
+              <select value={cameraConfig.latencyProfile} onChange={(event) => updateCameraLatencyProfile(event.target.value as CameraLatencyProfile)}>
+                <option value="lowLatency">{t("camera.latencyProfiles.lowLatency")}</option>
+                <option value="balanced">{t("camera.latencyProfiles.balanced")}</option>
+                <option value="sharp">{t("camera.latencyProfiles.sharp")}</option>
+              </select>
+            </label>
+            <label className="drive-param-wide">
+              <span>{t("fields.webrtcOfferUrl")}</span>
+              <input
+                placeholder={t("placeholders.webrtcOfferUrl")}
+                type="url"
+                value={cameraConfig.webrtcOfferUrl}
+                onChange={(event) => updateCameraText("webrtcOfferUrl", event.target.value)}
               />
             </label>
             <label>
@@ -8608,11 +10432,15 @@ export default function App() {
             value={
               activeSection === "console"
                 ? t("sections.consoleValue")
+                : activeSection === "plugins"
+                  ? t("sections.pluginsValue")
                 : activeSection === "components"
                   ? t("sections.componentsValue")
-                  : activeSection === "tests"
-                    ? t("sections.testsValue")
-                    : t("sections.settingsValue")
+                  : activeSection === "robots"
+                    ? t("sections.robotsValue")
+                    : activeSection === "tests"
+                      ? t("sections.testsValue")
+                      : t("sections.settingsValue")
             }
             tone="neutral"
           />
@@ -8621,9 +10449,9 @@ export default function App() {
 
       <section className="control-bar glass-surface" aria-label={t("aria.connectionControls")}>
         <div className="control-actions">
-          <button className="icon-button primary" onClick={connected ? disconnectSerial : connectSerial} type="button">
+          <button className="icon-button primary" disabled={serialConnecting} onClick={connected ? disconnectSerial : connectSerial} type="button">
             {connected ? <Unplug size={18} /> : <Usb size={18} />}
-            <span>{connected ? t("actions.disconnectSerial") : t("actions.connectSerial")}</span>
+            <span>{serialConnecting ? "连接中" : connected ? t("actions.disconnectSerial") : t("actions.connectSerial")}</span>
           </button>
           <button
             className={debugEnabled ? "icon-button danger" : "icon-button"}
@@ -8642,12 +10470,20 @@ export default function App() {
             <Gauge size={17} />
             <span>{t("sections.console")}</span>
           </button>
+          <button className={activeSection === "plugins" ? "module-tab active" : "module-tab"} onClick={() => selectSection("plugins")} type="button">
+            <Cpu size={17} />
+            <span>{t("sections.plugins")}</span>
+          </button>
           <button className={activeSection === "components" ? "module-tab active" : "module-tab"} onClick={() => selectSection("components")} type="button">
-            <SlidersHorizontal size={17} />
+            <Boxes size={17} />
             <span>{t("sections.components")}</span>
           </button>
+          <button className={activeSection === "robots" ? "module-tab active" : "module-tab"} onClick={() => selectSection("robots")} type="button">
+            <Bot size={17} />
+            <span>{t("sections.robots")}</span>
+          </button>
           <button className={activeSection === "tests" ? "module-tab active" : "module-tab"} onClick={() => selectSection("tests")} type="button">
-            <Cpu size={17} />
+            <Activity size={17} />
             <span>{t("sections.tests")}</span>
           </button>
           <button className={activeSection === "settings" ? "module-tab active" : "module-tab"} onClick={() => selectSection("settings")} type="button">
@@ -8711,7 +10547,18 @@ export default function App() {
         ) : (
           <>
             {renderContextTabs()}
-            {activeSection === "tests" && activeTest === "pi" ? (
+            {isArchitectureSection(activeSection) ? (
+              <ThreeLayerWorkspace
+                dataServiceOnline={databaseStatus !== "offline" && databaseStatus !== "error"}
+                dispatchPlatformCommand={dispatchPlatformCommand}
+                layer={activeSection}
+                onPluginInstancesChange={syncArchitecturePluginInstances}
+                onPrepareCommand={prepareArchitectureCommand}
+                project={currentProject}
+                renderPluginDebugPanel={renderPluginInstanceDebugPanel}
+                uiPanels={BUILTIN_UI_PANELS}
+              />
+            ) : activeSection === "tests" ? (
               renderSimplePiRemotePage()
             ) : activeModule === "camera" ? (
               renderDrivePage()
@@ -8845,7 +10692,31 @@ export default function App() {
                   placeholder={t("placeholders.streamUrl")}
                   type="url"
                   value={cameraConfig.streamUrl}
-                  onChange={(event) => updateCameraText(event.target.value)}
+                  onChange={(event) => updateCameraText("streamUrl", event.target.value)}
+                />
+              </label>
+              <label>
+                <span>{t("fields.cameraStreamMode")}</span>
+                <select value={cameraConfig.streamMode} onChange={(event) => updateCameraStreamMode(event.target.value as CameraStreamMode)}>
+                  <option value="mjpeg">{t("camera.streamModes.mjpeg")}</option>
+                  <option value="webrtc">{t("camera.streamModes.webrtc")}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t("fields.latencyProfile")}</span>
+                <select value={cameraConfig.latencyProfile} onChange={(event) => updateCameraLatencyProfile(event.target.value as CameraLatencyProfile)}>
+                  <option value="lowLatency">{t("camera.latencyProfiles.lowLatency")}</option>
+                  <option value="balanced">{t("camera.latencyProfiles.balanced")}</option>
+                  <option value="sharp">{t("camera.latencyProfiles.sharp")}</option>
+                </select>
+              </label>
+              <label className="full-field">
+                <span>{t("fields.webrtcOfferUrl")}</span>
+                <input
+                  placeholder={t("placeholders.webrtcOfferUrl")}
+                  type="url"
+                  value={cameraConfig.webrtcOfferUrl}
+                  onChange={(event) => updateCameraText("webrtcOfferUrl", event.target.value)}
                 />
               </label>
               <label>
@@ -9536,7 +11407,7 @@ export default function App() {
                       <Cpu size={18} />
                       <span>{t("actions.compileFirmware")}</span>
                     </button>
-                    <button className="icon-button" disabled={!canUploadFirmware} onClick={uploadCompiledArduinoFirmware} type="button">
+                    <button className="icon-button" disabled={!canUploadFirmware} onClick={() => void uploadCompiledArduinoFirmware()} type="button">
                       <Upload size={18} />
                       <span>{t("actions.uploadFirmware")}</span>
                     </button>
@@ -9790,6 +11661,25 @@ function nextMotorDraft(motors: MotorProfile[]) {
     }
   }
   return defaultMotorDraft;
+}
+
+function mergeServoProfiles(current: ServoProfile[], incoming: ServoProfile[]): ServoProfile[] {
+  const byId = new Map(current.map((servo) => [servo.id, servo]));
+  for (const servo of incoming) {
+    byId.set(servo.id, { ...byId.get(servo.id), ...servo });
+  }
+  const next = Array.from(byId.values()).sort((a, b) => a.id - b.id);
+  return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+}
+
+function mergeMotorProfiles(current: MotorProfile[], incoming: MotorProfile[]): MotorProfile[] {
+  const byChannel = new Map(current.map((motor) => [normalizeMotorChannel(motor.channel), motor]));
+  for (const motor of incoming) {
+    const channel = normalizeMotorChannel(motor.channel);
+    byChannel.set(channel, { ...byChannel.get(channel), ...motor, channel });
+  }
+  const next = Array.from(byChannel.values()).sort((a, b) => normalizeMotorChannel(a.channel).localeCompare(normalizeMotorChannel(b.channel), undefined, { numeric: true }));
+  return JSON.stringify(next) === JSON.stringify(current) ? current : next;
 }
 
 function nextServoLinkageGroupName(groups: ServoLinkageGroup[]) {

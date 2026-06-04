@@ -1,7 +1,7 @@
 import { createPlatformCommand, PlatformCommand } from "./commands";
 import { DeviceDescriptor, PlatformEvent, UiPanelSchema } from "./types";
 
-export type PlatformControlDraft = Record<string, string | number | boolean | null | undefined>;
+export type PlatformControlDraft = Record<string, unknown>;
 
 export function resolveSelectedPlatformDeviceId(devices: DeviceDescriptor[], selectedId: string | null | undefined, preferredId?: string | null): string {
   if (selectedId && devices.some((device) => device.id === selectedId)) {
@@ -32,7 +32,11 @@ export function findPlatformUiPanelForDevice(device: DeviceDescriptor | undefine
     return undefined;
   }
   const capabilityIds = new Set(device.capabilities.map((capability) => capability.id));
-  return panels.find((panel) => panel.capability === device.type || capabilityIds.has(panel.capability));
+  return (
+    panels.find((panel) => panel.deviceId === device.id) ??
+    panels.find((panel) => panel.driverId === device.driverId) ??
+    panels.find((panel) => !panel.driverId && !panel.deviceId && (panel.capability === device.type || capabilityIds.has(panel.capability)))
+  );
 }
 
 export function platformControlDefaultsForDevice(device: DeviceDescriptor | undefined): PlatformControlDraft {
@@ -50,6 +54,23 @@ export function platformControlDefaultsForDevice(device: DeviceDescriptor | unde
     return {
       speedPercent: 0,
       stopMode: "coast"
+    };
+  }
+  if (device.type === "camera") {
+    return {
+      panAngleDeg: device.metadata?.panAngleDeg ?? 90,
+      tiltAngleDeg: device.metadata?.tiltAngleDeg ?? 90
+    };
+  }
+  if (device.type === "firmware") {
+    return {
+      port: device.metadata?.port ?? ""
+    };
+  }
+  if (device.type === "raspberry-pi") {
+    return {
+      command: "",
+      file: null
     };
   }
   return {};
@@ -103,6 +124,89 @@ export function platformCommandForControl(device: DeviceDescriptor, actionId: st
     }
     if (actionId === "read_feedback") {
       return createPlatformCommand("motor.read_feedback", device.id);
+    }
+  }
+
+  if (device.type === "camera") {
+    if (actionId === "open_stream" || actionId === "start_stream") {
+      return createPlatformCommand("camera.stream.start", device.id);
+    }
+    if (actionId === "stop_stream") {
+      return createPlatformCommand("camera.stream.stop", device.id);
+    }
+    if (actionId === "center_gimbal") {
+      return createPlatformCommand("camera.center_gimbal", device.id);
+    }
+    if (actionId === "move_gimbal" || actionId === "set_gimbal") {
+      const panAngleDeg = Number(draft.panAngleDeg);
+      const tiltAngleDeg = Number(draft.tiltAngleDeg);
+      if (!Number.isFinite(panAngleDeg) || !Number.isFinite(tiltAngleDeg)) {
+        return "camera gimbal control requires panAngleDeg and tiltAngleDeg";
+      }
+      return createPlatformCommand("camera.set_gimbal", device.id, { panAngleDeg, tiltAngleDeg });
+    }
+  }
+
+  if (device.type === "robot-arm") {
+    if (actionId === "send_pose" || actionId === "set_pose") {
+      return createPlatformCommand("robot-arm.set_pose", device.id, { joints: Array.isArray(draft.joints) ? draft.joints : [] });
+    }
+    if (actionId === "pause") {
+      return createPlatformCommand("robot-arm.pause", device.id);
+    }
+    if (actionId === "teach_start") {
+      return createPlatformCommand("robot-arm.teach.start", device.id);
+    }
+    if (actionId === "teach_stop") {
+      return createPlatformCommand("robot-arm.teach.stop", device.id);
+    }
+    if (actionId === "teach_play") {
+      return createPlatformCommand("robot-arm.teach.play", device.id);
+    }
+  }
+
+  if (device.type === "raspberry-pi") {
+    if (actionId === "check") {
+      return createPlatformCommand("pi.check", device.id);
+    }
+    if (actionId === "setup") {
+      return createPlatformCommand("pi.setup", device.id);
+    }
+    if (actionId === "upload_file") {
+      return createPlatformCommand("pi.upload_file", device.id, { file: draft.file });
+    }
+    if (actionId === "exec") {
+      return createPlatformCommand("pi.exec", device.id, { command: String(draft.command ?? "") });
+    }
+    if (actionId === "upload_and_exec") {
+      return createPlatformCommand("pi.upload_and_exec", device.id, { file: draft.file, command: String(draft.command ?? "") });
+    }
+    if (actionId === "camera_check") {
+      return createPlatformCommand("pi.camera.check", device.id);
+    }
+    if (actionId === "camera_start") {
+      return createPlatformCommand("pi.camera.start", device.id);
+    }
+    if (actionId === "camera_stop") {
+      return createPlatformCommand("pi.camera.stop", device.id);
+    }
+    if (actionId === "camera_install_tools") {
+      return createPlatformCommand("pi.camera.install_tools", device.id);
+    }
+  }
+
+  if (device.type === "firmware") {
+    if (actionId === "helper_check") {
+      return createPlatformCommand("firmware.helper.check", device.id);
+    }
+    if (actionId === "ports_refresh") {
+      return createPlatformCommand("firmware.ports.refresh", device.id);
+    }
+    if (actionId === "compile") {
+      return createPlatformCommand("firmware.compile", device.id);
+    }
+    if (actionId === "upload") {
+      return createPlatformCommand("firmware.upload", device.id, { port: String(draft.port ?? "") });
     }
   }
 

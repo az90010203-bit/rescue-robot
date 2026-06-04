@@ -73,6 +73,12 @@ describe("app database snapshots", () => {
     expect(result.snapshot.motors[0]).toMatchObject({ channel: "M9", name: "Lift", pwmPin: "D5", in1Pin: "D4", in2Pin: "D7" });
     expect(result.snapshot.motorLinkageGroups[0]).toMatchObject({ id: "lift-pair", name: "Lift Pair", masterSpeedPercent: 40 });
     expect(result.snapshot.cameraConfig.streamUrl).toBe("http://camera.local/stream");
+    expect(result.snapshot.cameraConfig.videoSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "main", streamUrl: "http://camera.local/stream" }),
+        expect.objectContaining({ id: "secondary", devicePath: "/dev/video1", port: 8081 })
+      ])
+    );
     expect(result.snapshot.inputMapping.keyboard.forward).toBe("KeyI");
     expect(result.snapshot.language).toBe("en-US");
     expect(stored?.servos).toEqual(result.snapshot.servos);

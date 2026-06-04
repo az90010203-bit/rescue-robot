@@ -247,10 +247,11 @@ describe("Raspberry Pi remote client", () => {
   });
 
   it("parses USB camera readiness from remote output", () => {
-    expect(parsePiCameraCheckOutput("device:/dev/video0\ncamera:0\nustreamer:0\nrunning:1\n")).toEqual({
+    expect(parsePiCameraCheckOutput("device:/dev/video0\ncamera:0\nustreamer:0\nwebrtc:0\nrunning:1\n")).toEqual({
       cameraAvailable: true,
       device: "/dev/video0",
       ustreamerAvailable: true,
+      webrtcAvailable: true,
       streamRunning: false
     });
 
@@ -258,6 +259,7 @@ describe("Raspberry Pi remote client", () => {
       cameraAvailable: false,
       device: null,
       ustreamerAvailable: false,
+      webrtcAvailable: false,
       streamRunning: false
     });
   });
@@ -265,7 +267,7 @@ describe("Raspberry Pi remote client", () => {
   it("checks USB camera, ustreamer, and stream status", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({
-        stdout: "device:/dev/video0\ncamera:0\nustreamer:0\nrunning:0\n",
+        stdout: "device:/dev/video0\ncamera:0\nustreamer:0\nwebrtc:0\nrunning:0\n",
         stderr: "",
         exitCode: 0,
         signal: null,
@@ -284,8 +286,10 @@ describe("Raspberry Pi remote client", () => {
       cameraAvailable: true,
       device: "/dev/video0",
       ustreamerAvailable: true,
+      webrtcAvailable: true,
       streamRunning: true,
-      streamUrl: "http://pi.local:8080/stream"
+      streamUrl: "http://pi.local:8080/stream",
+      webrtcOfferUrl: "http://pi.local:8080/offer"
     });
   });
 
@@ -304,7 +308,17 @@ describe("Raspberry Pi remote client", () => {
     });
     const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
     expect(body.command).toContain("camera-start.sh");
+    expect(body.command).toContain('pid_file="${camera_dir}/camera-${port}.pid"');
+    expect(body.command).toContain('log_file="${camera_dir}/camera-${port}.log"');
+    expect(body.command).toContain("/latency");
+    expect(body.command).toContain("/offer");
+    expect(body.command).toContain("camera-venv");
+    expect(body.command).toContain("aiohttp aiortc");
     expect(body.command).toContain("ustreamer --device");
+    expect(body.command).toContain("'ffmpeg', '-hide_banner'");
+    expect(body.command).toContain("'-fflags', 'nobuffer'");
+    expect(body.command).toContain("'-c:v', 'copy'");
+    expect(body.command).toContain('fps="${CAMERA_FPS:-30}"');
     expect(body.command).not.toContain("apt-get install");
   });
 
@@ -312,24 +326,79 @@ describe("Raspberry Pi remote client", () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ stdout: "", stderr: "", exitCode: 0, signal: null, durationMs: 15, timedOut: false }))
-      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
+      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\nsize:320x240\nfps:30\nwebrtc:0\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
 
     await expect(
       startPiCameraStream(
         { host: "raspberrypi.local", port: 22, username: "pi", password: "secret" },
         { workspaceDir: "~/rescue-robot" },
-        { fetcher: fetcher as unknown as typeof fetch }
+        { fetcher: fetcher as unknown as typeof fetch, width: 320, height: 240, fps: 30 }
       )
     ).resolves.toMatchObject({
       ok: true,
       device: "/dev/video0",
       streamUrl: "http://raspberrypi.local:8080/stream",
+      webrtcOfferUrl: "http://raspberrypi.local:8080/offer",
       exec: { exitCode: 0 }
     });
 
     const startBody = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[1][1].body));
+    expect(startBody.command).toContain("CAMERA_WIDTH=320 CAMERA_HEIGHT=240 CAMERA_FPS=30");
     expect(startBody.command).toContain("camera-start.sh");
     expect(startBody.command).toContain("'/dev/video0' 8080");
+  });
+
+  it("checks and starts the secondary USB camera on its own port", async () => {
+    const secondarySource = { id: "secondary", label: "Second Camera", devicePath: "/dev/video1", port: 8081, streamUrl: "http://pi.local:8081/stream" };
+    const checkFetcher = vi.fn(async () =>
+      jsonResponse({
+        stdout: "device:/dev/video1\ncamera:0\nustreamer:0\nwebrtc:1\nrunning:1\n",
+        stderr: "",
+        exitCode: 0,
+        signal: null,
+        durationMs: 20,
+        timedOut: false
+      })
+    );
+
+    await expect(
+      checkPiCamera(
+        { host: "pi.local", port: 22, username: "pi", password: "secret" },
+        { workspaceDir: "~/rescue-robot" },
+        secondarySource,
+        { fetcher: checkFetcher as unknown as typeof fetch }
+      )
+    ).resolves.toMatchObject({
+      cameraAvailable: true,
+      device: "/dev/video1",
+      streamRunning: false,
+      streamUrl: "http://pi.local:8081/stream",
+      webrtcOfferUrl: "http://pi.local:8081/offer"
+    });
+    const checkBody = JSON.parse(String((checkFetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(checkBody.command).toContain("requested_device='/dev/video1'");
+    expect(checkBody.command).toContain("camera-8081.pid");
+
+    const startFetcher = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ stdout: "", stderr: "", exitCode: 0, signal: null, durationMs: 15, timedOut: false }))
+      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video1\nport:8081\nsize:640x480\nfps:30\nwebrtc:1\npid:456\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
+
+    await expect(
+      startPiCameraStream(
+        { host: "pi.local", port: 22, username: "pi", password: "secret" },
+        { workspaceDir: "~/rescue-robot" },
+        secondarySource,
+        { fetcher: startFetcher as unknown as typeof fetch, width: 640, height: 480, fps: 30 }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      device: "/dev/video1",
+      streamUrl: "http://pi.local:8081/stream",
+      webrtcOfferUrl: "http://pi.local:8081/offer"
+    });
+    const startBody = JSON.parse(String((startFetcher.mock.calls as unknown as Array<[string, RequestInit]>)[1][1].body));
+    expect(startBody.command).toContain("'/dev/video1' 8081");
   });
 
   it("stops the USB camera stream through the pid file", async () => {
@@ -345,7 +414,26 @@ describe("Raspberry Pi remote client", () => {
 
     const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
     expect(body.command).toContain("camera-stop.sh");
+    expect(body.command).toContain("camera-8080.pid");
     expect(body.command).toContain("camera.pid");
+  });
+
+  it("stops the secondary stream without touching the legacy primary pid file", async () => {
+    const fetcher = vi.fn(async () => jsonResponse({ stdout: "stopped:1\n", stderr: "", exitCode: 0, signal: null, durationMs: 18, timedOut: false }));
+
+    await expect(
+      stopPiCameraStream(
+        { host: "pi.local", port: 22, username: "pi", password: "secret" },
+        { workspaceDir: "~/rescue-robot" },
+        { id: "secondary", label: "Second Camera", devicePath: "/dev/video1", port: 8081, streamUrl: "http://pi.local:8081/stream" },
+        { fetcher: fetcher as unknown as typeof fetch }
+      )
+    ).resolves.toMatchObject({ exitCode: 0 });
+
+    const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(body.command).toContain("camera-stop.sh' 8081");
+    expect(body.command).toContain("camera-8081.pid");
+    expect(body.command).not.toContain("legacy_pid_file");
   });
 
   it("keeps camera tool installation explicit", async () => {
@@ -355,6 +443,6 @@ describe("Raspberry Pi remote client", () => {
       installPiCameraTools({ host: "pi.local", port: 22, username: "pi", password: "secret" }, { fetcher: fetcher as unknown as typeof fetch })
     ).resolves.toMatchObject({ ok: true });
     const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
-    expect(body.command).toBe("sudo -n apt-get update && sudo -n apt-get install -y ustreamer v4l-utils");
+    expect(body.command).toBe("sudo -n apt-get update && sudo -n apt-get install -y ffmpeg v4l-utils python3-venv python3-pip");
   });
 });

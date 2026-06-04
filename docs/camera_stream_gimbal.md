@@ -5,7 +5,11 @@
 ```text
 Raspberry Pi camera
   -> MJPEG-over-HTTP stream
-  -> Browser UI <img src="http://pi-ip:8080/stream.mjpg">
+  -> Browser UI <img src="http://pi-ip:8080/stream">
+
+Second Raspberry Pi camera
+  -> MJPEG-over-HTTP stream
+  -> Browser UI <img src="http://pi-ip:8081/stream">
 
 Browser UI
   -> WebSerial newline-delimited JSON
@@ -14,7 +18,7 @@ Browser UI
   -> pan/tilt servos
 ```
 
-The video stream and motion control are intentionally separate. Video frames never travel over USB serial. The Raspberry Pi only needs to expose an MJPEG URL on the same LAN as the browser.
+The video stream and motion control are intentionally separate. Video frames never travel over USB serial. The Raspberry Pi only needs to expose MJPEG URLs on the same LAN as the browser.
 
 ## Browser Configuration
 
@@ -22,13 +26,25 @@ The UI stores camera settings in `localStorage` under `rescue-robot.camera-confi
 
 Fields:
 
-- `streamUrl`: MJPEG URL, for example `http://192.168.1.20:8080/stream.mjpg`.
+- `streamUrl`: legacy/main MJPEG URL, for example `http://192.168.1.20:8080/stream`.
+- `videoSources`: ordered video source list. The built-in defaults are `main` on `/dev/video0:8080` and `secondary` on `/dev/video1:8081`.
+- `activeVideoSourceId`: selected source for single-window viewing.
+- `videoLayout`: `single` shows the selected source, while `dual` shows main and secondary at the same time. Dual output is simultaneous display only; it does not perform frame-level timestamp alignment.
 - `panServoId`: Feetech servo ID for horizontal motion.
 - `tiltServoId`: Feetech servo ID for vertical motion.
 - `panMinDeg`, `panMaxDeg`, `tiltMinDeg`, `tiltMaxDeg`: allowed angle limits.
 - `panAngleDeg`, `tiltAngleDeg`: current browser-side target angles.
 - `stepDeg`: angle delta for each arrow button press.
 - `speedRaw`, `acc`: Feetech motion parameters reused from the existing servo command UI.
+
+## Raspberry Pi Streams
+
+The Pi remote camera helper accepts a source device and port. Runtime files are isolated by port so both MJPEG services can run together:
+
+- Main camera: device `camera:main`, V4L2 path `/dev/video0`, port `8080`, URL `http://<pi-host>:8080/stream`.
+- Second camera: device `camera:secondary`, V4L2 path `/dev/video1`, port `8081`, URL `http://<pi-host>:8081/stream`.
+
+The second camera is exposed as the built-in `builtin.secondary-camera` plugin. It is video-only and supports stream status, detection, start, and stop actions. It does not send gimbal movement commands.
 
 ## Gimbal Command Shape
 
@@ -46,4 +62,4 @@ Gimbal movement reuses the existing `servo.move` command with `sync: true` and t
 }
 ```
 
-No new ESP32 firmware command is required for the first camera version.
+No new ESP32 firmware command is required for camera video. Gimbal commands remain bound to the main camera servos even when the active single-window video source is the second camera.

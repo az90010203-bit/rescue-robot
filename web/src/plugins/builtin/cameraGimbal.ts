@@ -19,5 +19,21 @@ export const cameraGimbalPackage: PlatformPluginPackage = {
       requiresTransport: ["transport.controller-json"],
       protocol: "mjpeg-and-servo-gimbal"
     }
+  ],
+  uiPanels: [
+    {
+      id: "camera-gimbal-control",
+      title: "Camera Gimbal Control",
+      capability: "camera",
+      controls: [
+        { id: "viewer", kind: "cameraView", label: "Camera View", capability: "camera", stateField: "streamUrl" },
+        { id: "panAngleDeg", kind: "number", label: "Pan", capability: "camera", actionId: "set_gimbal", stateField: "panAngleDeg", min: 0, max: 360, step: 1 },
+        { id: "tiltAngleDeg", kind: "number", label: "Tilt", capability: "camera", actionId: "set_gimbal", stateField: "tiltAngleDeg", min: 0, max: 360, step: 1 },
+        { id: "set-gimbal", kind: "button", label: "Set Gimbal", capability: "camera", actionId: "set_gimbal" },
+        { id: "center-gimbal", kind: "button", label: "Center", capability: "camera", actionId: "center_gimbal" },
+        { id: "start-stream", kind: "button", label: "Start Stream", capability: "camera", actionId: "start_stream" },
+        { id: "stop-stream", kind: "button", label: "Stop Stream", capability: "camera", actionId: "stop_stream" }
+      ]
+    }
   ]
 };

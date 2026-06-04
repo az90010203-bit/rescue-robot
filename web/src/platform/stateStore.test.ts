@@ -32,6 +32,26 @@ describe("platform state store", () => {
       armConfig: createDefaultArmConfig([]),
       connected: true,
       connectionMode: "controller",
+      piHelperReady: true,
+      piConnectionReady: true,
+      piTarget: "pi@raspberrypi.local",
+      piLastExitCode: 0,
+      piLastOutput: "ok",
+      firmwareHelperReady: true,
+      firmwareBoard: "arduino-uno",
+      selectedFirmwarePort: "COM6",
+      firmwareStatus: "compiled",
+      firmwareHexSizeBytes: 1024,
+      activeGamepad: {
+        index: 0,
+        id: "Xbox Wireless Controller",
+        axes: 4,
+        buttons: 17,
+        mapping: "standard",
+        axesValues: [0, -0.5, 0.2, 0],
+        pressedButtons: [0, 5],
+        input: { forward: 0.5, strafe: 0, turn: 0.2, cameraPan: 1, cameraTilt: 0, stop: false }
+      },
       updatedAt: 100
     });
 
@@ -54,6 +74,47 @@ describe("platform state store", () => {
       direction: "forward",
       encoderTicks: 12
     });
+    expect(state["camera:secondary"]).toMatchObject({
+      deviceId: "camera:secondary",
+      status: "standby",
+      values: {
+        sourceId: "secondary",
+        devicePath: "/dev/video1",
+        port: 8081
+      }
+    });
+    expect(state["pi:main"]).toMatchObject({
+      status: "online",
+      values: {
+        target: "pi@raspberrypi.local",
+        helperReady: true,
+        lastExitCode: 0,
+        lastOutput: "ok"
+      }
+    });
+    expect(state["firmware:local"]).toMatchObject({
+      status: "online",
+      values: {
+        board: "arduino-uno",
+        port: "COM6",
+        status: "compiled",
+        hexSizeBytes: 1024
+      }
+    });
+    expect(state["gamepad:active"]).toMatchObject({
+      status: "online",
+      values: {
+        connected: true,
+        id: "Xbox Wireless Controller",
+        mapping: "standard",
+        axesValues: "0 -0.5 0.2 0",
+        pressedButtons: "0, 5",
+        forward: 0.5,
+        turn: 0.2,
+        cameraPan: 1,
+        stop: false
+      }
+    });
   });
 
   it("includes serial connection state even without telemetry", () => {
@@ -64,6 +125,7 @@ describe("platform state store", () => {
       armConfig: createDefaultArmConfig([]),
       connected: false,
       connectionMode: null,
+      firmwareBusy: true,
       updatedAt: 200
     });
 
@@ -74,6 +136,14 @@ describe("platform state store", () => {
         mode: null
       },
       updatedAt: 200
+    });
+    expect(state["firmware:local"].status).toBe("standby");
+    expect(state["gamepad:active"]).toMatchObject({
+      status: "offline",
+      values: {
+        connected: false,
+        id: null
+      }
     });
   });
 });

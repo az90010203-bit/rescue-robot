@@ -35,18 +35,23 @@ export class WebSerialClient {
       throw new SerialClientError("unsupportedWebSerial");
     }
 
-    this.readMode = readMode;
-    this.binaryBuffer = [];
-    this.port = await navigator.serial.requestPort();
-    await this.port.open({ baudRate });
+    try {
+      this.readMode = readMode;
+      this.binaryBuffer = [];
+      this.port = await navigator.serial.requestPort();
+      await this.port.open({ baudRate });
 
-    if (!this.port.readable || !this.port.writable) {
-      throw new SerialClientError("portNotReadableWritable");
+      if (!this.port.readable || !this.port.writable) {
+        throw new SerialClientError("portNotReadableWritable");
+      }
+
+      this.writer = this.port.writable.getWriter();
+      this.keepReading = true;
+      void this.readLoop();
+    } catch (error) {
+      await this.disconnect();
+      throw error;
     }
-
-    this.writer = this.port.writable.getWriter();
-    this.keepReading = true;
-    void this.readLoop();
   }
 
   async disconnect(): Promise<void> {

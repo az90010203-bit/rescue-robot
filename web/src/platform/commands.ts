@@ -1,3 +1,5 @@
+import { CapabilityId } from "./types";
+
 export type PlatformCommandStatus = "sent" | "skipped" | "failed" | "timeout";
 
 export type PlatformCommandType =
@@ -9,11 +11,33 @@ export type PlatformCommandType =
   | "motor.set_speed"
   | "motor.stop"
   | "motor.read_feedback"
-  | "motor.configure";
+  | "motor.configure"
+  | "camera.set_gimbal"
+  | "camera.center_gimbal"
+  | "camera.stream.start"
+  | "camera.stream.stop"
+  | "robot-arm.set_pose"
+  | "robot-arm.pause"
+  | "robot-arm.teach.start"
+  | "robot-arm.teach.stop"
+  | "robot-arm.teach.play"
+  | "pi.check"
+  | "pi.setup"
+  | "pi.upload_file"
+  | "pi.exec"
+  | "pi.upload_and_exec"
+  | "pi.camera.check"
+  | "pi.camera.start"
+  | "pi.camera.stop"
+  | "pi.camera.install_tools"
+  | "firmware.helper.check"
+  | "firmware.ports.refresh"
+  | "firmware.compile"
+  | "firmware.upload";
 
 export interface PlatformCommandTarget {
   deviceId: string;
-  capability: "servo" | "motor";
+  capability: CapabilityId;
 }
 
 export interface PlatformCommand {
@@ -41,8 +65,74 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "motor.set_speed",
   "motor.stop",
   "motor.read_feedback",
-  "motor.configure"
+  "motor.configure",
+  "camera.set_gimbal",
+  "camera.center_gimbal",
+  "camera.stream.start",
+  "camera.stream.stop",
+  "robot-arm.set_pose",
+  "robot-arm.pause",
+  "robot-arm.teach.start",
+  "robot-arm.teach.stop",
+  "robot-arm.teach.play",
+  "pi.check",
+  "pi.setup",
+  "pi.upload_file",
+  "pi.exec",
+  "pi.upload_and_exec",
+  "pi.camera.check",
+  "pi.camera.start",
+  "pi.camera.stop",
+  "pi.camera.install_tools",
+  "firmware.helper.check",
+  "firmware.ports.refresh",
+  "firmware.compile",
+  "firmware.upload"
 ]);
+
+const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
+  "servo.set_position": "servo",
+  "servo.set_speed": "servo",
+  "servo.read_feedback": "servo",
+  "servo.set_torque": "servo",
+  "servo.ping": "servo",
+  "motor.set_speed": "motor",
+  "motor.stop": "motor",
+  "motor.read_feedback": "motor",
+  "motor.configure": "motor",
+  "camera.set_gimbal": "camera",
+  "camera.center_gimbal": "camera",
+  "camera.stream.start": "camera",
+  "camera.stream.stop": "camera",
+  "robot-arm.set_pose": "robot-arm",
+  "robot-arm.pause": "robot-arm",
+  "robot-arm.teach.start": "robot-arm",
+  "robot-arm.teach.stop": "robot-arm",
+  "robot-arm.teach.play": "robot-arm",
+  "pi.check": "raspberry-pi",
+  "pi.setup": "raspberry-pi",
+  "pi.upload_file": "raspberry-pi",
+  "pi.exec": "raspberry-pi",
+  "pi.upload_and_exec": "raspberry-pi",
+  "pi.camera.check": "raspberry-pi",
+  "pi.camera.start": "raspberry-pi",
+  "pi.camera.stop": "raspberry-pi",
+  "pi.camera.install_tools": "raspberry-pi",
+  "firmware.helper.check": "firmware",
+  "firmware.ports.refresh": "firmware",
+  "firmware.compile": "firmware",
+  "firmware.upload": "firmware"
+};
+
+const TARGET_CAPABILITY_BY_PREFIX: Array<[string, CapabilityId]> = [
+  ["servo:", "servo"],
+  ["motor:", "motor"],
+  ["camera:", "camera"],
+  ["robot-arm:", "robot-arm"],
+  ["pi:", "raspberry-pi"],
+  ["firmware:", "firmware"],
+  ["gamepad:", "gamepad"]
+];
 
 export function createPlatformCommand(type: PlatformCommandType, targetDeviceId: string, payload: Record<string, unknown> = {}): PlatformCommand {
   return {
@@ -61,14 +151,13 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
   if (!command.targetDeviceId.trim()) {
     return "platform command target is required";
   }
-  if (!command.targetDeviceId.startsWith("servo:") && !command.targetDeviceId.startsWith("motor:")) {
+  const targetCapability = capabilityForTargetDeviceId(command.targetDeviceId);
+  if (!targetCapability) {
     return `unsupported platform command target: ${command.targetDeviceId}`;
   }
-  if (command.type.startsWith("servo.") && !command.targetDeviceId.startsWith("servo:")) {
-    return "servo command requires a servo target";
-  }
-  if (command.type.startsWith("motor.") && !command.targetDeviceId.startsWith("motor:")) {
-    return "motor command requires a motor target";
+  const commandCapability = COMMAND_CAPABILITY[command.type];
+  if (targetCapability !== commandCapability) {
+    return `${commandCapability} command requires a ${commandCapability} target`;
   }
   if (command.type === "servo.set_position") {
     if (typeof command.payload.angleDeg !== "number" || typeof command.payload.speedRaw !== "number") {
@@ -110,16 +199,45 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
       }
     }
   }
+  if (command.type === "camera.set_gimbal") {
+    if (typeof command.payload.panAngleDeg !== "number" || typeof command.payload.tiltAngleDeg !== "number") {
+      return "camera.set_gimbal requires panAngleDeg and tiltAngleDeg";
+    }
+    if (!isAngle(command.payload.panAngleDeg) || !isAngle(command.payload.tiltAngleDeg)) {
+      return "camera.set_gimbal angles must be 0-360";
+    }
+  }
+  if (command.type === "robot-arm.set_pose" && !Array.isArray(command.payload.joints)) {
+    return "robot-arm.set_pose requires joints";
+  }
+  if ((command.type === "pi.exec" || command.type === "pi.upload_and_exec") && typeof command.payload.command !== "string") {
+    return `${command.type} requires command`;
+  }
+  if ((command.type === "pi.upload_file" || command.type === "pi.upload_and_exec") && !command.payload.file) {
+    return `${command.type} requires file`;
+  }
+  if (command.type === "firmware.upload" && typeof command.payload.port !== "string") {
+    return "firmware.upload requires port";
+  }
   return null;
 }
 
 export function resolvePlatformCommandTarget(command: PlatformCommand): PlatformCommandTarget {
+  const capability = capabilityForTargetDeviceId(command.targetDeviceId);
   return {
     deviceId: command.targetDeviceId,
-    capability: command.targetDeviceId.startsWith("servo:") ? "servo" : "motor"
+    capability: capability ?? COMMAND_CAPABILITY[command.type]
   };
 }
 
 export function platformCommandEventType(status: PlatformCommandStatus): string {
   return `platform.command.${status}`;
+}
+
+export function capabilityForTargetDeviceId(deviceId: string): CapabilityId | null {
+  return TARGET_CAPABILITY_BY_PREFIX.find(([prefix]) => deviceId.startsWith(prefix))?.[1] ?? null;
+}
+
+function isAngle(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 360;
 }

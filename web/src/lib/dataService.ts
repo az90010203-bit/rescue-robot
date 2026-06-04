@@ -1,5 +1,13 @@
 import type { AppStateSnapshotV2, PersistedLogEntry } from "./appDatabase";
 import type { ArmTeachTrack } from "./armTeach";
+import type {
+  ArchitectureSnapshot,
+  ComponentDefinition,
+  DeviceCatalogItem,
+  PanelLayoutItem,
+  PluginInstance,
+  RobotDefinition
+} from "../platform/architecture";
 
 export const DATA_SERVICE_BASE_URL = "http://127.0.0.1:17351";
 
@@ -32,6 +40,7 @@ export interface CurrentProjectState {
   stateUpdatedAt: number | null;
   events: PersistedLogEntry[];
   telemetry: DataTelemetryEntry[];
+  architecture?: ArchitectureSnapshot;
 }
 
 export interface DataSession {
@@ -77,12 +86,151 @@ export async function createProject(name: string, options: RequestOptions = {}):
   );
 }
 
+export async function listDeviceCatalog(filter: { type?: string; brand?: string; query?: string } = {}, options: RequestOptions = {}): Promise<DeviceCatalogItem[]> {
+  const params = new URLSearchParams();
+  if (filter.type) {
+    params.set("type", filter.type);
+  }
+  if (filter.brand) {
+    params.set("brand", filter.brand);
+  }
+  if (filter.query) {
+    params.set("query", filter.query);
+  }
+  const path = `/catalog/devices${params.toString() ? `?${params}` : ""}`;
+  const response = await requestJson<{ items: DeviceCatalogItem[] }>(path, { method: "GET" }, options);
+  return response.items;
+}
+
+export async function createDeviceCatalogItem(item: DeviceCatalogItem, options: RequestOptions = {}): Promise<DeviceCatalogItem> {
+  return requestJson<DeviceCatalogItem>(
+    "/catalog/devices",
+    {
+      method: "POST",
+      body: JSON.stringify({ item })
+    },
+    options
+  );
+}
+
 export async function loadCurrentProjectState(options: RequestOptions = {}): Promise<CurrentProjectState> {
   return requestJson<CurrentProjectState>("/projects/current", { method: "GET" }, options);
 }
 
 export async function selectProject(projectId: string, options: RequestOptions = {}): Promise<CurrentProjectState> {
   return requestJson<CurrentProjectState>(`/projects/${encodeURIComponent(projectId)}/current`, { method: "PATCH" }, options);
+}
+
+export async function listPluginInstances(projectId: string, options: RequestOptions = {}): Promise<PluginInstance[]> {
+  const response = await requestJson<{ pluginInstances: PluginInstance[] }>(`/projects/${encodeURIComponent(projectId)}/plugin-instances`, { method: "GET" }, options);
+  return response.pluginInstances;
+}
+
+export async function createPluginInstance(projectId: string, pluginInstance: Partial<PluginInstance>, options: RequestOptions = {}): Promise<PluginInstance> {
+  return requestJson<PluginInstance>(
+    `/projects/${encodeURIComponent(projectId)}/plugin-instances`,
+    {
+      method: "POST",
+      body: JSON.stringify({ pluginInstance })
+    },
+    options
+  );
+}
+
+export async function updatePluginInstance(projectId: string, pluginInstanceId: string, pluginInstance: Partial<PluginInstance>, options: RequestOptions = {}): Promise<PluginInstance> {
+  return requestJson<PluginInstance>(
+    `/projects/${encodeURIComponent(projectId)}/plugin-instances/${encodeURIComponent(pluginInstanceId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ pluginInstance })
+    },
+    options
+  );
+}
+
+export async function deletePluginInstance(projectId: string, pluginInstanceId: string, options: RequestOptions = {}): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/plugin-instances/${encodeURIComponent(pluginInstanceId)}`, { method: "DELETE" }, options);
+}
+
+export async function listComponents(projectId: string, options: RequestOptions = {}): Promise<ComponentDefinition[]> {
+  const response = await requestJson<{ components: ComponentDefinition[] }>(`/projects/${encodeURIComponent(projectId)}/components`, { method: "GET" }, options);
+  return response.components;
+}
+
+export async function createComponent(projectId: string, component: Partial<ComponentDefinition>, options: RequestOptions = {}): Promise<ComponentDefinition> {
+  return requestJson<ComponentDefinition>(
+    `/projects/${encodeURIComponent(projectId)}/components`,
+    {
+      method: "POST",
+      body: JSON.stringify({ component })
+    },
+    options
+  );
+}
+
+export async function updateComponent(projectId: string, componentId: string, component: Partial<ComponentDefinition>, options: RequestOptions = {}): Promise<ComponentDefinition> {
+  return requestJson<ComponentDefinition>(
+    `/projects/${encodeURIComponent(projectId)}/components/${encodeURIComponent(componentId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ component })
+    },
+    options
+  );
+}
+
+export async function deleteComponent(projectId: string, componentId: string, options: RequestOptions = {}): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/components/${encodeURIComponent(componentId)}`, { method: "DELETE" }, options);
+}
+
+export async function listRobots(projectId: string, options: RequestOptions = {}): Promise<RobotDefinition[]> {
+  const response = await requestJson<{ robots: RobotDefinition[] }>(`/projects/${encodeURIComponent(projectId)}/robots`, { method: "GET" }, options);
+  return response.robots;
+}
+
+export async function createRobot(projectId: string, robot: Partial<RobotDefinition>, options: RequestOptions = {}): Promise<RobotDefinition> {
+  return requestJson<RobotDefinition>(
+    `/projects/${encodeURIComponent(projectId)}/robots`,
+    {
+      method: "POST",
+      body: JSON.stringify({ robot })
+    },
+    options
+  );
+}
+
+export async function updateRobot(projectId: string, robotId: string, robot: Partial<RobotDefinition>, options: RequestOptions = {}): Promise<RobotDefinition> {
+  return requestJson<RobotDefinition>(
+    `/projects/${encodeURIComponent(projectId)}/robots/${encodeURIComponent(robotId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ robot })
+    },
+    options
+  );
+}
+
+export async function deleteRobot(projectId: string, robotId: string, options: RequestOptions = {}): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/projects/${encodeURIComponent(projectId)}/robots/${encodeURIComponent(robotId)}`, { method: "DELETE" }, options);
+}
+
+export async function loadPanelLayout(projectId: string, scopeId: string, options: RequestOptions = {}): Promise<{ scopeId: string; layout: PanelLayoutItem[]; updatedAt: number | null }> {
+  return requestJson<{ scopeId: string; layout: PanelLayoutItem[]; updatedAt: number | null }>(
+    `/projects/${encodeURIComponent(projectId)}/panel-layouts/${encodeURIComponent(scopeId)}`,
+    { method: "GET" },
+    options
+  );
+}
+
+export async function savePanelLayout(projectId: string, scopeId: string, layout: PanelLayoutItem[], options: RequestOptions = {}): Promise<{ scopeId: string; layout: PanelLayoutItem[]; updatedAt: number }> {
+  return requestJson<{ scopeId: string; layout: PanelLayoutItem[]; updatedAt: number }>(
+    `/projects/${encodeURIComponent(projectId)}/panel-layouts/${encodeURIComponent(scopeId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ layout })
+    },
+    options
+  );
 }
 
 export async function saveProjectState(projectId: string, snapshot: AppStateSnapshotV2, options: RequestOptions = {}): Promise<{ updatedAt: number }> {

@@ -1,8 +1,10 @@
 export * from "./builtinPlugins";
 export * from "./commands";
+export * from "./architecture";
 export { createPlatformDevices } from "./deviceModel";
 export type { PlatformDeviceModelInput } from "./deviceModel";
 export * from "./events";
+export * from "./executor";
 export * from "./externalPlugins";
 export * from "./packages";
 export * from "./pluginManager";
