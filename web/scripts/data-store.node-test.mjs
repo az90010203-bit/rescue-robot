@@ -102,6 +102,89 @@ test("saves, lists, and deletes arm teach tracks", async () => {
   store.close();
 });
 
+test("manages catalog, plugin instances, components, robots, and panel layouts", async () => {
+  const store = await openTempStore();
+  const project = store.getCurrentProject();
+
+  const catalog = store.listDeviceCatalog({ type: "servo", query: "3215" });
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].brand, "Feetech");
+
+  const custom = store.createDeviceCatalogItem({
+    type: "sensor",
+    brand: "Acme",
+    model: "Gas 1",
+    displayName: "Acme Gas 1",
+    driverId: "driver.custom-sensor",
+    transportId: "transport.controller-json",
+    capabilities: [{ id: "sensor", features: ["analog_read"] }],
+    configSchema: [{ id: "port", label: "Port", kind: "text", required: true }],
+    defaultConfig: { port: "A0" },
+    tags: ["sensor"]
+  });
+  assert.equal(custom.userDefined, true);
+
+  const servo = store.createPluginInstance(project.id, {
+    name: "Base",
+    catalogItemId: catalog[0].id,
+    config: { servoId: 7 }
+  });
+  const motor = store.createPluginInstance(project.id, {
+    name: "Left Track",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "m1", pwmPin: "D5" }
+  });
+  const armServo = store.createPluginInstance(project.id, {
+    name: "Arm Joint 1",
+    catalogItemId: catalog[0].id,
+    config: { servoId: 8 }
+  });
+
+  assert.equal(servo.config.servoId, 7);
+  assert.equal(motor.config.channel, "M1");
+  assert.throws(
+    () => store.createPluginInstance(project.id, { name: "Duplicate Base", catalogItemId: catalog[0].id, config: { servoId: 7 } }),
+    /duplicate servo ID/
+  );
+
+  const armComponent = store.createComponent(project.id, {
+    name: "Arm",
+    kind: "robot-arm",
+    pluginInstanceIds: [armServo.id],
+    config: { armConfig: { joints: [{ id: "joint-1", servoId: 8, angleDeg: 90 }] } }
+  });
+  assert.equal(armComponent.kind, "robot-arm");
+  assert.equal(armComponent.config.armConfig.joints[0].servoId, 8);
+  assert.throws(
+    () => store.createComponent(project.id, { name: "Bad Arm", kind: "robot-arm", pluginInstanceIds: [motor.id] }),
+    /requires servo plugin instances/
+  );
+
+  const component = store.createComponent(project.id, { name: "Drive", pluginInstanceIds: [motor.id] });
+  assert.deepEqual(component.pluginInstanceIds, [motor.id]);
+  assert.throws(() => store.deletePluginInstance(project.id, motor.id), /in use/);
+
+  assert.deepEqual(store.savePanelLayout(project.id, `component:${component.id}`, [{ id: "panel-1", targetId: "motor:M1", capability: "motor", order: 0 }]).layout[0].scopeId, `component:${component.id}`);
+
+  assert.throws(
+    () => store.createRobot(project.id, { name: "Robot A", componentIds: [component.id], pluginInstanceIds: [motor.id] }),
+    /already assigned/
+  );
+  const robot = store.createRobot(project.id, { name: "Robot A", componentIds: [component.id], pluginInstanceIds: [servo.id] });
+  assert.deepEqual(robot.componentIds, [component.id]);
+  assert.throws(() => store.deleteComponent(project.id, component.id), /in use/);
+
+  const projectB = store.createProject("Other Project");
+  assert.deepEqual(store.listPluginInstances(projectB.id), []);
+
+  assert.deepEqual(store.deleteRobot(project.id, robot.id), { deleted: true });
+  assert.deepEqual(store.deleteComponent(project.id, armComponent.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, armServo.id), { deleted: true });
+  assert.deepEqual(store.deleteComponent(project.id, component.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, motor.id), { deleted: true });
+  store.close();
+});
+
 async function openTempStore() {
   const dir = await mkdtemp(path.join(tmpdir(), "rescue-robot-db-test-"));
   cleanupPaths.push(dir);

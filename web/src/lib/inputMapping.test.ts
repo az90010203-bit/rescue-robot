@@ -5,6 +5,7 @@ import {
   INPUT_MAPPING_STORAGE_KEY,
   cloneMapping,
   getGamepadPresetMapping,
+  gamepadDriveInputFromGamepad,
   gamepadInputFromGamepad,
   isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
@@ -77,9 +78,26 @@ describe("input mapping readers", () => {
     expect(gamepadInputFromGamepad(gamepad, DEFAULT_INPUT_MAPPING.gamepad)).toMatchObject({
       forward: expect.closeTo(0.7159, 3),
       strafe: expect.closeTo(0.4318, 3),
-      turn: expect.closeTo(-0.1477, 3),
+      turn: expect.closeTo(0.4318, 3),
       cameraTilt: 1,
       stop: true
+    });
+  });
+
+  it("uses the left stick horizontal axis for the active drive base", () => {
+    const gamepad = createGamepad({
+      axes: [0.5, -0.75, -0.25]
+    });
+
+    expect(gamepadDriveInputFromGamepad(gamepad, DEFAULT_INPUT_MAPPING.gamepad, "tracked")).toMatchObject({
+      forward: expect.closeTo(0.7159, 3),
+      strafe: 0,
+      turn: expect.closeTo(0.4318, 3)
+    });
+    expect(gamepadDriveInputFromGamepad(gamepad, DEFAULT_INPUT_MAPPING.gamepad, "mecanum")).toMatchObject({
+      forward: expect.closeTo(0.7159, 3),
+      strafe: expect.closeTo(0.4318, 3),
+      turn: 0
     });
   });
 });
@@ -102,7 +120,7 @@ describe("gamepad presets", () => {
     expect(gamepadInputFromGamepad(playstationPad, getGamepadPresetMapping("auto", playstationPad))).toMatchObject({
       forward: expect.closeTo(0.5454, 3),
       strafe: expect.closeTo(0.3181, 3),
-      turn: expect.closeTo(0.1477, 3),
+      turn: expect.closeTo(0.3181, 3),
       cameraTilt: 1,
       stop: true
     });
@@ -111,8 +129,11 @@ describe("gamepad presets", () => {
   it("keeps custom saved mappings distinguishable from presets", () => {
     const custom = cloneMapping(DEFAULT_INPUT_MAPPING);
     custom.gamepad.axes.turn = { index: 3, invert: true };
+    const legacyRightStickTurn = cloneMapping(DEFAULT_INPUT_MAPPING);
+    legacyRightStickTurn.gamepad.axes.turn = { index: 2, invert: false };
 
     expect(isCustomGamepadMapping(GAMEPAD_PRESETS.xinput.mapping)).toBe(false);
+    expect(isCustomGamepadMapping(legacyRightStickTurn.gamepad)).toBe(false);
     expect(isCustomGamepadMapping(custom.gamepad)).toBe(true);
   });
 

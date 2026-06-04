@@ -1,23 +1,8 @@
-# 救援机器人舵机调试系统 v1
+# 救援机器人控制台
 
-这是救援机器人远程控制软件的第一块：飞特 STS/SCS TTL 串行总线舵机调试系统。
+救援机器人控制台是一个面向救援机器人调试、远程控制和现场测试的本地 Web 工具。当前系统包含 React 控制台、平台运行层、内置插件包、Feetech 舵机总线、TB6618/PWM 电机控制、摄像头云台、机械臂示教、树莓派 SSH 远控、固件刷写助手和本地数据服务。
 
-舵机测试现在默认走 PC 直连飞特总线，和飞特调试软件的工作方式一致：
-
-```text
-Chrome/Edge WebSerial UI -> USB/TTL Feetech bus adapter -> Feetech STS/SCS servo
-```
-
-电机、摄像头等后续模块仍可通过 ESP32 控制器扩展。
-
-## 目录
-
-- `web/`：Vite + React + TypeScript 调试界面。
-- `firmware/`：PlatformIO + Arduino ESP32 固件。
-- `docs/servo_protocol.md`：PC-ESP32 JSON 协议和 ESP32-飞特二进制协议。
-- `docs/camera_stream_gimbal.md`：树莓派 MJPEG 视频流与 ESP32 云台舵机控制方案。
-
-## 前端运行
+## 快速运行
 
 ```powershell
 cd web
@@ -25,47 +10,125 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-打开 Chrome 或 Edge 中显示的本地地址。进入舵机模块时，点击串口连接按钮选择飞特总线转接器，例如本机验证通过的 CH343 `COM6`，舵机总线波特率为 `1000000`。
-
-## 固件编译
-
-```powershell
-cd firmware
-& "C:\Users\47459\.platformio\penv\Scripts\pio.exe" run -e esp32dev
-```
-
-ESP32 固件仍保留给后续控制器模式使用。当前舵机测试不需要先烧 ESP32。
-
-默认设置：
-
-- USB 串口：`115200`
-- 飞特总线 UART：`1000000`
-- ESP32 UART1 RX：GPIO 18
-- ESP32 UART1 TX：GPIO 19
-
-实际接线请使用 TTL 半双工总线转接板，舵机单独供电并与 ESP32 共地。
-
-舵机调试界面支持两种模式，默认舵机为实际验证通过的 `ID22`：
-
-- `位置角度`：写 `Goal Position/Goal Speed`，用于普通舵机角度控制。
-- `轮模式速度`：先写 `ACC`，再写 `Goal Speed`，等价于 `SMS_STS::WriteSpe()`，适合 ST3215/STS 的恒速轮模式，例如 ID21、ID23 差速云台。
-
-## 测试
-
-```powershell
-cd web
-npm.cmd test
-npm.cmd run build
-```
-
-## Local SQLite data service
-
-Run this in a separate terminal before opening the web console when you want durable project storage:
+常用本地服务：
 
 ```powershell
 cd web
 npm.cmd run data-service
+npm.cmd run firmware-helper
+npm.cmd run pi-helper
 ```
 
-The service listens on `127.0.0.1:17351` and stores data in `%USERPROFILE%\.rescue-robot\rescue-robot.sqlite`.
-Set `RESCUE_ROBOT_DB_PATH` to use another SQLite file. If the service is offline, the web console falls back to the browser cache in read-only mode and shows `DB OFFLINE`.
+常用验证：
+
+```powershell
+cd web
+npm.cmd run build
+npm.cmd test
+npm.cmd run health
+```
+
+## 架构图
+
+<!-- ARCHITECTURE:BEGIN -->
+```mermaid
+flowchart LR
+  User[操作员] --> Web[React 控制台 App.tsx]
+
+  subgraph Browser[浏览器本地运行层]
+    Web --> Console[主控台 / 插件 / 组件 / 机器人 / 功能测试 / 设置]
+    Web --> PluginUi[插件]
+    Web --> ComponentUi[组件]
+    Web --> RobotUi[机器人]
+    Web --> Platform[平台运行层 platform/*]
+    Platform --> ArchitectureModel[DeviceCatalogItem / PluginInstance / ComponentDefinition / RobotDefinition]
+    Platform --> DeviceModel[DeviceDescriptor / StateSnapshot]
+    Platform --> Executor[PlatformCommand Executor]
+    Platform --> UiSchema[UiPanelSchema 渲染器]
+    Platform --> Plugins[内置插件包 plugins/builtin/*]
+    PluginUi --> DriverLibrary[代码驱动库文件 / driver packages]
+    Web --> Cache[浏览器缓存 / IndexedDB fallback]
+  end
+
+  subgraph ThreeLayer[SQLite 三层资产库]
+    Catalog[设备品牌型号目录]
+    PluginInstances[插件实例 / 真实小设备]
+    Components[组件 / 多插件组合]
+    Robots[机器人 / 多组件装配]
+    Layouts[可拖动面板布局]
+    DriverLibrary --> Catalog
+    Catalog --> PluginInstances --> Components --> Robots
+    Robots --> Layouts
+    Components --> Layouts
+  end
+
+  subgraph BuiltinPlugins[插件包]
+    Plugins --> ServoPlugin[Feetech Servo]
+    Plugins --> MotorPlugin[TB6618 Motor]
+    Plugins --> CameraPlugin[Camera Gimbal]
+    Plugins --> ArmPlugin[Robot Arm Composite]
+    Plugins --> PiPlugin[Raspberry Pi SSH]
+    Plugins --> FirmwarePlugin[Local Firmware Helper]
+    Plugins --> CorePlugins[核心能力与传输]
+  end
+
+  subgraph Hardware[硬件与控制链路]
+    ArchitectureModel --> DeviceModel
+    Executor --> WebSerial[WebSerial]
+    WebSerial --> Feetech[Feetech TTL 总线]
+    Feetech --> Servos[STS/SCS 舵机与机械臂]
+    Executor --> Controller[ESP32 / JSON 控制器]
+    Controller --> Motors[TB6618 / PWM 电机]
+    Controller --> Gimbal[摄像头云台舵机]
+  end
+
+  subgraph Helpers[本机辅助服务]
+    Web --> DataService[data-service.mjs]
+    DataService --> SQLite[(SQLite 项目 / 三层资产 / 遥测)]
+    DataService --> ThreeLayer
+    Executor --> FirmwareHelper[firmware-helper.mjs]
+    FirmwareHelper --> PlatformIO[PlatformIO 编译 / 上传]
+    Executor --> PiHelper[pi-helper.mjs]
+    PiHelper --> RaspberryPi[树莓派 SSH / SFTP / 摄像头服务]
+  end
+```
+<!-- ARCHITECTURE:END -->
+
+## 主要模块
+
+- `web/src/App.tsx`：当前控制台入口，保留主控台定制视图，接入平级的插件、组件、机器人入口，并把平台控制区接入 `PlatformCommand` executor。
+- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，按入口 `layer` 分别渲染；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板。
+- `web/src/platform/*`：平台模型、命令、执行器、事件、插件注册、设备拓扑、状态快照和 UI schema helper。
+- `web/src/platform/architecture.ts`：三层架构纯模型，包括驱动库派生、设备目录、插件实例、组件、机器人、面板布局、唯一占用校验和旧驱动 profile 兼容桥。
+- `web/src/plugins/builtin/*`：内置能力、驱动、传输和设备面板 schema，包括舵机、电机、摄像头、机械臂、树莓派和固件刷写。
+- `web/src/lib/*`：稳定业务能力，包括协议、存储、底盘混控、舵机平滑、安全保护、树莓派远控、固件助手和数据服务客户端。
+- `web/scripts/*`：本地数据服务、三层资产 SQLite schema、固件刷写助手、树莓派 SSH helper 和文档同步检查。
+- `web/scripts/health-check.mjs`：只读项目健康检查，汇总最大源码文件、`any` 使用量、测试声明数、构建 chunk 体积和 UTF-8 文档状态。
+- `firmware/`：ESP32/PlatformIO 固件，负责 JSON 控制器、PWM 电机和 Feetech 总线桥接能力。
+- `docs/`：协议和设备接线说明。
+
+## 平台化约定
+
+- UI 层优先通过 `PlatformCommand` 表达设备动作，`dispatchPlatformCommand` 统一进入 `executePlatformCommand`。
+- 插件实例是物理设备实例，组件和机器人装配必须通过 SQLite 数据服务保存；浏览器 IndexedDB 只作为旧配置 fallback。
+- 插件、组件、机器人和功能测试的通用平台控制区优先使用 `UiPanelSchema` 渲染，三层平级页面会按插件能力自动生成并保存可拖动面板。
+- 设备能力通过 `DeviceDescriptor`、`DeviceStateSnapshot`、`UiPanelSchema` 和内置插件描述。
+- 保持现有硬件协议、串口波特率、Feetech 二进制帧、ESP32 JSON 命令和项目数据结构兼容。
+
+## 文档同步规则
+
+任何代码、脚本、固件、配置或协议变更，都必须同步更新本 README，并更新上方 Mermaid 架构图。`npm.cmd test` 会运行 `web/scripts/check-doc-sync.mjs`；当发现非 README 的 tracked 变更但 README 或架构图区块未同步变化时会失败。
+
+## 硬件默认链路
+
+- 舵机测试：Chrome/Edge WebSerial -> USB/TTL Feetech 总线适配器 -> Feetech STS/SCS 舵机，默认 `1000000 baud`。
+- 控制器模式：Chrome/Edge WebSerial -> ESP32 JSON 控制器，默认 `115200 baud`。
+- 数据服务：`127.0.0.1:17351`，默认 SQLite 路径为 `%USERPROFILE%\.rescue-robot\rescue-robot.sqlite`。
+- 固件刷写：本机 `firmware-helper.mjs` 调用 PlatformIO 编译和上传。
+- 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令。
+
+## Dual Camera Notes
+
+- Main camera source: `camera:main`, `/dev/video0`, port `8080`, `http://<pi-host>:8080/stream`.
+- Second camera plugin: `camera:secondary`, `/dev/video1`, port `8081`, `http://<pi-host>:8081/stream`, video-only.
+- The main control page can switch the active source or use the dual layout to display both streams together. Gimbal movement stays bound to `camera:main`.

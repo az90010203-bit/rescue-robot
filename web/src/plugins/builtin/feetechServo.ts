@@ -26,9 +26,9 @@ export const feetechServoPackage: PlatformPluginPackage = {
       title: "Servo Control",
       capability: "servo",
       controls: [
-        { id: "position", kind: "slider", label: "Position", capability: "servo", actionId: "set_position", stateField: "positionRaw" },
-        { id: "speed", kind: "number", label: "Speed", capability: "servo", actionId: "set_speed", stateField: "speedRaw" },
-        { id: "torque", kind: "toggle", label: "Torque", capability: "servo", actionId: "enable_torque" },
+        { id: "angleDeg", kind: "slider", label: "Position", capability: "servo", actionId: "set_position", stateField: "positionRaw", min: 0, max: 360, step: 1 },
+        { id: "speedRaw", kind: "number", label: "Speed", capability: "servo", actionId: "set_speed", stateField: "speedRaw", min: -4095, max: 4095, step: 1 },
+        { id: "enabled", kind: "toggle", label: "Torque", capability: "servo", actionId: "enable_torque" },
         { id: "feedback", kind: "metric", label: "Feedback", capability: "servo", actionId: "read_position", stateField: "positionRaw" }
       ]
     }

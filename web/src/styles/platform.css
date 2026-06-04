@@ -1,0 +1,774 @@
+
+.platform-control-grid label {
+  min-width: 0;
+}
+
+.platform-control-toggle {
+  grid-column: 1 / -1;
+  min-height: 42px;
+  align-items: center;
+  justify-content: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel-soft);
+}
+
+.platform-control-actions {
+  margin-top: 2px;
+}
+
+.platform-event {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+  padding: 8px 9px;
+  background: var(--panel-soft);
+}
+
+.platform-event.warn {
+  border-left-color: var(--warning);
+}
+
+.platform-event.error {
+  border-left-color: var(--red);
+}
+
+.platform-event span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.platform-event strong,
+.platform-event small,
+.platform-event code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.platform-event strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.platform-event small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.platform-event code {
+  color: var(--steel);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
+
+.servo-device-row {
+  align-items: start;
+}
+
+.servo-limit-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(78px, 1fr)) minmax(82px, auto);
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.servo-limit-grid input[type="number"] {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.servo-reverse-field {
+  min-height: 34px;
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.servo-reverse-field input {
+  width: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
+  padding: 0;
+  accent-color: var(--primary);
+}
+
+.device-select {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.device-id {
+  min-width: 46px;
+  display: inline-flex;
+  justify-content: center;
+  padding: 5px 8px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.device-info {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.device-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-signal {
+  padding: 4px 7px;
+  color: var(--green);
+  border: 1px solid rgba(27, 166, 115, 0.2);
+  border-radius: 999px;
+  background: var(--green-soft);
+  font-size: 0.68rem;
+  font-weight: 760;
+}
+
+.device-signal.muted {
+  color: var(--muted);
+  border-color: rgba(60, 60, 67, 0.12);
+  background: rgba(118, 118, 128, 0.08);
+}
+
+.device-signal.safety {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-signal.safety.warning {
+  color: var(--orange);
+  border-color: rgba(201, 119, 0, 0.22);
+  background: var(--orange-soft);
+}
+
+.device-signal.safety.danger {
+  color: var(--red);
+  border-color: rgba(212, 86, 86, 0.22);
+  background: var(--red-soft);
+}
+
+.device-signal.safety.neutral {
+  color: var(--muted);
+  border-color: rgba(60, 60, 67, 0.12);
+  background: rgba(118, 118, 128, 0.08);
+}
+
+.delete-hit {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--red);
+  background: transparent;
+  cursor: pointer;
+}
+
+.delete-hit:hover {
+  background: var(--red-soft);
+}
+
+.command-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.servo-command-list {
+  display: grid;
+  gap: 14px;
+}
+
+.servo-command-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(247, 248, 250, 0.76)),
+    var(--panel);
+}
+
+.servo-command-card.selected {
+  border-color: rgba(20, 86, 240, 0.28);
+  box-shadow: 0 0 0 3px rgba(20, 86, 240, 0.08);
+}
+
+.servo-command-card-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.servo-card-select {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+}
+
+.servo-card-select .device-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.servo-card-status-stack {
+  min-width: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.device-signal.motion {
+  color: var(--orange);
+  border-color: rgba(201, 119, 0, 0.22);
+  background: var(--orange-soft);
+}
+
+.device-signal.motion.paused {
+  color: var(--red);
+  border-color: rgba(212, 86, 86, 0.22);
+  background: var(--red-soft);
+}
+
+.device-signal.motion.muted {
+  color: var(--muted);
+  border-color: rgba(60, 60, 67, 0.12);
+  background: rgba(118, 118, 128, 0.08);
+}
+
+.servo-smoothing-panel {
+  display: grid;
+  grid-template-columns: minmax(124px, auto) minmax(140px, 1fr);
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.servo-smoothing-toggle {
+  min-height: 42px;
+  align-items: center;
+}
+
+.servo-smoothing-meta {
+  grid-column: 1 / -1;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--slate);
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.servo-command-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.servo-command-grid .angle-combo-field {
+  grid-column: 1 / -1;
+}
+
+.motor-command-grid {
+  grid-template-columns: minmax(190px, 1.2fr) minmax(118px, 0.7fr) minmax(132px, 0.7fr);
+}
+
+/* Main branch three-layer architecture workspace */
+.architecture-workspace {
+  display: grid;
+  gap: 16px;
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.architecture-shell-head,
+.architecture-tabs,
+.architecture-grid,
+.architecture-form-grid,
+.architecture-layout-grid,
+.architecture-panel-controls,
+.architecture-actions,
+.architecture-library-filter,
+.architecture-debug-head,
+.architecture-status,
+.architecture-select-block,
+.architecture-selectable-list,
+.architecture-entity-list {
+  display: grid;
+  gap: 12px;
+}
+
+.architecture-shell-head {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-shell-head h2 {
+  margin: 4px 0 0;
+  font-size: 24px;
+}
+
+.architecture-status {
+  align-items: center;
+  grid-auto-flow: column;
+  justify-content: end;
+}
+
+.architecture-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.architecture-grid {
+  align-items: start;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+}
+
+.architecture-plugin-grid {
+  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+}
+
+.architecture-builder-panel,
+.architecture-driver-panel,
+.architecture-library-panel,
+.architecture-debug-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.architecture-panel-title {
+  margin-bottom: 0;
+}
+
+.architecture-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.architecture-form-grid label,
+.architecture-builder-panel > label,
+.architecture-panel-controls label {
+  display: grid;
+  gap: 6px;
+}
+
+.architecture-wide-field,
+.architecture-wide-button,
+.architecture-control-group,
+.architecture-camera-view {
+  grid-column: 1 / -1;
+}
+
+.architecture-device-list,
+.architecture-driver-list,
+.architecture-selectable-list,
+.architecture-entity-list {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.architecture-driver-list {
+  display: grid;
+  gap: 8px;
+}
+
+.architecture-driver-filter {
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr);
+}
+
+.architecture-driver-filter label {
+  display: grid;
+  gap: 6px;
+}
+
+.architecture-driver-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-driver-tags {
+  min-width: 96px;
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+
+.architecture-driver-summary {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--panel-soft);
+}
+
+.architecture-driver-summary strong,
+.architecture-driver-summary small,
+.architecture-driver-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-driver-summary small {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.architecture-driver-summary span {
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.architecture-plugin-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  align-items: stretch;
+  gap: 10px;
+  max-height: 520px;
+}
+
+.architecture-plugin-card {
+  min-height: 136px;
+  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+}
+
+.architecture-plugin-open {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 0;
+  padding: 12px 12px 6px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.architecture-plugin-open:focus-visible {
+  border-radius: 12px;
+  outline: 2px solid rgba(20, 86, 240, 0.35);
+  outline-offset: -2px;
+}
+
+.architecture-plugin-card .device-info {
+  gap: 5px;
+}
+
+.architecture-plugin-card .device-name {
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.architecture-plugin-card .device-meta {
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.architecture-plugin-card .platform-status-pill {
+  align-self: center;
+}
+
+.architecture-plugin-card-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.architecture-plugin-delete {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(212, 86, 86, 0.2);
+  color: var(--red);
+  background: rgba(212, 86, 86, 0.08);
+}
+
+.architecture-plugin-delete:disabled {
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--panel-soft);
+}
+
+.architecture-plugin-library-grid .empty-state {
+  grid-column: 1 / -1;
+  min-height: 180px;
+}
+
+.architecture-debug-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.plugin-instance-debug-stack,
+.plugin-servo-limiter,
+.plugin-serial-monitor {
+  display: grid;
+  gap: 14px;
+}
+
+.plugin-servo-limiter {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+}
+
+.plugin-servo-limiter-head {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+}
+
+.plugin-servo-limiter-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plugin-servo-limiter-head strong {
+  font-size: 0.95rem;
+}
+
+.plugin-servo-limiter-head span {
+  color: var(--steel);
+  font-size: 0.78rem;
+}
+
+.plugin-servo-limiter-metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.plugin-servo-limit-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plugin-servo-limit-actions {
+  justify-content: start;
+}
+
+.plugin-serial-monitor {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.plugin-serial-monitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plugin-serial-monitor-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.plugin-serial-monitor-head strong {
+  font-size: 0.95rem;
+}
+
+.plugin-serial-monitor-head span {
+  color: var(--steel);
+  font-size: 0.78rem;
+}
+
+.plugin-serial-log-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.plugin-serial-log-list .empty-state {
+  min-height: 96px;
+}
+
+.architecture-debug-head {
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.architecture-selectable-row {
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.architecture-selectable-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.architecture-selectable-row small,
+.architecture-panel-card-head small {
+  color: var(--muted);
+}
+
+.architecture-layout-grid {
+  align-items: stretch;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.architecture-panel-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.architecture-panel-card[draggable="true"] {
+  cursor: grab;
+}
+
+.architecture-panel-card-head {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.architecture-panel-card-head span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.architecture-panel-card-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-panel-controls {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.architecture-control-group,
+.architecture-metric {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.architecture-metric {
+  background: var(--panel-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.architecture-metric span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.architecture-metric strong {
+  font-size: 18px;
+}
+
+.architecture-actions {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.architecture-camera-view img {
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.architecture-empty {
+  align-items: center;
+  justify-items: center;
+  min-height: 260px;
+  text-align: center;
+}
+
+.architecture-empty p,
+.architecture-error {
+  margin: 0;
+}

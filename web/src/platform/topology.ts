@@ -78,6 +78,9 @@ export function summarizeRobotProjectTemplate(template: RobotProjectTemplate): R
     motor: 0,
     camera: 0,
     "robot-arm": 0,
+    "raspberry-pi": 0,
+    firmware: 0,
+    gamepad: 0,
     gpio: 0,
     sensor: 0
   };

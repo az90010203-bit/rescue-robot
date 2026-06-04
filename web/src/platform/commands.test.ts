@@ -15,7 +15,8 @@ describe("platform commands", () => {
   });
 
   it("rejects unknown targets and missing payload", () => {
-    expect(validatePlatformCommand(createPlatformCommand("servo.ping", "camera:main"))).toContain("unsupported");
+    expect(validatePlatformCommand(createPlatformCommand("servo.ping", "camera:main"))).toContain("requires a servo target");
+    expect(validatePlatformCommand(createPlatformCommand("servo.ping", "unknown:main"))).toContain("unsupported");
     expect(validatePlatformCommand(createPlatformCommand("servo.set_position", "servo:22", { angleDeg: 90 }))).toBe("servo.set_position requires angleDeg and speedRaw");
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1"))).toBe("motor.set_speed requires speedPercent");
   });
@@ -36,6 +37,24 @@ describe("platform commands", () => {
       deviceId: "motor:M1",
       capability: "motor"
     });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("firmware.helper.check", "firmware:local"))).toEqual({
+      deviceId: "firmware:local",
+      capability: "firmware"
+    });
+  });
+
+  it("accepts platform commands for camera, arm, raspberry pi, and firmware", () => {
+    expect(validatePlatformCommand(createPlatformCommand("camera.set_gimbal", "camera:main", { panAngleDeg: 90, tiltAngleDeg: 110 }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("robot-arm.set_pose", "robot-arm:main", { joints: [] }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("pi.exec", "pi:main", { command: "python3 main.py" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("firmware.upload", "firmware:local", { port: "COM6" }))).toBeNull();
+  });
+
+  it("rejects incomplete platform commands for new capabilities", () => {
+    expect(validatePlatformCommand(createPlatformCommand("camera.set_gimbal", "camera:main", { panAngleDeg: 90 }))).toBe("camera.set_gimbal requires panAngleDeg and tiltAngleDeg");
+    expect(validatePlatformCommand(createPlatformCommand("robot-arm.set_pose", "robot-arm:main"))).toBe("robot-arm.set_pose requires joints");
+    expect(validatePlatformCommand(createPlatformCommand("pi.upload_file", "pi:main"))).toBe("pi.upload_file requires file");
+    expect(validatePlatformCommand(createPlatformCommand("firmware.upload", "firmware:local"))).toBe("firmware.upload requires port");
   });
 
   it("generates stable command event names", () => {

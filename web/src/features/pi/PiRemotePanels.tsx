@@ -1,0 +1,391 @@
+import { ChevronDown, ChevronRight, Play, Radar, RotateCw, Send, Settings, Square, Terminal, Upload, Usb, Video } from "lucide-react";
+import type { TFunction } from "i18next";
+import { Metric, PanelTitle } from "../../shared/ui/AppChrome";
+import type { PiRemoteRuntime } from "../../app/usePiRemote";
+import type { PiSetupProfile } from "../../lib/piRemote";
+import type { CameraVideoSource } from "../../lib/storage";
+
+interface PiRemotePanelsProps {
+  runtime: PiRemoteRuntime;
+  t: TFunction;
+}
+
+interface PiCameraCardProps extends PiRemotePanelsProps {
+  activeCameraSource: CameraVideoSource;
+  cameraStreamUrl: string;
+}
+
+function selectedFileLabel(runtime: PiRemoteRuntime, t: TFunction) {
+  return runtime.piRemoteFile ? `${runtime.piRemoteFile.name} · ${Math.max(1, Math.round(runtime.piRemoteFile.size / 1024))} KB` : t("piRemote.noFile");
+}
+
+function uploadLabel(runtime: PiRemoteRuntime) {
+  return runtime.piRemoteUploadResult
+    ? `${runtime.piRemoteUploadResult.remotePath} · ${Math.max(1, Math.round(runtime.piRemoteUploadResult.sizeBytes / 1024))} KB`
+    : "--";
+}
+
+function PiRemoteOutput({ runtime, t, command }: PiRemotePanelsProps & { command: string }) {
+  return (
+    <aside className="pi-remote-output">
+      <div className="preview-grid pi-remote-status-grid">
+        <Metric label={t("metrics.piHelper")} value={runtime.piHelperLabel} tone={runtime.piHelperHealth ? "online" : runtime.piRemoteStatus === "error" ? "danger" : "neutral"} />
+        <Metric label={t("metrics.piRemote")} value={t(`piRemote.status.${runtime.piRemoteStatus}`)} tone={runtime.piRemoteStatusTone} />
+        <Metric label={t("metrics.piTarget")} value={`${runtime.piRemoteForm.username || "pi"}@${runtime.piRemoteForm.host || "--"}`} />
+        <Metric label={t("metrics.piSelectedFile")} value={selectedFileLabel(runtime, t)} />
+        <Metric className="frame-preview" code label={t("metrics.piUpload")} value={uploadLabel(runtime)} />
+        <Metric label={t("metrics.piExit")} value={runtime.piOutputLabel} tone={runtime.piRemoteExecResult?.exitCode === 0 ? "online" : runtime.piRemoteExecResult ? "warning" : "neutral"} />
+      </div>
+
+      {runtime.piRemoteError && <p className="form-error">{runtime.piRemoteError}</p>}
+
+      <div className="pi-command-preview">
+        <span>{t("piRemote.commandPreview")}</span>
+        <code>{`${runtime.piRemoteForm.username || "pi"}@${runtime.piRemoteForm.host || "--"}$ ${command}`}</code>
+      </div>
+
+      <div className="pi-output-block">
+        <span>STDOUT</span>
+        <pre>{runtime.piRemoteExecResult?.stdout || "--"}</pre>
+      </div>
+      <div className="pi-output-block stderr">
+        <span>STDERR</span>
+        <pre>{runtime.piRemoteExecResult?.stderr || "--"}</pre>
+      </div>
+    </aside>
+  );
+}
+
+export function SimplePiRemotePage({ runtime, t }: PiRemotePanelsProps) {
+  const runModeLabel = runtime.piRunPlan ? t(`piRemote.runMode.${runtime.piRunPlan.mode}`) : "--";
+  const setupStatusLabel = runtime.piSetupComplete
+    ? t("piRemote.setupReady")
+    : runtime.piReadiness?.pythonAvailable
+      ? t("piRemote.setupNeeded")
+      : runtime.piReadiness
+        ? t("piRemote.pythonMissing")
+        : t("piRemote.notChecked");
+
+  return (
+    <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
+      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+
+      <div className="pi-remote-grid">
+        <div className="pi-remote-stack">
+          <div className="pi-remote-section pi-wizard-section">
+            <div className="port-config-title">
+              <Usb size={17} />
+              <span>{t("piRemote.firstSetup")}</span>
+            </div>
+            <div className="pi-wizard-steps">
+              <div className="pi-wizard-step">
+                <strong>1</strong>
+                <label>
+                  <span>{t("fields.piHost")}</span>
+                  <input value={runtime.piRemoteForm.host} onChange={(event) => runtime.updatePiRemoteField("host", event.target.value)} placeholder={t("placeholders.piHost")} />
+                </label>
+              </div>
+              <div className="pi-wizard-step">
+                <strong>2</strong>
+                <div className="pi-auth-grid">
+                  <label>
+                    <span>{t("fields.piUsername")}</span>
+                    <input value={runtime.piRemoteForm.username} onChange={(event) => runtime.updatePiRemoteField("username", event.target.value)} placeholder="pi" />
+                  </label>
+                  <label>
+                    <span>{t("fields.piAuthMode")}</span>
+                    <select value={runtime.piRemoteForm.authMode} onChange={(event) => runtime.updatePiRemoteField("authMode", event.target.value as PiSetupProfile["authMode"])}>
+                      <option value="password">{t("piRemote.auth.password")}</option>
+                      <option value="privateKey">{t("piRemote.auth.privateKey")}</option>
+                    </select>
+                  </label>
+                  {runtime.piRemoteForm.authMode === "password" ? (
+                    <label className="pi-remote-wide">
+                      <span>{t("fields.piPassword")}</span>
+                      <input type="password" value={runtime.piRemoteForm.password} onChange={(event) => runtime.updatePiRemoteField("password", event.target.value)} autoComplete="off" />
+                    </label>
+                  ) : (
+                    <label className="pi-remote-wide">
+                      <span>{t("fields.piPrivateKeyPath")}</span>
+                      <input value={runtime.piRemoteForm.privateKeyPath} onChange={(event) => runtime.updatePiRemoteField("privateKeyPath", event.target.value)} placeholder={t("placeholders.piPrivateKeyPath")} />
+                    </label>
+                  )}
+                </div>
+              </div>
+              <div className="pi-wizard-step">
+                <strong>3</strong>
+                <div className="pi-step-action">
+                  <span>{t("piRemote.checkHint")}</span>
+                  <button className="icon-button primary" disabled={!runtime.canTestPiConnection} onClick={runtime.testRaspberryPiConnection} type="button">
+                    <Radar size={18} />
+                    <span>{t("actions.testPiConnection")}</span>
+                  </button>
+                </div>
+              </div>
+              <div className="pi-wizard-step">
+                <strong>4</strong>
+                <div className="pi-step-action">
+                  <span>{t("piRemote.setupHint")}</span>
+                  <button className="icon-button" disabled={!runtime.canSetupPiWorkspace} onClick={runtime.setupRaspberryPiWorkspace} type="button">
+                    <Settings size={18} />
+                    <span>{t("actions.setupPiWorkspace")}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pi-remote-section">
+            <div className="port-config-title">
+              <Play size={17} />
+              <span>{t("piRemote.oneClickRun")}</span>
+            </div>
+            <div className="pi-run-card">
+              <label>
+                <span>{t("fields.piFile")}</span>
+                <input type="file" onChange={(event) => runtime.updatePiRemoteFile(event.target.files?.[0] ?? null)} />
+              </label>
+              <div className="pi-run-summary">
+                <Metric label={t("metrics.piSelectedFile")} value={selectedFileLabel(runtime, t)} />
+                <Metric label={t("metrics.piRunMode")} value={runModeLabel} tone={runtime.piRunPlan?.canExecute ? "online" : runtime.piRunPlan ? "warning" : "neutral"} />
+              </div>
+            </div>
+            <div className="action-grid port-config-actions">
+              <button className="icon-button primary" disabled={!runtime.canRunPiFile} onClick={runtime.runRaspberryPiFile} type="button">
+                <Play size={18} />
+                <span>{t("actions.oneClickRunPiFile")}</span>
+              </button>
+              <button className="icon-button" onClick={runtime.clearPiOutput} type="button">
+                <RotateCw size={18} />
+                <span>{t("actions.clearPiOutput")}</span>
+              </button>
+            </div>
+          </div>
+
+          <button className="pi-advanced-toggle" onClick={() => runtime.setPiAdvancedOpen((current) => !current)} type="button">
+            {runtime.piAdvancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+            <span>{t("piRemote.advancedSettings")}</span>
+          </button>
+
+          {runtime.piAdvancedOpen && (
+            <div className="pi-remote-section">
+              <div className="pi-remote-form-grid">
+                <label>
+                  <span>{t("fields.piPort")}</span>
+                  <input type="number" min={1} max={65535} step={1} value={runtime.piRemoteForm.port} onChange={(event) => runtime.updatePiRemoteField("port", event.target.value)} />
+                </label>
+                <label>
+                  <span>{t("fields.piTimeoutSeconds")}</span>
+                  <input type="number" min={1} max={300} step={1} value={runtime.piRemoteForm.timeoutSeconds} onChange={(event) => runtime.updatePiRemoteField("timeoutSeconds", event.target.value)} />
+                </label>
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piWorkspaceDir")}</span>
+                  <input value={runtime.piRemoteForm.workspaceDir} onChange={(event) => runtime.updatePiRemoteField("workspaceDir", event.target.value)} placeholder="~/rescue-robot" />
+                </label>
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piRemotePath")}</span>
+                  <input value={runtime.piRemoteForm.remotePath} onChange={(event) => runtime.updatePiRemoteField("remotePath", event.target.value)} placeholder="/home/pi/rescue/uploaded.py" />
+                </label>
+                <label className="pi-remote-wide">
+                  <span>{t("fields.piCommand")}</span>
+                  <textarea rows={3} value={runtime.piRemoteForm.command} onChange={(event) => runtime.updatePiRemoteField("command", event.target.value)} />
+                </label>
+              </div>
+              <div className="action-grid port-config-actions">
+                <button className="icon-button" disabled={runtime.piRemoteBusy} onClick={() => runtime.checkPiHelper()} type="button">
+                  <RotateCw size={18} />
+                  <span>{t("actions.checkPiHelper")}</span>
+                </button>
+                <button className="icon-button" disabled={!runtime.canUploadPiFile} onClick={runtime.uploadRaspberryPiFile} type="button">
+                  <Upload size={18} />
+                  <span>{t("actions.uploadPiFile")}</span>
+                </button>
+                <button className="icon-button" disabled={!runtime.canExecPiCommand} onClick={runtime.execRaspberryPiCommand} type="button">
+                  <Send size={18} />
+                  <span>{t("actions.execPiCommand")}</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <PiRemoteOutput runtime={runtime} t={t} command={runtime.piRunPlan?.command ?? runtime.piRemoteForm.command ?? "--"} />
+      </div>
+    </section>
+  );
+}
+
+export function PiRemotePage({ runtime, t }: PiRemotePanelsProps) {
+  return (
+    <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
+      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+
+      <div className="pi-remote-grid">
+        <div className="pi-remote-stack">
+          <div className="pi-remote-section">
+            <div className="port-config-title">
+              <Usb size={17} />
+              <span>{t("piRemote.connection")}</span>
+            </div>
+            <div className="pi-remote-form-grid">
+              <label>
+                <span>{t("fields.piHost")}</span>
+                <input value={runtime.piRemoteForm.host} onChange={(event) => runtime.updatePiRemoteField("host", event.target.value)} placeholder={t("placeholders.piHost")} />
+              </label>
+              <label>
+                <span>{t("fields.piPort")}</span>
+                <input type="number" min={1} max={65535} step={1} value={runtime.piRemoteForm.port} onChange={(event) => runtime.updatePiRemoteField("port", event.target.value)} />
+              </label>
+              <label>
+                <span>{t("fields.piUsername")}</span>
+                <input value={runtime.piRemoteForm.username} onChange={(event) => runtime.updatePiRemoteField("username", event.target.value)} placeholder="pi" />
+              </label>
+              <label>
+                <span>{t("fields.piPassword")}</span>
+                <input type="password" value={runtime.piRemoteForm.password} onChange={(event) => runtime.updatePiRemoteField("password", event.target.value)} autoComplete="off" />
+              </label>
+              <label className="pi-remote-wide">
+                <span>{t("fields.piPrivateKeyPath")}</span>
+                <input value={runtime.piRemoteForm.privateKeyPath} onChange={(event) => runtime.updatePiRemoteField("privateKeyPath", event.target.value)} placeholder={t("placeholders.piPrivateKeyPath")} />
+              </label>
+            </div>
+            <div className="action-grid port-config-actions">
+              <button className="icon-button" disabled={runtime.piRemoteBusy} onClick={() => runtime.checkPiHelper()} type="button">
+                <RotateCw size={18} />
+                <span>{t("actions.checkPiHelper")}</span>
+              </button>
+              <button className="icon-button primary" disabled={!runtime.canTestPiConnection} onClick={runtime.testRaspberryPiConnection} type="button">
+                <Radar size={18} />
+                <span>{t("actions.testPiConnection")}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="pi-remote-section">
+            <div className="port-config-title">
+              <Upload size={17} />
+              <span>{t("piRemote.upload")}</span>
+            </div>
+            <div className="pi-remote-form-grid">
+              <label className="pi-remote-wide">
+                <span>{t("fields.piFile")}</span>
+                <input type="file" onChange={(event) => runtime.updatePiRemoteFile(event.target.files?.[0] ?? null)} />
+              </label>
+              <label className="pi-remote-wide">
+                <span>{t("fields.piRemotePath")}</span>
+                <input value={runtime.piRemoteForm.remotePath} onChange={(event) => runtime.updatePiRemoteField("remotePath", event.target.value)} placeholder="/home/pi/rescue/uploaded.py" />
+              </label>
+            </div>
+            <div className="action-grid port-config-actions">
+              <button className="icon-button" disabled={!runtime.canUploadPiFile} onClick={runtime.uploadRaspberryPiFile} type="button">
+                <Upload size={18} />
+                <span>{t("actions.uploadPiFile")}</span>
+              </button>
+              <button className="icon-button primary" disabled={!runtime.canUploadAndExecPiFile} onClick={runtime.uploadAndExecRaspberryPiFile} type="button">
+                <Play size={18} />
+                <span>{t("actions.uploadAndRunPiFile")}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="pi-remote-section">
+            <div className="port-config-title">
+              <Terminal size={17} />
+              <span>{t("piRemote.command")}</span>
+            </div>
+            <div className="pi-remote-form-grid">
+              <label className="pi-remote-wide">
+                <span>{t("fields.piCommand")}</span>
+                <textarea rows={3} value={runtime.piRemoteForm.command} onChange={(event) => runtime.updatePiRemoteField("command", event.target.value)} />
+              </label>
+              <label>
+                <span>{t("fields.piCwd")}</span>
+                <input value={runtime.piRemoteForm.cwd} onChange={(event) => runtime.updatePiRemoteField("cwd", event.target.value)} placeholder="/home/pi" />
+              </label>
+              <label>
+                <span>{t("fields.piTimeoutSeconds")}</span>
+                <input type="number" min={1} max={300} step={1} value={runtime.piRemoteForm.timeoutSeconds} onChange={(event) => runtime.updatePiRemoteField("timeoutSeconds", event.target.value)} />
+              </label>
+            </div>
+            <div className="action-grid port-config-actions">
+              <button className="icon-button primary" disabled={!runtime.canExecPiCommand} onClick={runtime.execRaspberryPiCommand} type="button">
+                <Send size={18} />
+                <span>{t("actions.execPiCommand")}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <PiRemoteOutput runtime={runtime} t={t} command={runtime.piRemoteForm.command || "--"} />
+      </div>
+    </section>
+  );
+}
+
+export function PiCameraCard({ activeCameraSource, cameraStreamUrl, runtime, t }: PiCameraCardProps) {
+  const cameraTarget = `${runtime.piRemoteForm.username || "pi"}@${runtime.piRemoteForm.host || "raspberrypi.local"}`;
+  const deviceLabel = runtime.piCameraCheck?.device ?? activeCameraSource.devicePath;
+  const toolLabel = runtime.piCameraCheck ? (runtime.piCameraCheck.ustreamerAvailable ? t("status.ready") : t("piRemote.camera.toolMissing")) : t("status.unknown");
+  const webrtcToolLabel = runtime.piCameraCheck ? (runtime.piCameraCheck.webrtcAvailable ? t("status.ready") : t("piRemote.camera.webrtcUnavailable")) : t("status.unknown");
+  const streamLabel = runtime.piCameraCheck?.streamUrl || cameraStreamUrl || "--";
+  const statusTone: "neutral" | "online" | "warning" | "danger" =
+    runtime.piCameraStatus === "error" ? "danger" : runtime.piCameraStatus === "streaming" ? "online" : runtime.piCameraBusy ? "warning" : "neutral";
+
+  return (
+    <section className="pi-camera-card" aria-labelledby="pi-camera-title">
+      <div className="drive-section-title">
+        <Video size={17} />
+        <h3 id="pi-camera-title">{t("piRemote.camera.title")}</h3>
+      </div>
+      <div className="preview-grid pi-camera-status-grid">
+        <Metric label={t("metrics.piTarget")} value={cameraTarget} />
+        <Metric label={t("fields.activeVideoSource")} value={activeCameraSource.label} />
+        <Metric label={t("fields.sourcePort")} value={activeCameraSource.port} />
+        <Metric label={t("piRemote.camera.statusLabel")} value={t(`piRemote.camera.status.${runtime.piCameraStatus}`)} tone={statusTone} />
+        <Metric label={t("piRemote.camera.device")} value={deviceLabel} tone={runtime.piCameraCheck?.cameraAvailable ? "online" : runtime.piCameraCheck ? "danger" : "neutral"} />
+        <Metric label={t("piRemote.camera.tool")} value={toolLabel} tone={runtime.piCameraCheck?.ustreamerAvailable ? "online" : runtime.piCameraCheck ? "warning" : "neutral"} />
+        <Metric label={t("piRemote.camera.webrtc")} value={webrtcToolLabel} tone={runtime.piCameraCheck?.webrtcAvailable ? "online" : runtime.piCameraCheck ? "warning" : "neutral"} />
+        <Metric className="frame-preview" code label={t("metrics.stream")} value={streamLabel} />
+      </div>
+      <div className="action-grid pi-camera-actions">
+        <button className="icon-button" disabled={!runtime.canUsePiCamera} onClick={() => void runtime.checkRaspberryPiCamera(activeCameraSource)} type="button">
+          <Radar size={18} />
+          <span>{t("actions.checkPiCamera")}</span>
+        </button>
+        <button className="icon-button primary" disabled={!runtime.canUsePiCamera} onClick={() => void runtime.startRaspberryPiCameraStream(activeCameraSource)} type="button">
+          <Play size={18} />
+          <span>{t("actions.startPiCamera")}</span>
+        </button>
+        <button className="icon-button" disabled={!runtime.piConnectionReady || runtime.piCameraBusy} onClick={() => void runtime.stopRaspberryPiCameraStream(activeCameraSource)} type="button">
+          <Square size={18} />
+          <span>{t("actions.stopPiCamera")}</span>
+        </button>
+        <button className="icon-button" onClick={runtime.clearPiCameraOutput} type="button">
+          <RotateCw size={18} />
+          <span>{t("actions.clearPiOutput")}</span>
+        </button>
+      </div>
+      {runtime.piCameraError && <p className="form-error">{runtime.piCameraError}</p>}
+      <button className="pi-advanced-toggle pi-camera-advanced-toggle" onClick={() => runtime.setPiCameraAdvancedOpen((current) => !current)} type="button">
+        {runtime.piCameraAdvancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+        <span>{t("piRemote.camera.advanced")}</span>
+      </button>
+      {runtime.piCameraAdvancedOpen && (
+        <div className="pi-camera-advanced">
+          <button className="icon-button" disabled={!runtime.canUsePiCamera} onClick={runtime.installRaspberryPiCameraTools} type="button">
+            <Settings size={18} />
+            <span>{t("actions.installPiCameraTools")}</span>
+          </button>
+          <div className="pi-output-block">
+            <span>STDOUT</span>
+            <pre>{runtime.piCameraExecResult?.stdout || runtime.piCameraCheck?.stdout || "--"}</pre>
+          </div>
+          <div className="pi-output-block stderr">
+            <span>STDERR</span>
+            <pre>{runtime.piCameraExecResult?.stderr || runtime.piCameraCheck?.stderr || "--"}</pre>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

@@ -26,7 +26,18 @@ export const tb6618MotorPackage: PlatformPluginPackage = {
       title: "Motor Control",
       capability: "motor",
       controls: [
-        { id: "speed", kind: "slider", label: "Speed", capability: "motor", actionId: "set_speed", stateField: "commandedSpeedPercent" },
+        { id: "speedPercent", kind: "slider", label: "Speed", capability: "motor", actionId: "set_speed", stateField: "commandedSpeedPercent", min: -100, max: 100, step: 1 },
+        {
+          id: "stopMode",
+          kind: "select",
+          label: "Stop Mode",
+          capability: "motor",
+          actionId: "stop",
+          options: [
+            { label: "Coast", value: "coast" },
+            { label: "Brake", value: "brake" }
+          ]
+        },
         { id: "stop", kind: "button", label: "Stop", capability: "motor", actionId: "stop" },
         { id: "rpm", kind: "metric", label: "RPM", capability: "motor", actionId: "read_feedback", stateField: "speedRpm" }
       ]

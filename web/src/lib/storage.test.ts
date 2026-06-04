@@ -531,6 +531,10 @@ describe("camera config storage and validation", () => {
     const config = {
       ...DEFAULT_CAMERA_CONFIG,
       streamUrl: "http://192.168.1.20:8080/stream.mjpg",
+      webrtcOfferUrl: "http://192.168.1.20:8080/offer",
+      videoSources: DEFAULT_CAMERA_CONFIG.videoSources.map((source) =>
+        source.id === DEFAULT_CAMERA_CONFIG.activeVideoSourceId ? { ...source, streamUrl: "http://192.168.1.20:8080/stream.mjpg" } : source
+      ),
       panServoId: 3,
       tiltServoId: 4,
       panAngleDeg: 120
@@ -540,6 +544,68 @@ describe("camera config storage and validation", () => {
 
     expect(storage.getItem(CAMERA_CONFIG_STORAGE_KEY)).toContain("stream.mjpg");
     expect(loadCameraConfig(storage)).toEqual(config);
+  });
+
+  it("migrates legacy camera config with stream-only settings", () => {
+    const storage = createStorage();
+    storage.setItem(
+      CAMERA_CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        streamUrl: "http://camera.local:8080/stream",
+        panServoId: 3,
+        tiltServoId: 4,
+        panAngleDeg: 120,
+        tiltAngleDeg: 95,
+        panMinDeg: 0,
+        panMaxDeg: 180,
+        tiltMinDeg: 0,
+        tiltMaxDeg: 180,
+        stepDeg: 5,
+        speedRaw: 800,
+        acc: 30
+      })
+    );
+
+    expect(loadCameraConfig(storage)).toMatchObject({
+      streamUrl: "http://camera.local:8080/stream",
+      webrtcOfferUrl: "http://camera.local:8080/offer",
+      streamMode: "mjpeg",
+      latencyProfile: "lowLatency",
+      activeVideoSourceId: "main",
+      videoLayout: "single",
+      panServoId: 3,
+      tiltServoId: 4
+    });
+    expect(loadCameraConfig(storage).videoSources).toEqual([
+      { id: "main", label: "Main Camera", devicePath: "/dev/video0", port: 8080, streamUrl: "http://camera.local:8080/stream" },
+      { id: "secondary", label: "Second Camera", devicePath: "/dev/video1", port: 8081, streamUrl: "http://192.168.55.220:8081/stream" }
+    ]);
+  });
+
+  it("normalizes saved dual camera source settings", () => {
+    const storage = createStorage();
+    storage.setItem(
+      CAMERA_CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        ...DEFAULT_CAMERA_CONFIG,
+        activeVideoSourceId: "secondary",
+        videoLayout: "dual",
+        videoSources: [
+          { id: "main", label: "Front", devicePath: "/dev/video0", port: 8080, streamUrl: "http://pi.local:8080/stream" },
+          { id: "secondary", label: "Rear", devicePath: "/dev/video1", port: 8081, streamUrl: "http://pi.local:8081/stream" }
+        ]
+      })
+    );
+
+    expect(loadCameraConfig(storage)).toMatchObject({
+      streamUrl: "http://pi.local:8080/stream",
+      activeVideoSourceId: "secondary",
+      videoLayout: "dual",
+      videoSources: [
+        { id: "main", label: "Front", devicePath: "/dev/video0", port: 8080, streamUrl: "http://pi.local:8080/stream" },
+        { id: "secondary", label: "Rear", devicePath: "/dev/video1", port: 8081, streamUrl: "http://pi.local:8081/stream" }
+      ]
+    });
   });
 
   it("rejects invalid camera servo ids and angle ranges", () => {

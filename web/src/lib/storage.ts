@@ -31,8 +31,32 @@ export interface MotorDraft {
   name: string;
 }
 
+export type CameraStreamMode = "mjpeg" | "webrtc";
+export type CameraLatencyProfile = "lowLatency" | "balanced" | "sharp";
+export type CameraVideoLayout = "single" | "dual";
+
+export interface CameraProfileSettings {
+  width: number;
+  height: number;
+  fps: number;
+}
+
+export interface CameraVideoSource {
+  id: string;
+  label: string;
+  devicePath: string;
+  port: number;
+  streamUrl: string;
+}
+
 export interface CameraConfig {
   streamUrl: string;
+  webrtcOfferUrl: string;
+  streamMode: CameraStreamMode;
+  latencyProfile: CameraLatencyProfile;
+  videoSources: CameraVideoSource[];
+  activeVideoSourceId: string;
+  videoLayout: CameraVideoLayout;
   panServoId: number;
   tiltServoId: number;
   panMinDeg: number;
@@ -181,8 +205,43 @@ export const DEFAULT_MOTORS: MotorProfile[] = [
   { channel: "M6", name: "Mecanum Rear Right" }
 ];
 
+export const CAMERA_LATENCY_PROFILE_SETTINGS: Record<CameraLatencyProfile, CameraProfileSettings> = {
+  lowLatency: { width: 320, height: 240, fps: 30 },
+  balanced: { width: 640, height: 480, fps: 30 },
+  sharp: { width: 1280, height: 720, fps: 30 }
+};
+
+export const DEFAULT_CAMERA_STREAM_URL = "http://192.168.55.220:8080/stream";
+export const DEFAULT_SECONDARY_CAMERA_STREAM_URL = "http://192.168.55.220:8081/stream";
+export const DEFAULT_CAMERA_WEBRTC_OFFER_URL = "http://192.168.55.220:8080/offer";
+export const MAIN_CAMERA_SOURCE_ID = "main";
+export const SECONDARY_CAMERA_SOURCE_ID = "secondary";
+
+export const DEFAULT_CAMERA_VIDEO_SOURCES: CameraVideoSource[] = [
+  {
+    id: MAIN_CAMERA_SOURCE_ID,
+    label: "Main Camera",
+    devicePath: "/dev/video0",
+    port: 8080,
+    streamUrl: DEFAULT_CAMERA_STREAM_URL
+  },
+  {
+    id: SECONDARY_CAMERA_SOURCE_ID,
+    label: "Second Camera",
+    devicePath: "/dev/video1",
+    port: 8081,
+    streamUrl: DEFAULT_SECONDARY_CAMERA_STREAM_URL
+  }
+];
+
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
-  streamUrl: "",
+  streamUrl: DEFAULT_CAMERA_STREAM_URL,
+  webrtcOfferUrl: DEFAULT_CAMERA_WEBRTC_OFFER_URL,
+  streamMode: "mjpeg",
+  latencyProfile: "lowLatency",
+  videoSources: DEFAULT_CAMERA_VIDEO_SOURCES,
+  activeVideoSourceId: MAIN_CAMERA_SOURCE_ID,
+  videoLayout: "single",
   panServoId: 1,
   tiltServoId: 2,
   panMinDeg: 0,
@@ -559,8 +618,28 @@ function normalizeCameraConfig(value: unknown): CameraConfig {
   }
 
   const draft = value as Partial<CameraConfig>;
+  const legacyStreamUrl = typeof draft.streamUrl === "string" ? draft.streamUrl.trim() : DEFAULT_CAMERA_CONFIG.streamUrl;
+  const savedVideoSources = Array.isArray(draft.videoSources) ? normalizeCameraVideoSources(draft.videoSources, "") : null;
+  const savedMainSource = savedVideoSources?.find((source) => source.id === MAIN_CAMERA_SOURCE_ID);
+  const mainStreamUrl =
+    !savedVideoSources || (legacyStreamUrl && legacyStreamUrl !== DEFAULT_CAMERA_CONFIG.streamUrl && savedMainSource?.streamUrl === DEFAULT_CAMERA_STREAM_URL)
+      ? legacyStreamUrl
+      : "";
+  const videoSources = normalizeCameraVideoSources(draft.videoSources, mainStreamUrl);
+  const mainSource = videoSources.find((source) => source.id === MAIN_CAMERA_SOURCE_ID) ?? videoSources[0] ?? DEFAULT_CAMERA_VIDEO_SOURCES[0];
+  const draftActiveVideoSourceId = typeof draft.activeVideoSourceId === "string" ? draft.activeVideoSourceId.trim() : "";
+  const activeVideoSourceId =
+    draftActiveVideoSourceId && videoSources.some((source) => source.id === draftActiveVideoSourceId)
+      ? draftActiveVideoSourceId
+      : MAIN_CAMERA_SOURCE_ID;
   const config: CameraConfig = {
-    streamUrl: typeof draft.streamUrl === "string" ? draft.streamUrl.trim() : DEFAULT_CAMERA_CONFIG.streamUrl,
+    streamUrl: mainSource.streamUrl,
+    webrtcOfferUrl: typeof draft.webrtcOfferUrl === "string" ? draft.webrtcOfferUrl.trim() : buildCameraOfferUrl(mainSource.streamUrl),
+    streamMode: draft.streamMode === "webrtc" ? "webrtc" : "mjpeg",
+    latencyProfile: draft.latencyProfile === "balanced" || draft.latencyProfile === "sharp" ? draft.latencyProfile : "lowLatency",
+    videoSources,
+    activeVideoSourceId,
+    videoLayout: draft.videoLayout === "dual" ? "dual" : "single",
     panServoId: numberOrDefault(draft.panServoId, DEFAULT_CAMERA_CONFIG.panServoId),
     tiltServoId: numberOrDefault(draft.tiltServoId, DEFAULT_CAMERA_CONFIG.tiltServoId),
     panMinDeg: numberOrDefault(draft.panMinDeg, DEFAULT_CAMERA_CONFIG.panMinDeg),
@@ -575,6 +654,64 @@ function normalizeCameraConfig(value: unknown): CameraConfig {
   };
 
   return validateCameraConfig(config) ? DEFAULT_CAMERA_CONFIG : config;
+}
+
+function normalizeCameraVideoSources(value: unknown, mainStreamUrl: string): CameraVideoSource[] {
+  const defaults = DEFAULT_CAMERA_VIDEO_SOURCES.map((source) => ({
+    ...source,
+    streamUrl: source.id === MAIN_CAMERA_SOURCE_ID && mainStreamUrl ? mainStreamUrl : source.streamUrl
+  }));
+  const byId = new Map(defaults.map((source) => [source.id, source]));
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const source = normalizeCameraVideoSource(item);
+      if (source) {
+        byId.set(source.id, {
+          ...byId.get(source.id),
+          ...source,
+          streamUrl: source.id === MAIN_CAMERA_SOURCE_ID && mainStreamUrl ? mainStreamUrl : source.streamUrl
+        });
+      }
+    }
+  }
+
+  return defaults
+    .map((source) => byId.get(source.id) ?? source)
+    .concat(Array.from(byId.values()).filter((source) => !defaults.some((defaultSource) => defaultSource.id === source.id)));
+}
+
+function normalizeCameraVideoSource(value: unknown): CameraVideoSource | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const draft = value as Partial<CameraVideoSource>;
+  const id = typeof draft.id === "string" ? draft.id.trim() : "";
+  const label = typeof draft.label === "string" && draft.label.trim() ? draft.label.trim() : id;
+  const devicePath = typeof draft.devicePath === "string" && draft.devicePath.trim() ? draft.devicePath.trim() : "";
+  const port = normalizeCameraPort(draft.port);
+  const streamUrl = typeof draft.streamUrl === "string" ? draft.streamUrl.trim() : "";
+  if (!id || !label || !devicePath || !port || !streamUrl) {
+    return null;
+  }
+  return { id, label, devicePath, port, streamUrl };
+}
+
+function normalizeCameraPort(value: unknown): number | null {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+export function buildCameraOfferUrl(streamUrl: string): string {
+  try {
+    const url = new URL(streamUrl);
+    url.pathname = "/offer";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return DEFAULT_CAMERA_CONFIG.webrtcOfferUrl;
+  }
 }
 
 function isFiniteNumber(value: number): boolean {

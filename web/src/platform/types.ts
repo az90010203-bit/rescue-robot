@@ -1,10 +1,22 @@
 export type PluginKind = "capability" | "driver" | "transport";
 
-export type CapabilityId = "servo" | "motor" | "camera" | "robot-arm" | "gpio" | "sensor";
+export type CapabilityId = "servo" | "motor" | "camera" | "robot-arm" | "raspberry-pi" | "firmware" | "gamepad" | "gpio" | "sensor";
 
 export type DeviceStatus = "online" | "offline" | "standby" | "error";
 
-export type UiControlKind = "button" | "toggle" | "slider" | "number" | "select" | "metric";
+export type UiControlKind =
+  | "button"
+  | "toggle"
+  | "slider"
+  | "number"
+  | "select"
+  | "metric"
+  | "textarea"
+  | "file"
+  | "joystick"
+  | "cameraView"
+  | "output"
+  | "group";
 
 export interface PluginBase {
   id: string;
@@ -94,12 +106,25 @@ export interface UiControlSchema {
   capability: CapabilityId;
   actionId?: string;
   stateField?: string;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: UiControlOption[];
+  controls?: UiControlSchema[];
+}
+
+export interface UiControlOption {
+  label: string;
+  value: string | number | boolean;
 }
 
 export interface UiPanelSchema {
   id: string;
   title: string;
   capability: CapabilityId;
+  driverId?: string;
+  deviceId?: string;
   controls: UiControlSchema[];
 }
 

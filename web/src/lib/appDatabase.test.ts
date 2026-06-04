@@ -6,6 +6,7 @@ import {
   AppConfigSnapshot,
   DEFAULT_SERVO_SAFETY_SETTINGS,
   DEFAULT_SERVO_SMOOTHING_SETTINGS,
+  createBrowserProjectStateRepository,
   createAppConfigSnapshot,
   createAppStateSnapshotV2,
   loadAppDatabaseSnapshot,
@@ -73,9 +74,36 @@ describe("app database snapshots", () => {
     expect(result.snapshot.motors[0]).toMatchObject({ channel: "M9", name: "Lift", pwmPin: "D5", in1Pin: "D4", in2Pin: "D7" });
     expect(result.snapshot.motorLinkageGroups[0]).toMatchObject({ id: "lift-pair", name: "Lift Pair", masterSpeedPercent: 40 });
     expect(result.snapshot.cameraConfig.streamUrl).toBe("http://camera.local/stream");
+    expect(result.snapshot.cameraConfig.videoSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "main", streamUrl: "http://camera.local/stream" }),
+        expect.objectContaining({ id: "secondary", devicePath: "/dev/video1", port: 8081 })
+      ])
+    );
     expect(result.snapshot.inputMapping.keyboard.forward).toBe("KeyI");
     expect(result.snapshot.language).toBe("en-US");
     expect(stored?.servos).toEqual(result.snapshot.servos);
+  });
+
+  it("wraps browser IndexedDB and legacy backup behind a project state repository", async () => {
+    const indexedDb = createIndexedDb();
+    const legacyStorage = createStorage({
+      [SERVO_LIBRARY_STORAGE_KEY]: JSON.stringify([{ id: 11, name: "Repo Servo" }])
+    });
+    const repository = createBrowserProjectStateRepository({ indexedDb, legacyStorage });
+
+    const migrated = await repository.loadOrMigrate();
+    expect(migrated.source).toBe("legacy");
+    expect(migrated.snapshot.servos[0]).toMatchObject({ id: 11, name: "Repo Servo" });
+
+    const next = createSnapshot({ servos: [{ id: 12, name: "Saved Servo" }] });
+    await repository.save(next);
+    repository.saveLegacyBackup(next);
+    expect((await repository.load())?.servos[0]).toMatchObject({ id: 12, name: "Saved Servo" });
+    expect(legacyStorage.getItem(SERVO_LIBRARY_STORAGE_KEY)).toContain("Saved Servo");
+
+    await repository.clear?.();
+    expect(await repository.load()).toBeNull();
   });
 
   it("prefers an existing IndexedDB snapshot over legacy localStorage", async () => {

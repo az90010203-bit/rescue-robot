@@ -3,10 +3,20 @@ import {
   DataServiceError,
   appendEvents,
   checkDataService,
+  createComponent,
+  createDataServiceProjectStateRepository,
+  createDeviceCatalogItem,
+  createPluginInstance,
   createProject,
   deleteArmTeachTrack,
+  deletePluginInstance,
+  listComponents,
   listArmTeachTracks,
+  listDeviceCatalog,
+  listPluginInstances,
+  listRobots,
   loadCurrentProjectState,
+  savePanelLayout,
   saveProjectState,
   saveArmTeachTrack,
   selectProject
@@ -64,6 +74,27 @@ describe("data service client", () => {
     expect(calls[1].body).toEqual({ events: [{ direction: "system", text: "ok" }] });
   });
 
+  it("wraps current project load and scoped state save behind a project state repository", async () => {
+    const snapshot = createAppStateSnapshotV2({ config: createConfigSnapshot() });
+    const calls: Array<{ url: string; body: unknown; method?: string }> = [];
+    const fetcher = createJsonFetcher((url, init) => {
+      calls.push({ url, body: init.body ? JSON.parse(String(init.body)) : null, method: init.method });
+      return init.method === "GET"
+        ? { project, state: snapshot, stateUpdatedAt: 10, events: [], telemetry: [] }
+        : { updatedAt: 11 };
+    });
+    const repository = createDataServiceProjectStateRepository("project 1", { fetcher, baseUrl: "http://data.test" });
+
+    await expect(repository.load()).resolves.toMatchObject({ version: 2 });
+    await expect(repository.save(snapshot)).resolves.toBeUndefined();
+
+    expect(calls.map((call) => [call.method, call.url])).toEqual([
+      ["GET", "http://data.test/projects/current"],
+      ["PUT", "http://data.test/projects/project%201/state"]
+    ]);
+    expect(calls[1].body).toMatchObject({ snapshot: { version: 2 } });
+  });
+
   it("creates and selects projects through project payload endpoints", async () => {
     const calls: Array<{ url: string; body: unknown; method?: string }> = [];
     const fetcher = createJsonFetcher((url, init) => {
@@ -111,6 +142,55 @@ describe("data service client", () => {
     expect(calls[1].body).toEqual({ track });
   });
 
+  it("uses three-layer architecture endpoints", async () => {
+    const calls: Array<{ url: string; body: unknown; method?: string }> = [];
+    const fetcher = createJsonFetcher((url, init) => {
+      calls.push({ url, body: init.body ? JSON.parse(String(init.body)) : null, method: init.method });
+      if (url.includes("/catalog/devices") && init.method === "GET") {
+        return { items: [catalogItem] };
+      }
+      if (url.includes("/plugin-instances") && init.method === "GET") {
+        return { pluginInstances: [pluginInstance] };
+      }
+      if (url.includes("/components") && init.method === "GET") {
+        return { components: [component] };
+      }
+      if (url.includes("/robots") && init.method === "GET") {
+        return { robots: [robot] };
+      }
+      if (url.includes("/panel-layouts")) {
+        return { scopeId: "robot:1", layout: [{ id: "panel" }], updatedAt: 1 };
+      }
+      if (url.includes("/catalog/devices")) {
+        return catalogItem;
+      }
+      if (url.includes("/plugin-instances") && init.method === "DELETE") {
+        return { deleted: true };
+      }
+      if (url.includes("/plugin-instances")) {
+        return pluginInstance;
+      }
+      if (url.includes("/components")) {
+        return component;
+      }
+      return robot;
+    });
+
+    await expect(listDeviceCatalog({ type: "servo", query: "3215" }, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([catalogItem]);
+    await expect(createDeviceCatalogItem(catalogItem, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(catalogItem);
+    await expect(listPluginInstances("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([pluginInstance]);
+    await expect(createPluginInstance("project 1", pluginInstance, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(pluginInstance);
+    await expect(deletePluginInstance("project 1", "servo 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual({ deleted: true });
+    await expect(listComponents("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([component]);
+    await expect(createComponent("project 1", component, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(component);
+    await expect(listRobots("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([robot]);
+    await expect(savePanelLayout("project 1", "robot:1", [], { fetcher, baseUrl: "http://data.test" })).resolves.toMatchObject({ scopeId: "robot:1" });
+
+    expect(calls.map((call) => [call.method, call.url])).toContainEqual(["GET", "http://data.test/catalog/devices?type=servo&query=3215"]);
+    expect(calls.map((call) => [call.method, call.url])).toContainEqual(["DELETE", "http://data.test/projects/project%201/plugin-instances/servo%201"]);
+    expect(calls.map((call) => [call.method, call.url])).toContainEqual(["PUT", "http://data.test/projects/project%201/panel-layouts/robot%3A1"]);
+  });
+
   it("turns network failures into DataServiceError", async () => {
     const fetcher: typeof fetch = async () => {
       throw new Error("offline");
@@ -126,6 +206,58 @@ const project = {
   isCurrent: true,
   createdAt: 1,
   updatedAt: 2
+};
+
+const catalogItem = {
+  id: "catalog.feetech.sts3215",
+  type: "servo" as const,
+  brand: "Feetech",
+  model: "STS3215",
+  displayName: "Feetech STS3215 Servo",
+  driverId: "driver.feetech-servo",
+  transportId: "transport.web-serial",
+  capabilities: [{ id: "servo" as const, features: ["position_control"] }],
+  configSchema: [{ id: "servoId", label: "ID", kind: "number" as const, required: true }],
+  defaultConfig: { servoId: 1 },
+  tags: ["servo"],
+  userDefined: false,
+  createdAt: 1,
+  updatedAt: 1
+};
+
+const pluginInstance = {
+  id: "servo 1",
+  name: "Base",
+  type: "servo" as const,
+  catalogItemId: catalogItem.id,
+  brand: catalogItem.brand,
+  model: catalogItem.model,
+  driverId: catalogItem.driverId,
+  transportId: catalogItem.transportId,
+  capabilities: catalogItem.capabilities,
+  config: { servoId: 7 },
+  tags: ["servo"],
+  createdAt: 1,
+  updatedAt: 1
+};
+
+const component = {
+  id: "component 1",
+  name: "Arm",
+  pluginInstanceIds: [pluginInstance.id],
+  tags: [],
+  createdAt: 1,
+  updatedAt: 1
+};
+
+const robot = {
+  id: "robot 1",
+  name: "Robot",
+  componentIds: [component.id],
+  pluginInstanceIds: [],
+  tags: [],
+  createdAt: 1,
+  updatedAt: 1
 };
 
 function createJsonFetcher(handler: (url: string, init: RequestInit) => unknown): typeof fetch {
