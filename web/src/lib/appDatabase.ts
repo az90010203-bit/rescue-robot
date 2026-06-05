@@ -133,6 +133,17 @@ export interface AppStateSnapshotV2 {
 
 export type AppConfigSnapshotSource = "database" | "legacy" | "legacy-unavailable";
 
+export interface ProjectStateRepository<TSnapshot> {
+  load(): Promise<TSnapshot | null>;
+  save(snapshot: TSnapshot): Promise<void>;
+  clear?(): Promise<void>;
+}
+
+export interface BrowserProjectStateRepository extends ProjectStateRepository<AppConfigSnapshot> {
+  loadOrMigrate(): Promise<{ snapshot: AppConfigSnapshot; source: AppConfigSnapshotSource }>;
+  saveLegacyBackup(snapshot: AppConfigSnapshot): void;
+}
+
 export const DEFAULT_SERVO_SMOOTHING_SETTINGS: ServoSmoothingSettings = {
   enabled: true,
   preset: "standard"
@@ -312,6 +323,29 @@ export async function clearAppDatabaseSnapshot(indexedDb: IDBFactory | undefined
   } finally {
     db.close();
   }
+}
+
+export function createBrowserProjectStateRepository(options: {
+  indexedDb?: IDBFactory;
+  legacyStorage?: Storage;
+} = {}): BrowserProjectStateRepository {
+  return {
+    load() {
+      return loadAppDatabaseSnapshot(options.indexedDb);
+    },
+    save(snapshot) {
+      return saveAppDatabaseSnapshot(snapshot, options.indexedDb);
+    },
+    clear() {
+      return clearAppDatabaseSnapshot(options.indexedDb);
+    },
+    loadOrMigrate() {
+      return loadOrMigrateAppConfigSnapshot(options);
+    },
+    saveLegacyBackup(snapshot) {
+      saveLegacyAppConfigBackup(snapshot, options.legacyStorage);
+    }
+  };
 }
 
 function normalizeServoList(value: unknown): ServoProfile[] {

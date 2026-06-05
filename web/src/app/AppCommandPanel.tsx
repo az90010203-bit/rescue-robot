@@ -1,0 +1,353 @@
+import { Gauge, SlidersHorizontal } from "lucide-react";
+import { InputMappingCommandPanel } from "../features/drive/InputMappingPanels";
+import { MotorCommandPanel } from "../features/motor/MotorCommandPanel";
+import { ServoCommandPanel } from "../features/servo/ServoCommandPanel";
+import { ArmJointEditor } from "../features/arm/ArmPanels";
+import { ArmKinematicsPanel } from "../features/arm/ArmKinematicsPanel";
+import { ArmTeachPanel } from "../features/arm/ArmTeachPanel";
+import { PanelTitle } from "../shared/ui/AppChrome";
+import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+
+interface AppCommandPanelProps {
+  ctx: AppWorkspaceContext;
+}
+
+export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
+  const {
+    activeModule,
+    armConfig,
+    armSegmentPoses,
+    armServoForJoint,
+    armTeachDraftName,
+    armTeachDraftNotes,
+    armTeachElapsedMs,
+    armTeachLastSampleStatus,
+    armTeachSampleCount,
+    armTeachStatus,
+    armTeachTracks,
+    armTeachUnsavedTrack,
+    calculateArmMotionTargets,
+    canCompileFirmware,
+    canUploadFirmware,
+    cancelServoMotion,
+    capturingKey,
+    checkFirmwareHelper,
+    compileArduinoFirmware,
+    connected,
+    connectionMode,
+    currentServoSafetyConfig,
+    currentServoSmoothConfig,
+    debugEnabled,
+    downloadArduinoFirmware,
+    enabledMotorLinkageGroups,
+    enabledServoLinkageGroups,
+    exportArmTeachTrack,
+    firmwareBoard,
+    firmwareBusy,
+    firmwareError,
+    firmwareHelperHealth,
+    firmwareHelperLabel,
+    firmwareHelperTone,
+    firmwareHexLabel,
+    firmwareLogs,
+    firmwarePorts,
+    firmwareStatus,
+    firmwareStatusTone,
+    formatDirectionLabel,
+    formatLinkageMemberDirection,
+    formatWheelSliderDirectionLabel,
+    getEnabledArmTeachJoints,
+    handleAngleSliderChange,
+    handleLiveDragToggle,
+    handleServoModeChange,
+    handleWheelSliderChange,
+    lastMotorError,
+    lastMotorErrorLabel,
+    linkageWheelDirectionByGroup,
+    mappingDraft,
+    motorConfigError,
+    motorDebugHandshakeLabel,
+    motorDebugHandshakeTone,
+    motorDirection,
+    motorDuty,
+    motorFeedback,
+    motorPreviewCommand,
+    motorSpeed,
+    motors,
+    numericMotorSpeed,
+    pauseArm,
+    pauseArmTeachPlayback,
+    pauseServo,
+    pauseServoLinkageGroup,
+    pingServo,
+    playArmTeachTrack,
+    readMotor,
+    readServo,
+    refreshFirmwarePorts,
+    removeSelectedArmTeachTrack,
+    renderArmCanvas,
+    runArmTuningProbe,
+    saveCurrentArmTeachTrack,
+    saveMotorMapping,
+    selectedArmJoint,
+    selectedArmTeachTrack,
+    selectedChannel,
+    selectedFirmwarePort,
+    selectedId,
+    selectedMotor,
+    sendArmPose,
+    sendMotorConfig,
+    sendMotorLinkageGroup,
+    sendMotorSet,
+    sendMoveForServo,
+    sendServoLinkageGroup,
+    sendServoLinkageWheelGroup,
+    servoBusConnected,
+    servoCommandById,
+    servoFeedback,
+    servoMotionStatusById,
+    servoSafetyEnabled,
+    servoSafetyPreset,
+    servoSafetyStatusById,
+    servoSafetyStatusLabel,
+    servoSafetyStatusTone,
+    servoSmoothPreset,
+    servoSmoothingEnabled,
+    servos,
+    setArmConfig,
+    setArmLiveDragEnabled,
+    setArmTeachDraftName,
+    setArmTeachDraftNotes,
+    setCapturingKey,
+    setFirmwareBoard,
+    setFirmwareJob,
+    setFirmwareStatus,
+    setSelectedArmTeachTrackId,
+    setSelectedChannel,
+    setSelectedFirmwarePort,
+    setSelectedId,
+    setServoSafetyEnabled,
+    setServoSafetyPreset,
+    setServoSmoothPreset,
+    setServoSmoothingEnabled,
+    setStopMode,
+    setTorqueForServo,
+    startArmTeachRecording,
+    stopAllMotors,
+    stopArmTeachRecording,
+    stopMode,
+    stopMotor,
+    stopMotorLinkageGroup,
+    t,
+    updateArmJoint,
+    updateArmJointNumber,
+    updateArmJointServo,
+    updateGamepadAxis,
+    updateGamepadButton,
+    updateKeyboardMapping,
+    updateMotorLinkageMaster,
+    updateSelectedMotorMapping,
+    updateServoCommandField,
+    updateServoLinkageMaster,
+    updateServoLogicalAngle,
+    updateServoWheelMaxSpeed,
+    updateServoWheelSlider,
+    updateSingleMotorSpeed,
+    uploadCompiledArduinoFirmware,
+    wheelTurnProgress
+  } = ctx;
+
+  return (
+            <section className="panel command-panel" aria-labelledby="command-title">
+              <PanelTitle
+                icon={activeModule === "mapping" ? <SlidersHorizontal size={18} /> : <Gauge size={18} />}
+                id="command-title"
+                meta={debugEnabled ? t("status.debugActive") : t("status.standby")}
+                title={
+                  activeModule === "servo"
+                    ? t("panels.servoCommand")
+                    : activeModule === "arm"
+                      ? t("panels.armControl")
+                      : activeModule === "motor"
+                        ? t("panels.motorCommand")
+                        : activeModule === "mapping"
+                          ? t("panels.inputMapping")
+                          : t("panels.driveCamera")
+                }
+              />
+    
+              {activeModule === "arm" ? (
+                <ArmJointEditor
+                  armCanvas={renderArmCanvas()}
+                  armConfig={armConfig}
+                  armSegmentPoses={armSegmentPoses}
+                  armServoForJoint={armServoForJoint}
+                  calculateArmMotionTargets={calculateArmMotionTargets}
+                  kinematicsPanel={
+                    <ArmKinematicsPanel
+                      armConfig={armConfig}
+                      runArmTuningProbe={runArmTuningProbe}
+                      servoBusConnected={servoBusConnected}
+                      servoFeedback={servoFeedback}
+                      servoSafetyEnabled={servoSafetyEnabled}
+                      servos={servos}
+                      setArmConfig={setArmConfig}
+                      t={t}
+                    />
+                  }
+                  pauseArm={pauseArm}
+                  selectedArmJoint={selectedArmJoint}
+                  sendArmPose={sendArmPose}
+                  servos={servos}
+                  setArmLiveDragEnabled={setArmLiveDragEnabled}
+                  t={t}
+                  teachPanel={
+                    <ArmTeachPanel
+                      armTeachDraftName={armTeachDraftName}
+                      armTeachDraftNotes={armTeachDraftNotes}
+                      armTeachElapsedMs={armTeachElapsedMs}
+                      armTeachLastSampleStatus={armTeachLastSampleStatus}
+                      armTeachSampleCount={armTeachSampleCount}
+                      armTeachStatus={armTeachStatus}
+                      armTeachTracks={armTeachTracks}
+                      armTeachUnsavedTrack={armTeachUnsavedTrack}
+                      exportArmTeachTrack={exportArmTeachTrack}
+                      getEnabledArmTeachJoints={getEnabledArmTeachJoints}
+                      pauseArmTeachPlayback={pauseArmTeachPlayback}
+                      playArmTeachTrack={playArmTeachTrack}
+                      removeSelectedArmTeachTrack={removeSelectedArmTeachTrack}
+                      saveCurrentArmTeachTrack={saveCurrentArmTeachTrack}
+                      selectedArmTeachTrack={selectedArmTeachTrack}
+                      servoBusConnected={servoBusConnected}
+                      setArmTeachDraftName={setArmTeachDraftName}
+                      setArmTeachDraftNotes={setArmTeachDraftNotes}
+                      setSelectedArmTeachTrackId={setSelectedArmTeachTrackId}
+                      startArmTeachRecording={startArmTeachRecording}
+                      stopArmTeachRecording={stopArmTeachRecording}
+                    />
+                  }
+                  updateArmJoint={updateArmJoint}
+                  updateArmJointNumber={updateArmJointNumber}
+                  updateArmJointServo={updateArmJointServo}
+                />
+              ) : activeModule === "mapping" ? (
+                <InputMappingCommandPanel
+                  capturingKey={capturingKey}
+                  mappingDraft={mappingDraft}
+                  setCapturingKey={setCapturingKey}
+                  t={t}
+                  updateGamepadAxis={updateGamepadAxis}
+                  updateGamepadButton={updateGamepadButton}
+                  updateKeyboardMapping={updateKeyboardMapping}
+                />
+              ) : activeModule === "servo" ? (
+                <ServoCommandPanel
+                  cancelServoMotion={cancelServoMotion}
+                  currentServoSafetyConfig={currentServoSafetyConfig}
+                  currentServoSmoothConfig={currentServoSmoothConfig}
+                  enabledServoLinkageGroups={enabledServoLinkageGroups}
+                  formatLinkageMemberDirection={formatLinkageMemberDirection}
+                  formatWheelSliderDirectionLabel={formatWheelSliderDirectionLabel}
+                  handleAngleSliderChange={handleAngleSliderChange}
+                  handleLiveDragToggle={handleLiveDragToggle}
+                  handleServoModeChange={handleServoModeChange}
+                  handleWheelSliderChange={handleWheelSliderChange}
+                  linkageWheelDirectionByGroup={linkageWheelDirectionByGroup}
+                  pauseServo={pauseServo}
+                  pauseServoLinkageGroup={pauseServoLinkageGroup}
+                  pingServo={pingServo}
+                  readServo={readServo}
+                  selectedId={selectedId}
+                  sendMoveForServo={sendMoveForServo}
+                  sendServoLinkageGroup={sendServoLinkageGroup}
+                  sendServoLinkageWheelGroup={sendServoLinkageWheelGroup}
+                  servoCommandById={servoCommandById}
+                  servoFeedback={servoFeedback}
+                  servoMotionStatusById={servoMotionStatusById}
+                  servoSafetyEnabled={servoSafetyEnabled}
+                  servoSafetyPreset={servoSafetyPreset}
+                  servoSafetyStatusById={servoSafetyStatusById}
+                  servoSafetyStatusLabel={servoSafetyStatusLabel}
+                  servoSafetyStatusTone={servoSafetyStatusTone}
+                  servoSmoothPreset={servoSmoothPreset}
+                  servoSmoothingEnabled={servoSmoothingEnabled}
+                  servos={servos}
+                  setSelectedId={setSelectedId}
+                  setServoSafetyEnabled={setServoSafetyEnabled}
+                  setServoSafetyPreset={setServoSafetyPreset}
+                  setServoSmoothPreset={setServoSmoothPreset}
+                  setServoSmoothingEnabled={setServoSmoothingEnabled}
+                  setTorqueForServo={setTorqueForServo}
+                  t={t}
+                  updateServoCommandField={updateServoCommandField}
+                  updateServoLinkageMaster={updateServoLinkageMaster}
+                  updateServoLogicalAngle={updateServoLogicalAngle}
+                  updateServoWheelMaxSpeed={updateServoWheelMaxSpeed}
+                  updateServoWheelSlider={updateServoWheelSlider}
+                  wheelTurnProgress={wheelTurnProgress}
+                />
+              ) : (
+                <MotorCommandPanel
+                  canCompileFirmware={canCompileFirmware}
+                  canUploadFirmware={canUploadFirmware}
+                  checkFirmwareHelper={checkFirmwareHelper}
+                  compileArduinoFirmware={compileArduinoFirmware}
+                  connected={connected}
+                  connectionMode={connectionMode}
+                  debugEnabled={debugEnabled}
+                  downloadArduinoFirmware={downloadArduinoFirmware}
+                  enabledMotorLinkageGroups={enabledMotorLinkageGroups}
+                  firmwareBoard={firmwareBoard}
+                  firmwareBusy={firmwareBusy}
+                  firmwareError={firmwareError}
+                  firmwareHelperHealth={firmwareHelperHealth}
+                  firmwareHelperLabel={firmwareHelperLabel}
+                  firmwareHelperTone={firmwareHelperTone}
+                  firmwareHexLabel={firmwareHexLabel}
+                  firmwareLogs={firmwareLogs}
+                  firmwarePorts={firmwarePorts}
+                  firmwareStatus={firmwareStatus}
+                  firmwareStatusTone={firmwareStatusTone}
+                  formatDirectionLabel={formatDirectionLabel}
+                  formatLinkageMemberDirection={formatLinkageMemberDirection}
+                  lastMotorError={lastMotorError}
+                  lastMotorErrorLabel={lastMotorErrorLabel}
+                  motorConfigError={motorConfigError}
+                  motorDebugHandshakeLabel={motorDebugHandshakeLabel}
+                  motorDebugHandshakeTone={motorDebugHandshakeTone}
+                  motorDirection={motorDirection}
+                  motorDuty={motorDuty}
+                  motorFeedback={motorFeedback}
+                  motorPreviewCommand={motorPreviewCommand}
+                  motorSpeed={motorSpeed}
+                  motors={motors}
+                  numericMotorSpeed={numericMotorSpeed}
+                  readMotor={readMotor}
+                  refreshFirmwarePorts={refreshFirmwarePorts}
+                  saveMotorMapping={saveMotorMapping}
+                  selectedChannel={selectedChannel}
+                  selectedFirmwarePort={selectedFirmwarePort}
+                  selectedMotor={selectedMotor}
+                  sendMotorConfig={sendMotorConfig}
+                  sendMotorLinkageGroup={sendMotorLinkageGroup}
+                  sendMotorSet={sendMotorSet}
+                  setFirmwareBoard={setFirmwareBoard}
+                  setFirmwareJob={setFirmwareJob}
+                  setFirmwareStatus={setFirmwareStatus}
+                  setSelectedChannel={setSelectedChannel}
+                  setSelectedFirmwarePort={setSelectedFirmwarePort}
+                  setStopMode={setStopMode}
+                  stopAllMotors={stopAllMotors}
+                  stopMode={stopMode}
+                  stopMotor={stopMotor}
+                  stopMotorLinkageGroup={stopMotorLinkageGroup}
+                  t={t}
+                  updateMotorLinkageMaster={updateMotorLinkageMaster}
+                  updateSelectedMotorMapping={updateSelectedMotorMapping}
+                  updateSingleMotorSpeed={updateSingleMotorSpeed}
+                  uploadCompiledArduinoFirmware={uploadCompiledArduinoFirmware}
+                />
+              )}
+            </section>
+  );
+}

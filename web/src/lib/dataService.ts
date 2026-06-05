@@ -1,4 +1,4 @@
-import type { AppStateSnapshotV2, PersistedLogEntry } from "./appDatabase";
+import type { AppStateSnapshotV2, PersistedLogEntry, ProjectStateRepository } from "./appDatabase";
 import type { ArmTeachTrack } from "./armTeach";
 import type {
   ArchitectureSnapshot,
@@ -242,6 +242,21 @@ export async function saveProjectState(projectId: string, snapshot: AppStateSnap
     },
     options
   );
+}
+
+export function createDataServiceProjectStateRepository(
+  projectId: string,
+  options: RequestOptions = {}
+): ProjectStateRepository<AppStateSnapshotV2> {
+  return {
+    async load() {
+      const current = await loadCurrentProjectState(options);
+      return current.state;
+    },
+    async save(snapshot) {
+      await saveProjectState(projectId, snapshot, options);
+    }
+  };
 }
 
 export async function startSession(projectId: string, options: RequestOptions = {}): Promise<DataSession> {

@@ -9,6 +9,7 @@
     "firmware-helper": "node scripts/firmware-helper.mjs",
     "pi-helper": "node scripts/pi-helper.mjs",
     "check:docs": "node scripts/check-doc-sync.mjs",
+    "health": "node scripts/health-check.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "npm.cmd run check:docs && vitest run && node --test scripts/data-store.node-test.mjs scripts/pi-helper.node-test.mjs"

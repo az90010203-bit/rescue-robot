@@ -1,0 +1,334 @@
+
+.icon-button span,
+.module-tab span {
+  white-space: nowrap;
+}
+
+.module-tab:hover {
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.module-tab.active {
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(61, 174, 255, 0.18), transparent 52%),
+    var(--primary);
+  box-shadow:
+    0 8px 18px rgba(20, 86, 240, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.serial-note {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  padding: 0 14px;
+  color: var(--green);
+  border: 1px solid rgba(27, 166, 115, 0.18);
+  border-radius: 999px;
+  background: var(--green-soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.serial-note.unavailable {
+  color: var(--red);
+  border-color: rgba(255, 59, 48, 0.18);
+  background: var(--red-soft);
+}
+
+.language-select {
+  min-height: 38px;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.language-select > span {
+  gap: 6px;
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.language-select svg {
+  color: var(--blue);
+}
+
+.language-select select {
+  width: auto;
+  min-width: 104px;
+  min-height: 30px;
+  padding: 5px 28px 5px 8px;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 560;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(270px, 300px) minmax(0, 1fr) minmax(300px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
+.console-workspace {
+  grid-template-columns: 1fr;
+}
+
+.section-switch {
+  flex-basis: 520px;
+}
+
+.context-tabs-panel,
+.console-page-panel,
+.drive-page-panel {
+  grid-column: 1 / -1;
+}
+
+.context-tabs-panel {
+  min-height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+}
+
+.context-tabs-title {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.context-tabs-title strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.context-tabs-title span {
+  color: var(--steel);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.context-tabs {
+  min-width: min(100%, 480px);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+}
+
+.context-tabs .module-tab {
+  min-width: 0;
+}
+
+.console-page-panel {
+  padding: 16px;
+}
+
+.console-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.88fr) minmax(420px, 1.44fr) minmax(300px, 0.96fr);
+  grid-template-areas:
+    "telemetry camera pose"
+    "control control log";
+  gap: 16px;
+}
+
+.console-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.console-telemetry {
+  grid-area: telemetry;
+}
+
+.console-camera {
+  grid-area: camera;
+}
+
+.console-pose {
+  grid-area: pose;
+}
+
+.console-control {
+  grid-area: control;
+}
+
+.console-log {
+  grid-area: log;
+}
+
+.console-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.console-note {
+  margin: 0;
+  color: var(--steel);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.console-camera-viewer {
+  min-height: clamp(300px, 38vw, 560px);
+}
+
+.console-arm-preview .arm-simulator {
+  gap: 10px;
+}
+
+.console-arm-preview .arm-svg {
+  min-height: 220px;
+}
+
+.console-vector-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.console-base-switch {
+  width: min(100%, 420px);
+}
+
+.joystick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.virtual-joystick {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(238, 242, 248, 0.78));
+  padding: 12px;
+}
+
+.virtual-joystick-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.virtual-joystick-head strong {
+  font-size: 0.88rem;
+}
+
+.virtual-joystick-head small {
+  color: var(--steel);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.joystick-base {
+  position: relative;
+  width: min(150px, 44vw);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(20, 86, 240, 0.16);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 86, 240, 0.1), transparent 36%),
+    radial-gradient(circle at 50% 50%, #ffffff 0 18%, rgba(255, 255, 255, 0.74) 19% 100%);
+  box-shadow:
+    inset 0 0 0 14px rgba(20, 86, 240, 0.035),
+    inset 0 8px 22px rgba(69, 81, 94, 0.08);
+  cursor: grab;
+  touch-action: none;
+}
+
+.joystick-base:active {
+  cursor: grabbing;
+}
+
+.joystick-axis {
+  position: absolute;
+  background: rgba(95, 95, 95, 0.16);
+  pointer-events: none;
+}
+
+.joystick-axis.horizontal {
+  top: 50%;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+}
+
+.joystick-axis.vertical {
+  top: 18px;
+  bottom: 18px;
+  left: 50%;
+  width: 1px;
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(10, 10, 10, 0.12);
+  border-radius: 50%;
+  background:
+    linear-gradient(145deg, rgba(61, 174, 255, 0.32), transparent 46%),
+    #ffffff;
+  box-shadow:
+    0 12px 26px rgba(34, 34, 34, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+
+.console-output-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.console-log-list {
+  max-height: 360px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.side-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  min-width: 0;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.library-panel,
+.command-panel {
+  min-height: 420px;
+}

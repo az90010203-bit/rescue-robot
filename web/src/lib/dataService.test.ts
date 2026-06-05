@@ -4,6 +4,7 @@ import {
   appendEvents,
   checkDataService,
   createComponent,
+  createDataServiceProjectStateRepository,
   createDeviceCatalogItem,
   createPluginInstance,
   createProject,
@@ -71,6 +72,27 @@ describe("data service client", () => {
     ]);
     expect(calls[0].body).toMatchObject({ snapshot: { version: 2 } });
     expect(calls[1].body).toEqual({ events: [{ direction: "system", text: "ok" }] });
+  });
+
+  it("wraps current project load and scoped state save behind a project state repository", async () => {
+    const snapshot = createAppStateSnapshotV2({ config: createConfigSnapshot() });
+    const calls: Array<{ url: string; body: unknown; method?: string }> = [];
+    const fetcher = createJsonFetcher((url, init) => {
+      calls.push({ url, body: init.body ? JSON.parse(String(init.body)) : null, method: init.method });
+      return init.method === "GET"
+        ? { project, state: snapshot, stateUpdatedAt: 10, events: [], telemetry: [] }
+        : { updatedAt: 11 };
+    });
+    const repository = createDataServiceProjectStateRepository("project 1", { fetcher, baseUrl: "http://data.test" });
+
+    await expect(repository.load()).resolves.toMatchObject({ version: 2 });
+    await expect(repository.save(snapshot)).resolves.toBeUndefined();
+
+    expect(calls.map((call) => [call.method, call.url])).toEqual([
+      ["GET", "http://data.test/projects/current"],
+      ["PUT", "http://data.test/projects/project%201/state"]
+    ]);
+    expect(calls[1].body).toMatchObject({ snapshot: { version: 2 } });
   });
 
   it("creates and selects projects through project payload endpoints", async () => {

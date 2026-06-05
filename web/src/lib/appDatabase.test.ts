@@ -6,6 +6,7 @@ import {
   AppConfigSnapshot,
   DEFAULT_SERVO_SAFETY_SETTINGS,
   DEFAULT_SERVO_SMOOTHING_SETTINGS,
+  createBrowserProjectStateRepository,
   createAppConfigSnapshot,
   createAppStateSnapshotV2,
   loadAppDatabaseSnapshot,
@@ -82,6 +83,27 @@ describe("app database snapshots", () => {
     expect(result.snapshot.inputMapping.keyboard.forward).toBe("KeyI");
     expect(result.snapshot.language).toBe("en-US");
     expect(stored?.servos).toEqual(result.snapshot.servos);
+  });
+
+  it("wraps browser IndexedDB and legacy backup behind a project state repository", async () => {
+    const indexedDb = createIndexedDb();
+    const legacyStorage = createStorage({
+      [SERVO_LIBRARY_STORAGE_KEY]: JSON.stringify([{ id: 11, name: "Repo Servo" }])
+    });
+    const repository = createBrowserProjectStateRepository({ indexedDb, legacyStorage });
+
+    const migrated = await repository.loadOrMigrate();
+    expect(migrated.source).toBe("legacy");
+    expect(migrated.snapshot.servos[0]).toMatchObject({ id: 11, name: "Repo Servo" });
+
+    const next = createSnapshot({ servos: [{ id: 12, name: "Saved Servo" }] });
+    await repository.save(next);
+    repository.saveLegacyBackup(next);
+    expect((await repository.load())?.servos[0]).toMatchObject({ id: 12, name: "Saved Servo" });
+    expect(legacyStorage.getItem(SERVO_LIBRARY_STORAGE_KEY)).toContain("Saved Servo");
+
+    await repository.clear?.();
+    expect(await repository.load()).toBeNull();
   });
 
   it("prefers an existing IndexedDB snapshot over legacy localStorage", async () => {

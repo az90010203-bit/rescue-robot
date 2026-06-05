@@ -1,0 +1,455 @@
+
+.drive-target-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.drive-target-row {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.drive-target-row span {
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.drive-target-row strong {
+  color: var(--ink);
+  font-size: 0.96rem;
+}
+
+.mapping-section {
+  padding-top: 2px;
+}
+
+.mapping-section + .mapping-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.mapping-section-title {
+  gap: 8px;
+  color: var(--blue);
+}
+
+.mapping-section-title h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.keyboard-mapping-grid,
+.gamepad-button-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.keyboard-mapping-grid {
+  grid-template-columns: 1fr;
+}
+
+.gamepad-button-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mapping-row {
+  grid-template-columns: minmax(92px, 0.75fr) minmax(108px, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.mapping-row .icon-button {
+  min-width: 118px;
+}
+
+.gamepad-mapping-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.axis-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.checkbox-field {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.checkbox-field input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.checkbox-field span {
+  white-space: nowrap;
+}
+
+.feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.feedback-grid .metric {
+  min-height: 68px;
+}
+
+.log-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.log-entry {
+  min-height: 38px;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+
+.log-entry.tx {
+  border-left-color: var(--blue);
+}
+
+.log-entry.rx {
+  border-left-color: var(--green);
+}
+
+.log-entry.system,
+.log-entry.warn {
+  border-left-color: var(--orange);
+}
+
+.log-entry.error {
+  border-left-color: var(--red);
+  background: var(--red-soft);
+}
+
+.log-entry span {
+  width: 54px;
+  flex: 0 0 auto;
+  color: var(--steel);
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+
+.log-entry code {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.empty-state {
+  min-height: 84px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--steel);
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--panel-soft);
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 560;
+}
+
+@media (max-width: 1180px) {
+  .topbar {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .system-strip {
+    width: 100%;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  }
+
+  .side-stack {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .drive-page-grid {
+    grid-template-columns: minmax(230px, 0.86fr) minmax(0, 1.35fr);
+    grid-template-areas:
+      "status camera"
+      "controller camera"
+      "params params";
+  }
+
+  .drive-page-camera .camera-viewer {
+    min-height: 320px;
+  }
+
+  .camera-video-grid.dual {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .drive-page-params {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .console-grid {
+    grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.1fr);
+    grid-template-areas:
+      "telemetry camera"
+      "pose camera"
+      "control log";
+  }
+
+  .console-camera-viewer {
+    min-height: 420px;
+  }
+
+  .drive-param-wide,
+  .drive-param-save {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    padding: 16px;
+  }
+
+  .brand-block {
+    align-items: flex-start;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  .system-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .control-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .control-actions,
+  .module-switch,
+  .project-switch {
+    width: 100%;
+  }
+
+  .context-tabs-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .context-tabs {
+    width: 100%;
+  }
+
+  .module-switch {
+    flex: 0 0 auto;
+  }
+
+  .project-switch {
+    flex-wrap: wrap;
+  }
+
+  .control-actions .icon-button,
+  .module-tab {
+    flex: 1;
+  }
+
+  .serial-note {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
+  }
+
+  .language-select {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .language-select select {
+    flex: 1;
+  }
+
+  .workspace,
+  .side-stack,
+  .pi-remote-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .side-stack {
+    grid-column: auto;
+  }
+
+  .servo-command-grid,
+  .arm-editor-grid,
+  .arm-status-strip,
+  .arm-preview-grid,
+  .motor-command-grid,
+  .servo-extra-grid,
+  .preview-grid,
+  .servo-limit-grid,
+  .servo-card-telemetry,
+  .port-config-grid,
+  .pi-remote-form-grid,
+  .pi-remote-status-grid,
+  .pi-auth-grid,
+  .pi-run-summary,
+  .camera-settings-grid,
+  .drive-vector-grid,
+  .keyboard-mapping-grid,
+  .gamepad-button-grid,
+  .linkage-wheel-settings,
+  .servo-smoothing-panel,
+  .linkage-wheel-run-status {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .frame-preview {
+    grid-column: 1 / -1;
+  }
+
+  .drive-page-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "camera camera"
+      "status controller"
+      "params params";
+  }
+
+  .console-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "camera camera"
+      "telemetry pose"
+      "control control"
+      "log log";
+  }
+
+  .console-camera-viewer {
+    min-height: 360px;
+  }
+
+  .drive-page-camera .camera-viewer {
+    min-height: 0;
+  }
+
+  .drive-page-params,
+  .drive-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Main branch camera source and stream controls */
+.camera-mode-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.camera-segmented-control {
+  width: 100%;
+}
+
+.camera-segmented-control .module-tab {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 0.78rem;
+}
+
+.camera-mode-note {
+  margin: -4px 0 0;
+  color: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.camera-video-grid {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.camera-video-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.camera-video-grid.dual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.camera-source-panel {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.camera-source-viewer {
+  margin-bottom: 0;
+}
+
+.camera-source-name {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  max-width: calc(100% - 160px);
+  overflow: hidden;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 0.84rem;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-source-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.camera-viewer img,
+.camera-viewer video {
+  display: block;
+  object-fit: cover;
+  background: var(--panel-soft);
+}
+
+@media (max-width: 620px) {
+  .camera-mode-controls,
+  .camera-source-metrics {
+    grid-template-columns: 1fr;
+  }
+}
