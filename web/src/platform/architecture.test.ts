@@ -25,12 +25,14 @@ import { BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "./builtinPlugins";
 const servoCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.feetech.sts3215")!;
 const motorCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.toshiba.tb6618-motor")!;
 const gamepadCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.browser.gamepad")!;
+const localCameraCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.browser.local-camera")!;
 
 describe("three-layer architecture model", () => {
   it("filters catalog items by type, brand, and query", () => {
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "servo", brand: "Feetech", query: "3215" })).toEqual([servoCatalog]);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "motor", query: "h-bridge" })[0].id).toBe(motorCatalog.id);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "gamepad", query: "browser" })[0].id).toBe(gamepadCatalog.id);
+    expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "camera", brand: "Browser", query: "local" })[0].id).toBe(localCameraCatalog.id);
   });
 
   it("derives and filters selectable driver library files from built-in packages", () => {
@@ -38,6 +40,7 @@ describe("three-layer architecture model", () => {
     const feetech = drivers.find((item) => item.driverId === "driver.feetech-servo");
     const tb6618 = drivers.find((item) => item.driverId === "driver.tb6618-motor");
     const gamepad = drivers.find((item) => item.driverId === "driver.browser-gamepad");
+    const browserCamera = drivers.find((item) => item.driverId === "driver.browser-camera");
 
     expect(feetech).toMatchObject({
       packageId: "builtin.feetech-servo",
@@ -47,6 +50,7 @@ describe("three-layer architecture model", () => {
     });
     expect(tb6618).toMatchObject({ type: "motor", sourceFile: "plugins/builtin/tb6618Motor.ts" });
     expect(gamepad).toMatchObject({ type: "gamepad", sourceFile: "plugins/builtin/browserGamepad.ts", transportIds: ["transport.browser-gamepad-api"] });
+    expect(browserCamera).toMatchObject({ type: "camera", sourceFile: "plugins/builtin/browserCamera.ts", transportIds: ["transport.browser-media"] });
     expect(filterDriverLibraryItems(drivers, { type: "servo", query: "feetechServo.ts" }).map((item) => item.driverId)).toEqual(["driver.feetech-servo"]);
   });
 
@@ -57,6 +61,7 @@ describe("three-layer architecture model", () => {
     ]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.tb6618-motor").map((item) => item.id)).toEqual(["catalog.toshiba.tb6618-motor"]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.browser-gamepad").map((item) => item.id)).toEqual(["catalog.browser.gamepad"]);
+    expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.browser-camera").map((item) => item.id)).toEqual(["catalog.browser.local-camera"]);
   });
 
   it("selects code libraries by device type and brand before model driver choice", () => {
@@ -119,5 +124,17 @@ describe("three-layer architecture model", () => {
     expect(layout.map((item) => item.panelId)).toEqual(["servo-control", "motor-control"]);
     expect(reordered.map((item) => item.targetId)).toEqual(["motor:M1", "servo:7"]);
     expect(mergePanelLayoutItems("component:drive", reordered, targets).map((item) => item.order)).toEqual([0, 1]);
+  });
+
+  it("selects driver-specific camera panels for plugin layouts", () => {
+    const gimbal = createPluginInstanceFromCatalog({ id: "camera-main", name: "Gimbal", catalogItem: BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.generic.camera-gimbal")! });
+    const secondary = createPluginInstanceFromCatalog({ id: "camera-secondary", name: "Second", catalogItem: BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.generic.secondary-camera")! });
+    const browserCamera = createPluginInstanceFromCatalog({ id: "camera-local", name: "Computer", catalogItem: localCameraCatalog });
+
+    expect(panelTargetsForPluginInstances([gimbal, secondary, browserCamera], BUILTIN_UI_PANELS).map((item) => item.panelId)).toEqual([
+      "camera-gimbal-control",
+      "secondary-camera-control",
+      "browser-camera-control"
+    ]);
   });
 });

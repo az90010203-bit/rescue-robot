@@ -208,14 +208,18 @@
   stroke-width: 4;
 }
 
-.arm-segment line {
+.arm-segment line,
+.arm-segment polyline {
+  fill: none;
   stroke: var(--charcoal);
   stroke-width: 10;
   stroke-linecap: round;
+  stroke-linejoin: round;
   filter: drop-shadow(0 6px 10px rgba(34, 34, 34, 0.12));
 }
 
-.arm-segment.selected line {
+.arm-segment.selected line,
+.arm-segment.selected polyline {
   stroke: var(--blue);
 }
 

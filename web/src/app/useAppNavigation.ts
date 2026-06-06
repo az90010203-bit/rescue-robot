@@ -1,9 +1,8 @@
 import type { ChangeEvent } from "react";
 import { isSupportedLanguage, type SupportedLanguage } from "../i18n/languages";
-import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ComponentPanel, type ConnectionMode, type TestPanel } from "./appModel";
+import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ConnectionMode, type TestPanel } from "./appModel";
 
 interface UseAppNavigationOptions {
-  activeComponent: ComponentPanel;
   activeModule: ActiveModule;
   activeTest: TestPanel;
   addLog: (direction: "rx" | "tx" | "system", text: string, level?: any, values?: any) => void;
@@ -15,7 +14,6 @@ interface UseAppNavigationOptions {
   i18n: { changeLanguage: (language: string) => Promise<unknown> };
   sendDebugSet: (module: ActiveModule, enabled: boolean) => Promise<boolean>;
   serialRef: { current: unknown };
-  setActiveComponent: (panel: ComponentPanel) => void;
   setActiveModule: (module: ActiveModule) => void;
   setActiveSection: (section: AppSection) => void;
   setActiveTest: (panel: TestPanel) => void;
@@ -23,7 +21,6 @@ interface UseAppNavigationOptions {
 }
 
 export function useAppNavigation({
-  activeComponent,
   activeModule,
   activeTest,
   addLog,
@@ -35,7 +32,6 @@ export function useAppNavigation({
   i18n,
   sendDebugSet,
   serialRef,
-  setActiveComponent,
   setActiveModule,
   setActiveSection,
   setActiveTest,
@@ -52,26 +48,32 @@ export function useAppNavigation({
     }
   }
 
-  function moduleForComponentPanel(panel: ComponentPanel): ActiveModule {
-    return panel === "arm" ? "arm" : "camera";
-  }
-
   function isArchitectureSection(section: AppSection): section is ArchitectureSection {
-    return section === "plugins" || section === "robots";
+    return section === "plugins" || section === "components" || section === "robots";
   }
 
-  function moduleForSection(section: AppSection): ActiveModule {
-    if (section === "console") {
+  function moduleForTestPanel(panel: TestPanel): ActiveModule | null {
+    if (panel === "pi") {
+      return null;
+    }
+    if (panel === "arm") {
+      return "arm";
+    }
+    if (panel === "driveCamera") {
       return "camera";
     }
-    if (section === "components") {
-      return moduleForComponentPanel(activeComponent);
+    return panel;
+  }
+
+  function moduleForSection(section: AppSection): ActiveModule | null {
+    if (section === "console") {
+      return "camera";
     }
     if (isArchitectureSection(section)) {
       return activeModule;
     }
     if (section === "tests") {
-      return "motor";
+      return moduleForTestPanel(activeTest);
     }
     return "mapping";
   }
@@ -79,21 +81,19 @@ export function useAppNavigation({
   async function selectSection(section: AppSection) {
     setActiveSection(section);
     if (!isArchitectureSection(section)) {
-      await selectModule(moduleForSection(section));
+      const module = moduleForSection(section);
+      if (module) {
+        await selectModule(module);
+      }
     }
-  }
-
-  async function selectComponentPanel(panel: ComponentPanel) {
-    setActiveSection("components");
-    setActiveComponent(panel);
-    await selectModule(moduleForComponentPanel(panel));
   }
 
   async function selectTestPanel(panel: TestPanel) {
     setActiveSection("tests");
     setActiveTest(panel);
-    if (panel !== "pi") {
-      await selectModule(panel);
+    const module = moduleForTestPanel(panel);
+    if (module) {
+      await selectModule(module);
     }
   }
 
@@ -141,9 +141,8 @@ export function useAppNavigation({
     changeLanguage,
     ensureDebugMode,
     isArchitectureSection,
-    moduleForComponentPanel,
     moduleForSection,
-    selectComponentPanel,
+    moduleForTestPanel,
     selectModule,
     selectSection,
     selectTestPanel,

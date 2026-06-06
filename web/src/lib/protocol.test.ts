@@ -10,6 +10,8 @@ import {
   buildMotorStopCommand,
   buildServoMoveCommand,
   buildServoSpeedCommand,
+  buildServoIdChangeFrames,
+  buildWriteRegisterFrame,
   buildWritePositionFrame,
   buildWriteSpeedFrames,
   calculateWheelTurnDelta,
@@ -38,6 +40,17 @@ describe("feetech protocol helpers", () => {
   it("builds a packet checksum over ID through params", () => {
     expect(feetechChecksum([0x01, 0x09, 0x03, 0x2a, 0x00, 0x08, 0x00, 0x00, 0xe8, 0x03])).toBe(0xd5);
     expect(toHex(buildInstructionFrame(1, 1))).toBe("FF FF 01 02 01 FB");
+  });
+
+  it("builds Feetech register and physical ID write frames", () => {
+    expect(toHex(buildWriteRegisterFrame(9, 0x37, [0]))).toBe("FF FF 09 04 03 37 00 B8");
+    expect(buildServoIdChangeFrames(9, 12).map(toHex)).toEqual([
+      "FF FF 09 02 01 F3",
+      "FF FF 09 04 03 37 00 B8",
+      "FF FF 09 04 03 05 0C DE",
+      "FF FF 0C 04 03 37 01 B4",
+      "FF FF 0C 02 01 F0"
+    ]);
   });
 
   it("converts 0-360 degrees into the 0-4095 STS/SCS position range", () => {

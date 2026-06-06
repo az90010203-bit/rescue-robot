@@ -51,7 +51,9 @@ flowchart LR
     Platform --> Executor[PlatformCommand Executor]
     Platform --> UiSchema[UiPanelSchema 渲染器]
     Platform --> Plugins[内置插件包 plugins/builtin/*]
+    Web --> BrowserMedia[Browser MediaDevices / local camera]
     PluginUi --> DriverLibrary[代码驱动库文件 / driver packages]
+    PluginUi --> ServoAdvanced[Feetech 高级配置 / ID 写入 / 逻辑中位]
     Web --> Cache[浏览器缓存 / IndexedDB fallback]
   end
 
@@ -71,6 +73,7 @@ flowchart LR
     Plugins --> ServoPlugin[Feetech Servo]
     Plugins --> MotorPlugin[TB6618 Motor]
     Plugins --> CameraPlugin[Camera Gimbal]
+    Plugins --> BrowserCameraPlugin[Browser Camera]
     Plugins --> ArmPlugin[Robot Arm Composite]
     Plugins --> PiPlugin[Raspberry Pi SSH]
     Plugins --> FirmwarePlugin[Local Firmware Helper]
@@ -82,6 +85,7 @@ flowchart LR
     Executor --> WebSerial[WebSerial]
     WebSerial --> Feetech[Feetech TTL 总线]
     Feetech --> Servos[STS/SCS 舵机与机械臂]
+    ServoAdvanced --> Feetech
     Executor --> Controller[ESP32 / JSON 控制器]
     Controller --> Motors[TB6618 / PWM 电机]
     Controller --> Gimbal[摄像头云台舵机]
@@ -105,7 +109,7 @@ flowchart LR
 - `web/src/App.tsx`：极薄入口，直接导出 `web/src/app/AppShell.tsx`。
 - `web/src/app/*`：控制台外壳、导航、持久化、串口/平台/反馈运行时和工作区组合逻辑。
 - `web/src/features/*`：按功能拆分的舵机、机械臂、底盘、摄像头、电机、树莓派和平台面板；机械臂面板包含 2D FK/IK 与调参建议 UI。
-- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，按入口 `layer` 分别渲染；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板。
+- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，按入口 `layer` 分别渲染；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
 - `web/src/platform/*`：平台模型、命令、执行器、事件、插件注册、设备拓扑、状态快照和 UI schema helper。
 - `web/src/platform/architecture.ts`：三层架构纯模型，包括驱动库派生、设备目录、插件实例、组件、机器人、面板布局、唯一占用校验和旧驱动 profile 兼容桥。
 - `web/src/plugins/builtin/*`：内置能力、驱动、传输和设备面板 schema，包括舵机、电机、摄像头、机械臂、树莓派和固件刷写。
@@ -122,7 +126,7 @@ flowchart LR
 - 插件实例是物理设备实例，组件和机器人装配必须通过 SQLite 数据服务保存；浏览器 IndexedDB 只作为旧配置 fallback。
 - 插件、组件、机器人和功能测试的通用平台控制区优先使用 `UiPanelSchema` 渲染，三层平级页面会按插件能力自动生成并保存可拖动面板。
 - 设备能力通过 `DeviceDescriptor`、`DeviceStateSnapshot`、`UiPanelSchema` 和内置插件描述。
-- 保持现有硬件协议、串口波特率、Feetech 二进制帧、ESP32 JSON 命令和项目数据结构兼容。
+- 保持现有硬件协议、串口波特率、Feetech 二进制帧、ESP32 JSON 命令和项目数据结构兼容；物理舵机 ID 写入只在 Feetech 直连总线下作为高级操作执行，逻辑中位保存到插件/机械臂配置。
 
 ## 文档同步规则
 
@@ -141,3 +145,9 @@ flowchart LR
 - Main camera source: `camera:main`, `/dev/video0`, port `8080`, `http://<pi-host>:8080/stream`.
 - Second camera plugin: `camera:secondary`, `/dev/video1`, port `8081`, `http://<pi-host>:8081/stream`, video-only.
 - The main control page can switch the active source or use the dual layout to display both streams together. Gimbal movement stays bound to `camera:main`.
+
+## Local Browser Camera Notes
+
+- Computer camera plugin: `builtin.browser-camera`, driver `driver.browser-camera`, transport `transport.browser-media`.
+- The plugin page preview uses `navigator.mediaDevices.getUserMedia()` and browser camera permissions.
+- Local browser camera preview stays in the plugin/three-layer workspace and does not add a main-control video source.

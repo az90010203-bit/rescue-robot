@@ -1,26 +1,22 @@
-import { Camera, Cpu, Gamepad2, Keyboard, Settings, SlidersHorizontal, Terminal } from "lucide-react";
+import { Camera, Cpu, Keyboard, Settings, SlidersHorizontal, Terminal } from "lucide-react";
 import type { TFunction } from "i18next";
-import type { AppSection, ComponentPanel, TestPanel } from "./appModel";
+import type { AppSection, TestPanel } from "./appModel";
 
 interface ContextTabsProps {
-  activeComponent: ComponentPanel;
   activeModuleLabel: string;
   activeSection: AppSection;
   activeSectionLabel: string;
   activeTest: TestPanel;
-  selectComponentPanel: (panel: ComponentPanel) => void;
   selectModule: (module: "mapping") => void;
   selectTestPanel: (panel: TestPanel) => void;
   t: TFunction;
 }
 
 export function ContextTabs({
-  activeComponent,
   activeModuleLabel,
   activeSection,
   activeSectionLabel,
   activeTest,
-  selectComponentPanel,
   selectModule,
   selectTestPanel,
   t
@@ -35,22 +31,7 @@ export function ContextTabs({
         <strong>{activeSectionLabel}</strong>
         <span>{activeModuleLabel}</span>
       </div>
-      {activeSection === "components" ? (
-        <div className="context-tabs" role="tablist">
-          <button className={activeComponent === "arm" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("arm")} type="button">
-            <SlidersHorizontal size={17} />
-            <span>{t("componentTabs.arm")}</span>
-          </button>
-          <button className={activeComponent === "drive" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("drive")} type="button">
-            <Gamepad2 size={17} />
-            <span>{t("componentTabs.drive")}</span>
-          </button>
-          <button className={activeComponent === "camera" ? "module-tab active" : "module-tab"} onClick={() => selectComponentPanel("camera")} type="button">
-            <Camera size={17} />
-            <span>{t("componentTabs.camera")}</span>
-          </button>
-        </div>
-      ) : activeSection === "tests" ? (
+      {activeSection === "tests" ? (
         <div className="context-tabs" role="tablist">
           <button className={activeTest === "servo" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("servo")} type="button">
             <Settings size={17} />
@@ -59,6 +40,14 @@ export function ContextTabs({
           <button className={activeTest === "motor" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("motor")} type="button">
             <Cpu size={17} />
             <span>{t("testTabs.motor")}</span>
+          </button>
+          <button className={activeTest === "arm" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("arm")} type="button">
+            <SlidersHorizontal size={17} />
+            <span>{t("testTabs.arm")}</span>
+          </button>
+          <button className={activeTest === "driveCamera" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("driveCamera")} type="button">
+            <Camera size={17} />
+            <span>{t("testTabs.driveCamera")}</span>
           </button>
           <button className={activeTest === "pi" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("pi")} type="button">
             <Terminal size={17} />

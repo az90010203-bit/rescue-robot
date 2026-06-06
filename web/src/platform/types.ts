@@ -15,6 +15,7 @@ export type UiControlKind =
   | "file"
   | "joystick"
   | "cameraView"
+  | "localCameraView"
   | "output"
   | "group";
 

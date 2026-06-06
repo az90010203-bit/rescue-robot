@@ -75,6 +75,68 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
     ],
     defaultConfig: { streamUrl: "http://192.168.55.220:8080/stream", webrtcOfferUrl: "http://192.168.55.220:8080/offer", streamMode: "mjpeg", latencyProfile: "lowLatency", panServoId: 1, tiltServoId: 2, panAngleDeg: 90, tiltAngleDeg: 90 },
     tags: ["camera", "gimbal"]
+  },
+  {
+    id: "catalog.generic.secondary-camera",
+    type: "camera",
+    brand: "Generic",
+    model: "Second Camera",
+    displayName: "Generic Second Camera",
+    driverId: "driver.secondary-camera",
+    transportId: "transport.ssh",
+    capabilities: [{ id: "camera", features: ["mjpeg_stream", "secondary_source"] }],
+    configSchema: [
+      { id: "streamUrl", label: "Stream URL", kind: "text" },
+      { id: "devicePath", label: "Device Path", kind: "text" },
+      { id: "port", label: "Port", kind: "number", min: 1, max: 65535, step: 1 }
+    ],
+    defaultConfig: { streamUrl: "http://192.168.55.220:8081/stream", devicePath: "/dev/video1", port: 8081 },
+    tags: ["camera", "secondary", "raspberry-pi"]
+  },
+  {
+    id: "catalog.browser.gamepad",
+    type: "gamepad",
+    brand: "Browser",
+    model: "Gamepad API",
+    displayName: "Browser Gamepad",
+    driverId: "driver.browser-gamepad",
+    transportId: "transport.browser-gamepad-api",
+    capabilities: [{ id: "gamepad", features: ["drive_input", "camera_gimbal_input", "button_mapping", "live_axes"] }],
+    configSchema: [
+      { id: "preferredIndex", label: "Preferred Index", kind: "number", min: 0, max: 15, step: 1 },
+      {
+        id: "preset",
+        label: "Preset",
+        kind: "select",
+        options: [
+          { label: "Auto", value: "auto" },
+          { label: "Xbox / XInput", value: "xinput" },
+          { label: "PlayStation", value: "playstation" },
+          { label: "Switch Pro", value: "switchPro" },
+          { label: "Generic", value: "generic" }
+        ]
+      }
+    ],
+    defaultConfig: { preferredIndex: null, preset: "auto" },
+    tags: ["gamepad", "browser", "input"]
+  },
+  {
+    id: "catalog.browser.local-camera",
+    type: "camera",
+    brand: "Browser",
+    model: "Local Camera",
+    displayName: "Browser Local Camera",
+    driverId: "driver.browser-camera",
+    transportId: "transport.browser-media",
+    capabilities: [{ id: "camera", features: ["local_media_stream", "browser_camera"] }],
+    configSchema: [
+      { id: "preferredDeviceId", label: "Preferred Device", kind: "text" },
+      { id: "width", label: "Width", kind: "number", min: 1, max: 7680, step: 1 },
+      { id: "height", label: "Height", kind: "number", min: 1, max: 4320, step: 1 },
+      { id: "fps", label: "FPS", kind: "number", min: 1, max: 240, step: 1 }
+    ],
+    defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
+    tags: ["camera", "browser", "local", "usb", "webcam"]
   }
 ];
 

@@ -49,6 +49,15 @@ const devices: DeviceDescriptor[] = [
     capabilities: []
   },
   {
+    id: "camera:browser",
+    name: "Computer Camera",
+    type: "camera",
+    driverId: "driver.browser-camera",
+    transportId: "transport.browser-media",
+    status: "standby",
+    capabilities: []
+  },
+  {
     id: "robot-arm:main",
     name: "Robot Arm",
     type: "robot-arm",
@@ -124,10 +133,11 @@ describe("platform ui helpers", () => {
     expect(findPlatformUiPanelForDevice({ ...devices[1], capabilities: [{ id: "motor", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("motor-control");
     expect(findPlatformUiPanelForDevice({ ...devices[2], capabilities: [{ id: "camera", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("camera-gimbal-control");
     expect(findPlatformUiPanelForDevice({ ...devices[3], capabilities: [{ id: "camera", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("secondary-camera-control");
-    expect(findPlatformUiPanelForDevice({ ...devices[4], capabilities: [{ id: "robot-arm", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("robot-arm-control");
-    expect(findPlatformUiPanelForDevice({ ...devices[5], capabilities: [{ id: "raspberry-pi", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("raspberry-pi-remote");
-    expect(findPlatformUiPanelForDevice({ ...devices[6], capabilities: [{ id: "firmware", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("firmware-upload");
-    expect(findPlatformUiPanelForDevice({ ...devices[7], capabilities: [{ id: "gamepad", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("gamepad-status");
+    expect(findPlatformUiPanelForDevice({ ...devices[4], capabilities: [{ id: "camera", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("browser-camera-control");
+    expect(findPlatformUiPanelForDevice({ ...devices[5], capabilities: [{ id: "robot-arm", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("robot-arm-control");
+    expect(findPlatformUiPanelForDevice({ ...devices[6], capabilities: [{ id: "raspberry-pi", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("raspberry-pi-remote");
+    expect(findPlatformUiPanelForDevice({ ...devices[7], capabilities: [{ id: "firmware", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("firmware-upload");
+    expect(findPlatformUiPanelForDevice({ ...devices[8], capabilities: [{ id: "gamepad", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("gamepad-status");
   });
 
   it("creates platform commands from control actions", () => {
@@ -157,19 +167,19 @@ describe("platform ui helpers", () => {
       expect(cameraCommand.type).toBe("camera.set_gimbal");
     }
 
-    const armCommand = platformCommandForControl(devices[4], "set_pose", { joints: [{ id: "base", angleDeg: 90 }] });
+    const armCommand = platformCommandForControl(devices[5], "set_pose", { joints: [{ id: "base", angleDeg: 90 }] });
     expect(typeof armCommand).not.toBe("string");
     if (typeof armCommand !== "string") {
       expect(armCommand.type).toBe("robot-arm.set_pose");
     }
 
-    const piCommand = platformCommandForControl(devices[5], "exec", { command: "python3 main.py" });
+    const piCommand = platformCommandForControl(devices[6], "exec", { command: "python3 main.py" });
     expect(typeof piCommand).not.toBe("string");
     if (typeof piCommand !== "string") {
       expect(piCommand.type).toBe("pi.exec");
     }
 
-    const firmwareCommand = platformCommandForControl(devices[6], "upload", { port: "COM6" });
+    const firmwareCommand = platformCommandForControl(devices[7], "upload", { port: "COM6" });
     expect(typeof firmwareCommand).not.toBe("string");
     if (typeof firmwareCommand !== "string") {
       expect(firmwareCommand.type).toBe("firmware.upload");

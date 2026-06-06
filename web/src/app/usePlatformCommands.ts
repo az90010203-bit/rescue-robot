@@ -1,5 +1,5 @@
 import { MutableRefObject } from "react";
-import { ServoProfile, MotorStopMode, PcCommand, applyServoWheelDirection, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle } from "../lib/protocol";
+import { FeetechStatusPacket, ServoProfile, MotorStopMode, PcCommand, applyServoWheelDirection, buildEepromLockFrame, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildServoIdWriteFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle, toHex } from "../lib/protocol";
 import { PlatformCommand, PlatformCommandResult, platformCommandEventType, validatePlatformCommand } from "../platform/commands";
 import { PlatformEventBus } from "../platform/events";
 import { InboundMessage } from "../lib/protocol";
@@ -11,6 +11,7 @@ interface UsePlatformCommandsOptions {
   rememberServoFeedback: (feedback: InboundMessage & { type: "servo.feedback" }) => void;
   sendMotorCommand: (command: PcCommand, options?: { log?: boolean; retryCount?: number }) => Promise<boolean>;
   sendServoFrames: (frames: number[] | number[][], timeoutMs?: number) => Promise<ReturnType<typeof parseServoFeedback> extends never ? never : any>;
+  sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean) => Promise<FeetechStatusPacket | null>;
   servos: ServoProfile[];
   writeServoPositionUnlocked: (options: {
     acc: number | undefined;
@@ -36,6 +37,7 @@ export function usePlatformCommands({
   platformEventBusRef,
   rememberServoFeedback,
   sendMotorCommand,
+  sendServoFrameUnlocked,
   sendServoFrames,
   servos,
   writeServoPositionUnlocked,
@@ -92,6 +94,51 @@ export function usePlatformCommands({
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
         const packet = await sendServoFrames(buildTorqueFrame(servoId, Boolean(command.payload.enabled)));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: packet ? "sent" : "timeout", response: packet ?? undefined };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
+      if (command.type === "servo.set_id") {
+        const oldId = Number(command.targetDeviceId.replace("servo:", ""));
+        const newId = Number(command.payload.newId);
+        const response = await enqueueServoSerialTask(async () => {
+          const steps: Array<{ label: string; tx: string; rx: string | null; status: number | null }> = [];
+          async function sendStep(label: string, frame: number[], waitMs = 160) {
+            const packet = await sendServoFrameUnlocked(frame, waitMs, true);
+            steps.push({ label, tx: toHex(frame), rx: packet ? packetToHex(packet) : null, status: packet?.status ?? null });
+            return packet;
+          }
+
+          const oldPing = await sendStep(`Ping old ID ${oldId}`, buildPingFrame(oldId), 180);
+          if (!packetOk(oldPing)) {
+            return { ok: false, oldId, newId, stage: "old-ping", steps };
+          }
+
+          const unlock = await sendStep(`Unlock EEPROM ID ${oldId}`, buildEepromLockFrame(oldId, false));
+          if (unlock && unlock.status !== 0) {
+            return { ok: false, oldId, newId, stage: "unlock", steps };
+          }
+
+          const write = await sendStep(`Write ID ${oldId} -> ${newId}`, buildServoIdWriteFrame(oldId, newId));
+          if (write && write.status !== 0) {
+            return { ok: false, oldId, newId, stage: "write-id", steps };
+          }
+
+          const lock = await sendStep(`Lock EEPROM ID ${newId}`, buildEepromLockFrame(newId, true));
+          if (lock && lock.status !== 0) {
+            return { ok: false, oldId, newId, stage: "lock", steps };
+          }
+
+          const newPing = await sendStep(`Ping new ID ${newId}`, buildPingFrame(newId), 220);
+          return { ok: packetOk(newPing), oldId, newId, stage: packetOk(newPing) ? "complete" : "new-ping", steps };
+        });
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: response.ok ? "sent" : response.stage === "old-ping" || response.stage === "new-ping" ? "timeout" : "failed",
+          message: response.ok ? `servo ID changed ${oldId} -> ${newId}` : `servo ID change failed at ${response.stage}`,
+          response
+        };
         emitPlatformCommandResult(command, result);
         return result;
       }
@@ -190,4 +237,12 @@ export function usePlatformCommands({
   }
 
   return { dispatchPlatformCommand, emitPlatformCommandResult };
+}
+
+function packetOk(packet: FeetechStatusPacket | null): boolean {
+  return Boolean(packet && packet.status === 0);
+}
+
+function packetToHex(packet: FeetechStatusPacket): string {
+  return toHex([0xff, 0xff, packet.id, packet.params.length + 2, packet.status, ...packet.params, packet.checksum]);
 }

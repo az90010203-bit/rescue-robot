@@ -2,6 +2,8 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   ARM_MAX_JOINT_LENGTH_PX,
   ARM_MIN_JOINT_LENGTH_PX,
+  armJointLocalEndDirectionDeg,
+  armJointShapeSegments,
   calculateArmDragAngle,
   normalizeArmConfig,
   type ArmConfig,
@@ -89,7 +91,9 @@ export function useArmRuntime({
       speedRaw: 800,
       acc: 30,
       reverse: false,
-      enabled: true
+      enabled: true,
+      shapeSegments: [{ id: "main", name: "主段", lengthPx: 88, directionDeg: 0 }],
+      childFrameOffsetDeg: 0
     };
     updateArmConfigState((current) => ({ ...current, joints: [...current.joints, joint], selectedJointId: id }));
   }
@@ -145,7 +149,9 @@ export function useArmRuntime({
         const servo = armServoForJoint(joint);
         const span = servo ? servoLogicalSpan(servo) : 360;
         if (field === "lengthPx") {
-          return { ...joint, lengthPx: clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX) };
+          const lengthPx = clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
+          const shapeSegments = armJointShapeSegments(joint).map((segment, index) => (index === 0 ? { ...segment, lengthPx } : segment));
+          return { ...joint, lengthPx, shapeSegments };
         }
         if (field === "speedRaw") {
           return { ...joint, speedRaw: clamp(Math.round(numericValue), 0, 4095) };
@@ -238,10 +244,11 @@ export function useArmRuntime({
     const nextAngle = calculateArmDragAngle({
       anchor,
       pointer,
-      parentGlobalDeg: previousPose?.globalDeg ?? 0,
+      parentGlobalDeg: previousPose?.childFrameDeg ?? 0,
       neutralDeg: joint.neutralDeg,
       servoSpanDeg: servoLogicalSpan(servo),
-      currentAngleDeg: joint.angleDeg
+      currentAngleDeg: joint.angleDeg,
+      localEndDirectionDeg: armJointLocalEndDirectionDeg(joint)
     });
     updateArmJointNumber(joint.id, "angleDeg", String(nextAngle), true);
   }

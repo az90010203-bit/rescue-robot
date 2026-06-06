@@ -2,11 +2,13 @@ export const FEETECH_BROADCAST_ID = 0xfe;
 export const FEETECH_PING = 0x01;
 export const FEETECH_READ = 0x02;
 export const FEETECH_WRITE = 0x03;
+export const SERVO_ID_ADDR = 0x05;
 export const MODE_ADDR = 0x21;
 export const TORQUE_ENABLE_ADDR = 0x28;
 export const GOAL_POSITION_ADDR = 0x2a;
 export const ACC_ADDR = 0x29;
 export const GOAL_SPEED_ADDR = 0x2e;
+export const EEPROM_LOCK_ADDR = 0x37;
 export const PRESENT_POSITION_ADDR = 0x38;
 export const FEEDBACK_READ_LENGTH = 0x0f;
 export const DEFAULT_WHEEL_SPEED_LIMIT = 1000;
@@ -383,6 +385,17 @@ export function buildInstructionFrame(id: number, instruction: number, params: n
   return [0xff, 0xff, ...body, feetechChecksum(body)];
 }
 
+export function buildWriteRegisterFrame(id: number, address: number, values: number[]): number[] {
+  assertServoId(id);
+  if (!Number.isInteger(address) || address < 0 || address > 0xff) {
+    throw new Error("Feetech register address must be 0-255");
+  }
+  if (values.length === 0 || values.some((value) => !Number.isInteger(value) || value < 0 || value > 0xff)) {
+    throw new Error("Feetech register values must be one or more bytes");
+  }
+  return buildInstructionFrame(id, FEETECH_WRITE, [address, ...values]);
+}
+
 export function buildPingFrame(id: number): number[] {
   assertServoId(id);
   return buildInstructionFrame(id, FEETECH_PING);
@@ -405,6 +418,25 @@ export function buildModeFrame(id: number, mode: "servo" | "wheel"): number[] {
 
 export function buildWheelModeSetupFrames(id: number): number[][] {
   return [buildTorqueFrame(id, false), buildModeFrame(id, "wheel"), buildTorqueFrame(id, true)];
+}
+
+export function buildEepromLockFrame(id: number, locked: boolean): number[] {
+  return buildWriteRegisterFrame(id, EEPROM_LOCK_ADDR, [locked ? 1 : 0]);
+}
+
+export function buildServoIdWriteFrame(currentId: number, nextId: number): number[] {
+  assertServoId(nextId);
+  return buildWriteRegisterFrame(currentId, SERVO_ID_ADDR, [nextId]);
+}
+
+export function buildServoIdChangeFrames(currentId: number, nextId: number): number[][] {
+  return [
+    buildPingFrame(currentId),
+    buildEepromLockFrame(currentId, false),
+    buildServoIdWriteFrame(currentId, nextId),
+    buildEepromLockFrame(nextId, true),
+    buildPingFrame(nextId)
+  ];
 }
 
 export function buildWritePositionFrame(target: ServoTarget): number[] {

@@ -413,6 +413,193 @@
   font-size: 0.76rem;
 }
 
+.component-arm-auto-panel {
+  gap: 12px;
+}
+
+.component-arm-auto-heading {
+  align-items: center;
+}
+
+.component-arm-mode-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.component-arm-mode-switch.compact {
+  justify-self: start;
+}
+
+.component-arm-mode-switch button {
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--slate);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.component-arm-mode-switch button.active {
+  background: var(--ink);
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.16);
+}
+
+.component-arm-ik-result-list,
+.component-arm-archive-summary {
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+}
+
+.component-arm-correction-row {
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.component-arm-archive-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.component-arm-archive-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--slate);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.component-arm-archive-grid input,
+.component-arm-archive-grid select {
+  min-width: 0;
+}
+
+.component-arm-archive-actions {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.arm-end-effector {
+  fill: var(--warning);
+  stroke: #ffffff;
+  stroke-width: 3;
+}
+
+.arm-end-effector.arm-ik-target {
+  cursor: grab;
+  fill: var(--blue);
+  stroke: #ffffff;
+  stroke-width: 4;
+}
+
+.arm-end-effector.arm-ik-target:active {
+  cursor: grabbing;
+}
+
+.arm-ik-target-marker line {
+  stroke: var(--warning);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 4 5;
+  pointer-events: none;
+}
+
+.component-arm-shape-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.component-arm-shape-heading {
+  align-items: start;
+}
+
+.component-arm-shape-heading strong,
+.component-arm-shape-heading span {
+  display: block;
+}
+
+.component-arm-shape-heading span {
+  margin-top: 3px;
+  color: var(--slate);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.component-arm-frame-offset {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.4fr) minmax(120px, 0.25fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--slate);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.component-arm-shape-list {
+  display: grid;
+  gap: 8px;
+}
+
+.component-arm-shape-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(96px, 0.55fr) minmax(96px, 0.55fr) minmax(160px, 0.8fr) 36px;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.component-arm-shape-row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--slate);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.component-arm-direction-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.component-arm-direction-presets button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 6px;
+  background: #ffffff;
+  color: var(--slate);
+  font-size: 0.75rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.component-arm-direction-presets button:hover {
+  border-color: rgba(20, 86, 240, 0.32);
+  color: var(--blue);
+}
+
 .arm-tuning-actions {
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
@@ -517,6 +704,9 @@
   }
 
   .arm-ik-grid,
+  .component-arm-archive-grid,
+  .component-arm-frame-offset,
+  .component-arm-shape-row,
   .arm-tuning-row {
     grid-template-columns: 1fr;
   }

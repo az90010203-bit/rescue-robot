@@ -52,6 +52,8 @@ export const enUSResource = {
     "testTabs": {
       "servo": "Servo Test",
       "motor": "Motor Test",
+      "arm": "Arm Test",
+      "driveCamera": "Drive / Camera",
       "pi": "Raspberry Pi Remote"
     },
     "settingsTabs": {
@@ -69,6 +71,42 @@ export const enUSResource = {
       "driveStickMecanum": "Forward / strafe",
       "cameraStickHint": "パン / チルト",
       "telemetryNote": "When whole-robot voltage/current protocol is not connected, existing servo and motor feedback is shown."
+    },
+    "dashboard": {
+      "status": {
+        "loading": "Loading layout",
+        "saving": "Saving layout",
+        "saved": "Layout saved",
+        "offline": "Local layout",
+        "error": "Layout save failed"
+      },
+      "targets": {
+        "mainArm": "Main arm"
+      },
+      "actions": {
+        "addPanel": "Add panel",
+        "editLayout": "Edit layout",
+        "doneEditing": "Done",
+        "resetLayout": "Reset layout",
+        "addSelected": "Add selected",
+        "movePanel": "Move panel",
+        "removePanel": "Remove panel"
+      },
+      "fields": {
+        "panelType": "Panel",
+        "target": "Target"
+      },
+      "panelTypes": {
+        "console": {
+          "camera-feed": "Camera",
+          "arm-svg": "Arm SVG",
+          "telemetry": "Telemetry",
+          "joystick": "Joystick",
+          "event-log": "Event log"
+        }
+      },
+      "missingTarget": "Target is missing. Choose another panel target or remove this panel.",
+      "noTargets": "No available targets for this panel."
     },
     "module": {
       "servo": "Servo Debug",

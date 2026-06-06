@@ -23,6 +23,25 @@ describe("2D arm kinematics", () => {
     expect(result.totalLengthPx).toBe(150);
   });
 
+  it("uses L-shaped link geometry for forward kinematics", () => {
+    const result = forwardKinematics2d(
+      createConfig([
+        joint({
+          id: "base",
+          lengthPx: 80,
+          shapeSegments: [
+            { id: "main", name: "Main", lengthPx: 80, directionDeg: 0 },
+            { id: "rise", name: "Rise", lengthPx: 40, directionDeg: 90 }
+          ]
+        })
+      ]),
+      { origin: { x: 0, y: 0 } }
+    );
+
+    expect(result.endEffector).toEqual({ x: 80, y: -40 });
+    expect(result.totalLengthPx).toBe(120);
+  });
+
   it("keeps disabled joints in the chain but does not move them during IK", () => {
     const config = createConfig([
       joint({ id: "base", angleDeg: 90, neutralDeg: 90, enabled: false }),
@@ -47,6 +66,27 @@ describe("2D arm kinematics", () => {
     expect(solution.reachable).toBe(true);
     expect(solution.converged).toBe(true);
     expect(solution.errorPx).toBeLessThanOrEqual(1);
+  });
+
+  it("solves IK targets using L-shaped link geometry", () => {
+    const config = createConfig([
+      joint({
+        id: "base",
+        lengthPx: 80,
+        angleDeg: 90,
+        neutralDeg: 90,
+        shapeSegments: [
+          { id: "main", name: "Main", lengthPx: 80, directionDeg: 0 },
+          { id: "rise", name: "Rise", lengthPx: 40, directionDeg: 90 }
+        ]
+      })
+    ]);
+
+    const solution = solvePlanarIk(config, { x: 40, y: -80 }, { origin: { x: 0, y: 0 }, tolerancePx: 0.5 });
+
+    expect(solution.converged).toBe(true);
+    expect(solution.errorPx).toBeLessThanOrEqual(0.5);
+    expect(solution.movedJointIds).toEqual(["base"]);
   });
 
   it("reports an unreachable IK target without exceeding servo span", () => {

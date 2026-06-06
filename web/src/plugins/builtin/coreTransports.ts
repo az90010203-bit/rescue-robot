@@ -5,8 +5,8 @@ export const coreTransportsPackage: PlatformPluginPackage = {
     id: "builtin.core-transports",
     name: "Core Transports",
     version: "0.1.0",
-    description: "Shared transport definitions for browser serial, browser input, local helpers, and SSH links.",
-    provides: ["transport.web-serial", "transport.controller-json", "transport.browser-gamepad-api", "transport.local-helper", "transport.ssh"]
+    description: "Shared transport definitions for browser serial, browser input, browser media, local helpers, and SSH links.",
+    provides: ["transport.web-serial", "transport.controller-json", "transport.browser-gamepad-api", "transport.browser-media", "transport.local-helper", "transport.ssh"]
   },
   plugins: [
     {
@@ -29,6 +29,13 @@ export const coreTransportsPackage: PlatformPluginPackage = {
       name: "Browser Gamepad API",
       version: "0.1.0",
       modes: ["browser-event", "polling"]
+    },
+    {
+      id: "transport.browser-media",
+      kind: "transport",
+      name: "Browser MediaDevices",
+      version: "0.1.0",
+      modes: ["get-user-media", "browser-event"]
     },
     {
       id: "transport.local-helper",

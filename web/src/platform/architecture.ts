@@ -7,6 +7,7 @@ import {
   normalizeServoProfile
 } from "../lib/protocol";
 import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "./types";
+import { findPlatformUiPanelForDevice } from "./ui";
 
 export type DeviceConfigValue = string | number | boolean | null;
 export type DeviceConfig = Record<string, DeviceConfigValue>;
@@ -89,7 +90,7 @@ export interface PanelLayoutItem {
   scopeId: string;
   panelId: string;
   targetId: string;
-  capability: CapabilityId;
+  capability: CapabilityId | "dashboard";
   title: string;
   x: number;
   y: number;
@@ -296,6 +297,24 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
     ],
     defaultConfig: { preferredIndex: null, preset: "auto" },
     tags: ["gamepad", "browser", "input"]
+  },
+  {
+    id: "catalog.browser.local-camera",
+    type: "camera",
+    brand: "Browser",
+    model: "Local Camera",
+    displayName: "Browser Local Camera",
+    driverId: "driver.browser-camera",
+    transportId: "transport.browser-media",
+    capabilities: [{ id: "camera", features: ["local_media_stream", "browser_camera"] }],
+    configSchema: [
+      { id: "preferredDeviceId", label: "Preferred Device", kind: "text" },
+      { id: "width", label: "Width", kind: "number", min: 1, max: 7680, step: 1 },
+      { id: "height", label: "Height", kind: "number", min: 1, max: 4320, step: 1 },
+      { id: "fps", label: "FPS", kind: "number", min: 1, max: 240, step: 1 }
+    ],
+    defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
+    tags: ["camera", "browser", "local", "usb", "webcam"]
   }
 ];
 
@@ -676,7 +695,7 @@ export function panelTargetsForPluginInstances(instances: PluginInstance[], uiPa
 }> {
   return instances.map((instance) => {
     const descriptor = createDeviceDescriptorFromPluginInstance(instance);
-    const panel = uiPanels.find((candidate) => candidate.capability === descriptor.type || descriptor.capabilities.some((capability) => capability.id === candidate.capability));
+    const panel = findPlatformUiPanelForDevice(descriptor, uiPanels);
     return {
       panelId: panel?.id ?? `${instance.type}-panel`,
       targetId: pluginInstanceDeviceId(instance),
@@ -842,6 +861,7 @@ function driverPackageSourceFile(packageId: string): string {
     "builtin.feetech-servo": "plugins/builtin/feetechServo.ts",
     "builtin.firmware-upload": "plugins/builtin/firmwareUpload.ts",
     "builtin.browser-gamepad": "plugins/builtin/browserGamepad.ts",
+    "builtin.browser-camera": "plugins/builtin/browserCamera.ts",
     "builtin.raspberry-pi": "plugins/builtin/raspberryPi.ts",
     "builtin.robot-arm": "plugins/builtin/robotArm.ts",
     "builtin.secondary-camera": "plugins/builtin/secondaryCamera.ts",

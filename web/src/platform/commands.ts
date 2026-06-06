@@ -8,6 +8,7 @@ export type PlatformCommandType =
   | "servo.read_feedback"
   | "servo.set_torque"
   | "servo.ping"
+  | "servo.set_id"
   | "motor.set_speed"
   | "motor.stop"
   | "motor.read_feedback"
@@ -62,6 +63,7 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "servo.read_feedback",
   "servo.set_torque",
   "servo.ping",
+  "servo.set_id",
   "motor.set_speed",
   "motor.stop",
   "motor.read_feedback",
@@ -96,6 +98,7 @@ const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
   "servo.read_feedback": "servo",
   "servo.set_torque": "servo",
   "servo.ping": "servo",
+  "servo.set_id": "servo",
   "motor.set_speed": "motor",
   "motor.stop": "motor",
   "motor.read_feedback": "motor",
@@ -180,6 +183,19 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
   }
   if (command.type === "servo.set_torque" && typeof command.payload.enabled !== "boolean") {
     return "servo.set_torque requires enabled";
+  }
+  if (command.type === "servo.set_id") {
+    const currentId = Number(command.targetDeviceId.replace("servo:", ""));
+    const newId = command.payload.newId;
+    if (typeof newId !== "number" || !Number.isInteger(newId) || newId < 0 || newId > 253) {
+      return "servo.set_id requires newId from 0 to 253";
+    }
+    if (newId === currentId) {
+      return "servo.set_id newId must be different from current ID";
+    }
+    if (command.payload.confirmSingleServo !== true) {
+      return "servo.set_id requires confirming only one servo is connected";
+    }
   }
   if (command.type === "motor.set_speed") {
     if (typeof command.payload.speedPercent !== "number") {

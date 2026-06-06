@@ -52,6 +52,8 @@ export const jaJPResource = {
     "testTabs": {
       "servo": "サーボテスト",
       "motor": "モーターテスト",
+      "arm": "アームテスト",
+      "driveCamera": "駆動 / カメラ",
       "pi": "Raspberry Pi リモート"
     },
     "settingsTabs": {
@@ -69,6 +71,42 @@ export const jaJPResource = {
       "driveStickMecanum": "前後 / 横移動",
       "cameraStickHint": "パン / チルト",
       "telemetryNote": "機体全体の電圧・電流プロトコル未接続時は、既存のサーボとモーターのフィードバックを表示します。"
+    },
+    "dashboard": {
+      "status": {
+        "loading": "レイアウトを読み込み中",
+        "saving": "レイアウトを保存中",
+        "saved": "レイアウト保存済み",
+        "offline": "ローカルレイアウト",
+        "error": "レイアウト保存失敗"
+      },
+      "targets": {
+        "mainArm": "メインアーム"
+      },
+      "actions": {
+        "addPanel": "パネル追加",
+        "editLayout": "レイアウト編集",
+        "doneEditing": "完了",
+        "resetLayout": "リセット",
+        "addSelected": "選択を追加",
+        "movePanel": "パネル移動",
+        "removePanel": "パネル削除"
+      },
+      "fields": {
+        "panelType": "パネル",
+        "target": "ターゲット"
+      },
+      "panelTypes": {
+        "console": {
+          "camera-feed": "カメラ",
+          "arm-svg": "アーム SVG",
+          "telemetry": "テレメトリ",
+          "joystick": "ジョイスティック",
+          "event-log": "イベントログ"
+        }
+      },
+      "missingTarget": "ターゲットが見つかりません。別のターゲットを選ぶか、このパネルを削除してください。",
+      "noTargets": "このパネルで追加できるターゲットはありません。"
     },
     "module": {
       "servo": "サーボデバッグ",

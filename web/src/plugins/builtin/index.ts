@@ -1,4 +1,5 @@
 import { flattenPlatformPlugins, flattenUiPanels, validatePluginPackages } from "../../platform/packages";
+import { browserCameraPackage } from "./browserCamera";
 import { browserGamepadPackage } from "./browserGamepad";
 import { cameraGimbalPackage } from "./cameraGimbal";
 import { coreCapabilitiesPackage } from "./coreCapabilities";
@@ -17,6 +18,7 @@ export const BUILTIN_PLUGIN_PACKAGES = [
   tb6618MotorPackage,
   cameraGimbalPackage,
   secondaryCameraPackage,
+  browserCameraPackage,
   browserGamepadPackage,
   robotArmPackage,
   raspberryPiPackage,
@@ -29,6 +31,7 @@ export const BUILTIN_PLATFORM_PLUGINS = flattenPlatformPlugins(BUILTIN_PLUGIN_PA
 export const BUILTIN_UI_PANELS = flattenUiPanels(BUILTIN_PLUGIN_PACKAGES);
 
 export {
+  browserCameraPackage,
   browserGamepadPackage,
   cameraGimbalPackage,
   coreCapabilitiesPackage,

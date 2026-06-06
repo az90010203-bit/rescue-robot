@@ -15,6 +15,7 @@ import {
   calculateMotorLinkageTargets,
   calculateServoLinkageWheelTargets,
   calculateServoLinkageTargets,
+  armJointShapeSegments,
   loadArmConfig,
   loadCameraConfig,
   loadMotorLinkageGroups,
@@ -89,6 +90,8 @@ describe("arm config storage and geometry", () => {
       [2, 90, 90, true],
       [3, 90, 90, true]
     ]);
+    expect(config.joints[0].shapeSegments).toEqual([{ id: "main", name: "主段", lengthPx: 88, directionDeg: 0 }]);
+    expect(config.joints[0].childFrameOffsetDeg).toBe(0);
   });
 
   it("normalizes saved joints and filters invalid servo bindings", () => {
@@ -109,18 +112,18 @@ describe("arm config storage and geometry", () => {
     expect(config.liveDragEnabled).toBe(true);
     expect(config.selectedJointId).toBe("joint-2");
     expect(config.joints).toEqual([
-      { id: "joint-1", name: "Base", servoId: 1, lengthPx: 180, angleDeg: 360, neutralDeg: 0, speedRaw: 4095, acc: 254, reverse: true, enabled: true },
-      { id: "joint-2", name: "Shoulder", servoId: 2, lengthPx: 30, angleDeg: 0, neutralDeg: 100, speedRaw: 700, acc: 20, reverse: false, enabled: false }
+      { id: "joint-1", name: "Base", servoId: 1, lengthPx: 180, angleDeg: 360, neutralDeg: 0, speedRaw: 4095, acc: 254, reverse: true, enabled: true, shapeSegments: [{ id: "main", name: "主段", lengthPx: 180, directionDeg: 0 }], childFrameOffsetDeg: 0 },
+      { id: "joint-2", name: "Shoulder", servoId: 2, lengthPx: 30, angleDeg: 0, neutralDeg: 100, speedRaw: 700, acc: 20, reverse: false, enabled: false, shapeSegments: [{ id: "main", name: "主段", lengthPx: 30, directionDeg: 0 }], childFrameOffsetDeg: 0 }
     ]);
   });
 
   it("persists arm config through local storage", () => {
     const storage = createStorage();
-    const config = {
+    const config = normalizeArmConfig({
       liveDragEnabled: true,
       selectedJointId: "base",
       joints: [{ id: "base", name: "Base", servoId: 1, lengthPx: 100, angleDeg: 45, neutralDeg: 90, speedRaw: 800, acc: 30, reverse: false, enabled: true }]
-    };
+    }, servos);
 
     saveArmConfig(config, servos, storage);
 
@@ -141,6 +144,62 @@ describe("arm config storage and geometry", () => {
     expect(Math.round(poses[1].endX)).toBe(100);
     expect(Math.round(poses[1].endY)).toBe(-50);
     expect(poses[1].globalDeg).toBe(90);
+  });
+
+  it("calculates L-shaped joint geometry and preserves path points", () => {
+    const poses = calculateArmSegmentPoses(
+      [
+        {
+          id: "base",
+          name: "Base",
+          servoId: 1,
+          lengthPx: 80,
+          angleDeg: 90,
+          neutralDeg: 90,
+          speedRaw: 800,
+          acc: 30,
+          reverse: false,
+          enabled: true,
+          shapeSegments: [
+            { id: "main", name: "Main", lengthPx: 80, directionDeg: 0 },
+            { id: "rise", name: "Rise", lengthPx: 40, directionDeg: 90 }
+          ],
+          childFrameOffsetDeg: 90
+        },
+        { id: "elbow", name: "Elbow", servoId: 2, lengthPx: 30, angleDeg: 90, neutralDeg: 90, speedRaw: 800, acc: 30, reverse: false, enabled: true }
+      ],
+      { x: 0, y: 0 }
+    );
+
+    expect(poses[0].pathPoints).toEqual([{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: -40 }]);
+    expect(poses[0]).toMatchObject({ endX: 80, endY: -40, globalDeg: 0, childFrameDeg: 90 });
+    expect(Math.round(poses[1].endX)).toBe(80);
+    expect(Math.round(poses[1].endY)).toBe(-70);
+  });
+
+  it("normalizes shape segment direction without servo-id special cases", () => {
+    const config = normalizeArmConfig(
+      {
+        joints: [
+          {
+            id: "id9",
+            name: "ID9",
+            servoId: 9,
+            lengthPx: 80,
+            angleDeg: 90,
+            neutralDeg: 90,
+            speedRaw: 800,
+            acc: 30,
+            reverse: false,
+            enabled: true,
+            shapeSegments: [{ id: "main", name: "Main", lengthPx: 80, directionDeg: 450 }]
+          }
+        ]
+      },
+      [{ id: 9, name: "ID9", minDeg: 0, maxDeg: 360, direction: 1 }]
+    );
+
+    expect(armJointShapeSegments(config.joints[0])).toEqual([{ id: "main", name: "Main", lengthPx: 80, directionDeg: 90 }]);
   });
 
   it("converts joint handle drag to a clamped logical angle", () => {

@@ -139,6 +139,120 @@
   padding: 16px;
 }
 
+.console-dashboard-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.console-dashboard-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.console-dashboard-head > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.console-dashboard-head strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.console-dashboard-head small,
+.console-dashboard-card-head small,
+.console-dashboard-empty-targets {
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.console-dashboard-actions,
+.console-dashboard-add-panel {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.console-dashboard-add-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  padding: 12px;
+}
+
+.console-dashboard-add-panel label {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.console-dashboard-grid {
+  min-height: 720px;
+}
+
+.console-dashboard-grid.editing {
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: rgba(20, 86, 240, 0.03);
+}
+
+.console-dashboard-card {
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+
+.console-dashboard-card-head {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 28px;
+}
+
+.console-dashboard-card-head span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.console-dashboard-card-head strong,
+.console-dashboard-card-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-dashboard-drag-handle {
+  cursor: grab;
+}
+
+.console-dashboard-drag-handle:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.console-dashboard-card-body {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.console-dashboard-card-body .camera-source-viewer {
+  min-height: 220px;
+}
+
+.console-dashboard-card-body .arm-svg-preview .arm-svg {
+  min-height: 220px;
+}
+
 .console-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.88fr) minmax(420px, 1.44fr) minmax(300px, 0.96fr);
@@ -210,6 +324,20 @@
 
 .console-base-switch {
   width: min(100%, 420px);
+}
+
+@media (max-width: 860px) {
+  .console-dashboard-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .console-dashboard-actions,
+  .console-dashboard-actions .icon-button,
+  .console-dashboard-add-panel,
+  .console-dashboard-add-panel label {
+    width: 100%;
+  }
 }
 
 .joystick-grid {

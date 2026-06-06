@@ -4,7 +4,7 @@ import {
   servoPhysicalToLogicalAngleWithReverse,
   type ServoProfile
 } from "./protocol";
-import type { ArmConfig, ArmJointConfig, ArmPoint } from "./storage";
+import { armJointShapeLengthPx, calculateArmSegmentPoses, type ArmConfig, type ArmJointConfig, type ArmPoint } from "./storage";
 
 export type ArmTuningSeverity = "danger" | "info" | "ok" | "warning";
 export type ArmTuningReason =
@@ -117,39 +117,26 @@ const DANGER_TEMPERATURE_C = 70;
 
 export function forwardKinematics2d(config: ArmConfig, options: ArmKinematicsOptions = {}): ArmKinematics2d {
   const origin = options.origin ?? DEFAULT_ARM_ORIGIN;
-  let start = { ...origin };
-  let globalDeg = 0;
-  const poses: ArmKinematicJointPose[] = [];
-
-  for (const joint of config.joints) {
-    const angleDeg = clampJointAngle(joint, options.servos);
-    const relativeDeg = angleDeg - joint.neutralDeg;
-    globalDeg += relativeDeg;
-    const radians = degreesToRadians(globalDeg);
-    const end = {
-      x: start.x + Math.cos(radians) * joint.lengthPx,
-      y: start.y - Math.sin(radians) * joint.lengthPx
-    };
-    poses.push({
-      jointId: joint.id,
-      name: joint.name,
-      servoId: joint.servoId,
-      lengthPx: joint.lengthPx,
-      angleDeg,
-      neutralDeg: joint.neutralDeg,
-      relativeDeg,
-      globalDeg,
-      start,
-      end
-    });
-    start = end;
-  }
+  const joints = config.joints.map((joint) => ({ ...joint, angleDeg: clampJointAngle(joint, options.servos) }));
+  const segmentPoses = calculateArmSegmentPoses(joints, origin);
+  const poses = segmentPoses.map<ArmKinematicJointPose>((pose) => ({
+      jointId: pose.jointId,
+      name: pose.name,
+      servoId: pose.servoId,
+      lengthPx: pose.lengthPx,
+      angleDeg: pose.angleDeg,
+      neutralDeg: pose.neutralDeg,
+      relativeDeg: pose.relativeDeg,
+      globalDeg: pose.globalDeg,
+      start: { x: pose.startX, y: pose.startY },
+      end: { x: pose.endX, y: pose.endY }
+    }));
 
   return {
     endEffector: poses[poses.length - 1]?.end ?? { ...origin },
     joints: poses,
     origin,
-    totalLengthPx: config.joints.reduce((total, joint) => total + Math.max(0, joint.lengthPx), 0)
+    totalLengthPx: joints.reduce((total, joint) => total + armJointShapeLengthPx(joint), 0)
   };
 }
 
@@ -160,7 +147,7 @@ export function solvePlanarIk(config: ArmConfig, target: ArmPoint, options: ArmI
   const movableJointIds = new Set(joints.filter((joint) => joint.enabled).map((joint) => joint.id));
   const movedJointIds = new Set<string>();
   const origin = options.origin ?? DEFAULT_ARM_ORIGIN;
-  const reachable = distance(origin, target) <= joints.reduce((total, joint) => total + Math.max(0, joint.lengthPx), 0) + tolerancePx;
+  const reachable = distance(origin, target) <= joints.reduce((total, joint) => total + armJointShapeLengthPx(joint), 0) + tolerancePx;
   let iterations = 0;
 
   for (; iterations < maxIterations; iterations += 1) {

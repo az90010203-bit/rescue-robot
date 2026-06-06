@@ -50,7 +50,7 @@ export const coreCapabilitiesPackage: PlatformPluginPackage = {
         { id: "move_gimbal", label: "Move gimbal", commandType: "camera.set_gimbal" },
         { id: "center_gimbal", label: "Center gimbal", commandType: "camera.center_gimbal" }
       ],
-      stateFields: ["sourceId", "streamUrl", "devicePath", "port", "webrtcOfferUrl", "streamMode", "latencyProfile", "panAngleDeg", "tiltAngleDeg"]
+      stateFields: ["sourceId", "streamUrl", "devicePath", "port", "webrtcOfferUrl", "streamMode", "latencyProfile", "preferredDeviceId", "width", "height", "fps", "panAngleDeg", "tiltAngleDeg"]
     },
     {
       id: "capability.robot-arm",

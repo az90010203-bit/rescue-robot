@@ -60,9 +60,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
     servos,
     servoFeedback,
     stopAllMotors,
-    activeComponent,
     activeTest,
-    selectComponentPanel,
     selectModule,
     selectTestPanel,
     piRemote,
@@ -279,6 +277,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
     uploadCompiledArduinoFirmware,
     selectedArmFeedback,
     metricNumber,
+    architecturePluginInstances,
     dispatchPlatformCommand,
     prepareArchitectureCommand,
     syncArchitecturePluginInstances
@@ -317,17 +316,20 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         {activeSection === "console" ? (
           <ConsolePage
           activeDriveBase={activeDriveBase}
-          activeCameraSource={activeCameraSource}
           activeGamepad={activeGamepad}
           activeSectionLabel={activeSectionLabel}
-          armCanvas={renderArmCanvas()}
+          architecturePluginInstances={architecturePluginInstances}
+          armConfig={armConfig}
+          armSegmentPoses={armSegmentPoses}
           cameraConfig={cameraConfig}
           cameraPreviewCommand={cameraPreviewCommand}
           cameraSourceRuntimeById={cameraSourceRuntimeById}
           cameraStreamReloadToken={cameraStreamReloadToken}
-          cameraVideoSources={cameraVideoSources}
+          cameraVideoSources={cameraConfig.videoSources}
           completeMotorMappingCount={completeMotorMappingCount}
           connected={connected}
+          currentProject={currentProject}
+          dataServiceOnline={databaseStatus !== "offline"}
           driveCanCommand={driveCanCommand}
           driveInput={driveInput}
           drivePreviewCommand={drivePreviewCommand}
@@ -342,12 +344,8 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
           setCameraSourceRuntime={setCameraSourceRuntime}
           stopAllMotors={stopAllMotors}
           t={t}
-          updateCameraActiveSource={updateCameraActiveSource}
-          updateCameraLatencyProfile={updateCameraLatencyProfile}
-          updateCameraStreamMode={updateCameraStreamMode}
-          updateCameraVideoLayout={updateCameraVideoLayout}
         />
-        ) : activeSection === "plugins" || activeSection === "robots" ? (
+        ) : activeSection === "plugins" || activeSection === "components" || activeSection === "robots" ? (
           <ArchitectureWorkspacePage
             activeSection={activeSection}
             currentProject={currentProject}
@@ -359,19 +357,17 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         ) : (
           <>
             <ContextTabs
-              activeComponent={activeComponent}
               activeModuleLabel={activeModuleLabel}
               activeSection={activeSection}
               activeSectionLabel={activeSectionLabel}
               activeTest={activeTest}
-              selectComponentPanel={selectComponentPanel}
               selectModule={selectModule}
               selectTestPanel={selectTestPanel}
               t={t}
             />
             {activeSection === "tests" && activeTest === "pi" ? (
               <SimplePiRemotePage runtime={piRemote} t={t} />
-            ) : activeModule === "camera" ? (
+            ) : activeSection === "tests" && activeTest === "driveCamera" ? (
               <DrivePage
                 activeDriveBase={activeDriveBase}
                 activeCameraSource={activeCameraSource}

@@ -22,7 +22,6 @@ import {
   type AppSection,
   type ArmTeachRuntime,
   type ArmTeachStatus,
-  type ComponentPanel,
   type ConnectionMode,
   type DatabaseSaveStatus,
   type MotorDebugHandshakeStatus,
@@ -46,7 +45,6 @@ import {
 
 export function useAppStateRefs() {
   const [activeSection, setActiveSection] = useState<AppSection>("console");
-  const [activeComponent, setActiveComponent] = useState<ComponentPanel>("drive");
   const [activeTest, setActiveTest] = useState<TestPanel>("servo");
   const [activeModule, setActiveModule] = useState<ActiveModule>("camera");
   const [servos, setServos] = useState<ServoProfile[]>(() => DEFAULT_SERVOS);
@@ -149,7 +147,7 @@ export function useAppStateRefs() {
   const motorDebugHandshakePromiseRef = useRef<Promise<boolean> | null>(null);
   const pendingDebugSetBySeqRef = useRef<Map<number, PendingDebugSet>>(new Map());
   return {
-    activeSection, setActiveSection, activeComponent, setActiveComponent, activeTest, setActiveTest, activeModule, setActiveModule,
+    activeSection, setActiveSection, activeTest, setActiveTest, activeModule, setActiveModule,
     servos, setServos, armConfig, setArmConfig, armTeachTracks, setArmTeachTracks, selectedArmTeachTrackId, setSelectedArmTeachTrackId,
     armTeachStatus, setArmTeachStatus, armTeachDraftName, setArmTeachDraftName, armTeachDraftNotes, setArmTeachDraftNotes,
     armTeachElapsedMs, setArmTeachElapsedMs, armTeachSampleCount, setArmTeachSampleCount, armTeachLastSampleStatus, setArmTeachLastSampleStatus,

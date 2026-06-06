@@ -623,6 +623,52 @@
   justify-content: start;
 }
 
+.plugin-servo-advanced {
+  border-color: rgba(224, 84, 84, 0.24);
+  background: linear-gradient(180deg, rgba(224, 84, 84, 0.06), var(--panel) 42%);
+}
+
+.plugin-servo-advanced-grid {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+}
+
+.plugin-servo-confirm {
+  align-self: end;
+  min-height: 42px;
+}
+
+.architecture-debug-message {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--steel);
+  background: var(--panel-soft);
+  font-size: 0.86rem;
+  font-weight: 720;
+}
+
+.architecture-debug-message.online {
+  border-color: rgba(43, 161, 117, 0.28);
+  color: var(--green);
+  background: rgba(43, 161, 117, 0.08);
+}
+
+.architecture-debug-message.warning {
+  border-color: rgba(238, 164, 71, 0.32);
+  color: #9c6418;
+  background: rgba(238, 164, 71, 0.1);
+}
+
+.architecture-debug-message.danger {
+  border-color: rgba(224, 84, 84, 0.3);
+  color: var(--red);
+  background: rgba(224, 84, 84, 0.1);
+}
+
+.plugin-debug-card .port-config-panel {
+  box-shadow: none;
+}
+
 .plugin-serial-monitor {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -657,6 +703,18 @@
   gap: 8px;
   max-height: 320px;
   overflow: auto;
+}
+
+.plugin-serial-log-list code {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
 }
 
 .plugin-serial-log-list .empty-state {
@@ -753,12 +811,56 @@
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
-.architecture-camera-view img {
+.architecture-camera-view img,
+.architecture-camera-view video {
   aspect-ratio: 16 / 9;
   border: 1px solid var(--line);
   border-radius: 10px;
   object-fit: cover;
   width: 100%;
+}
+
+.local-camera-control {
+  display: grid;
+  gap: 12px;
+}
+
+.local-camera-preview video {
+  background: #050816;
+  display: block;
+}
+
+.local-camera-placeholder {
+  align-items: center;
+  aspect-ratio: 16 / 9;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.local-camera-toolbar {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1fr) repeat(3, auto);
+}
+
+.local-camera-toolbar label {
+  display: grid;
+  gap: 6px;
+}
+
+.local-camera-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+@media (max-width: 760px) {
+  .local-camera-toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 
 .architecture-empty {

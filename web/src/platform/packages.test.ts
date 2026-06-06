@@ -19,6 +19,7 @@ describe("platform plugin packages", () => {
         "capability.raspberry-pi",
         "capability.firmware",
         "capability.gamepad",
+        "driver.browser-camera",
         "driver.feetech-servo",
         "driver.tb6618-motor",
         "driver.secondary-camera",
@@ -26,10 +27,11 @@ describe("platform plugin packages", () => {
         "driver.raspberry-pi-ssh",
         "driver.local-firmware-helper",
         "transport.web-serial",
-        "transport.browser-gamepad-api"
+        "transport.browser-gamepad-api",
+        "transport.browser-media"
       ])
     );
-    expect(BUILTIN_UI_PANELS.map((panel) => panel.id)).toEqual(expect.arrayContaining(["servo-control", "motor-control", "camera-gimbal-control", "secondary-camera-control", "robot-arm-control", "raspberry-pi-remote", "firmware-upload", "gamepad-status"]));
+    expect(BUILTIN_UI_PANELS.map((panel) => panel.id)).toEqual(expect.arrayContaining(["servo-control", "motor-control", "camera-gimbal-control", "secondary-camera-control", "browser-camera-control", "robot-arm-control", "raspberry-pi-remote", "firmware-upload", "gamepad-status"]));
   });
 
   it("rejects duplicate package, plugin, and ui panel ids", () => {

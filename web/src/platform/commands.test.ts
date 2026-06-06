@@ -10,6 +10,7 @@ describe("platform commands", () => {
   it("accepts valid servo and motor commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("servo.ping", "servo:22"))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("servo.set_torque", "servo:22", { enabled: true }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 23, confirmSingleServo: true }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 45, stopMode: "brake" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7" }))).toBeNull();
   });
@@ -25,6 +26,9 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("servo.set_position", "servo:22", { angleDeg: Number.NaN, speedRaw: 800 }))).toBe("servo.set_position angleDeg must be 0-360");
     expect(validatePlatformCommand(createPlatformCommand("servo.set_position", "servo:22", { angleDeg: 90, speedRaw: 5000 }))).toBe("servo.set_position speedRaw must be an integer from 0 to 4095");
     expect(validatePlatformCommand(createPlatformCommand("servo.set_speed", "servo:22", { speedRaw: Infinity }))).toBe("servo.set_speed speedRaw must be an integer from -4095 to 4095");
+    expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 254, confirmSingleServo: true }))).toBe("servo.set_id requires newId from 0 to 253");
+    expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 22, confirmSingleServo: true }))).toBe("servo.set_id newId must be different from current ID");
+    expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 23 }))).toBe("servo.set_id requires confirming only one servo is connected");
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 101 }))).toBe("motor.set_speed speedPercent must be from -100 to 100");
   });
 

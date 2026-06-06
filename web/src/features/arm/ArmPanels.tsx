@@ -117,7 +117,7 @@ export function ArmCanvas({ activeTargets, armConfig, armSegmentPoses, handleArm
           }
           return (
             <g className={selected ? "arm-segment selected" : "arm-segment"} key={pose.jointId}>
-              <line x1={pose.startX} y1={pose.startY} x2={pose.endX} y2={pose.endY} />
+              <polyline points={pose.pathPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
               <circle className="arm-handle" cx={pose.endX} cy={pose.endY} r={selected ? 12 : 10} tabIndex={0} onPointerDown={(event) => handleArmPointerDown(event, joint)} />
               <text className="arm-label" x={pose.endX + 12} y={pose.endY - 12}>
                 ID {pose.servoId} 路 {formatServoAngle(pose.angleDeg)}掳 路 {pose.lengthPx}px

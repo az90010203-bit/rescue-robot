@@ -52,6 +52,8 @@ export const zhCNResource = {
     "testTabs": {
       "servo": "舵机测试",
       "motor": "电机测试",
+      "arm": "机械臂测试",
+      "driveCamera": "底盘 / 摄像头",
       "pi": "树莓派远程"
     },
     "settingsTabs": {
@@ -69,6 +71,42 @@ export const zhCNResource = {
       "driveStickMecanum": "前后 / 横移",
       "cameraStickHint": "水平 / 俯仰",
       "telemetryNote": "整机电压、电流协议未接入时，显示已有舵机和电机反馈。"
+    },
+    "dashboard": {
+      "status": {
+        "loading": "正在加载布局",
+        "saving": "正在保存布局",
+        "saved": "布局已保存",
+        "offline": "本地布局",
+        "error": "布局保存失败"
+      },
+      "targets": {
+        "mainArm": "主机械臂"
+      },
+      "actions": {
+        "addPanel": "添加面板",
+        "editLayout": "编辑布局",
+        "doneEditing": "完成",
+        "resetLayout": "重置布局",
+        "addSelected": "添加所选",
+        "movePanel": "移动面板",
+        "removePanel": "删除面板"
+      },
+      "fields": {
+        "panelType": "面板",
+        "target": "目标"
+      },
+      "panelTypes": {
+        "console": {
+          "camera-feed": "摄像头",
+          "arm-svg": "机械臂 SVG",
+          "telemetry": "遥测数据",
+          "joystick": "摇杆控制",
+          "event-log": "事件日志"
+        }
+      },
+      "missingTarget": "目标不存在。请重新选择面板目标，或删除此面板。",
+      "noTargets": "这个面板没有可添加的目标。"
     },
     "module": {
       "servo": "舵机调试",

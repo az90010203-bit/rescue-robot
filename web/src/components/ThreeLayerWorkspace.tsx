@@ -1,4 +1,4 @@
-import { Activity, ArrowDown, ArrowLeft, ArrowUp, Bot, Boxes, Code2, Filter, GripVertical, Plus, Radar, Save, Send, Square, Trash2, Wrench } from "lucide-react";
+import { Activity, ArrowDown, ArrowLeft, ArrowUp, Bot, Boxes, Code2, Crosshair, Filter, GripVertical, Play, Plus, Radar, RotateCcw, Save, Send, Square, Trash2, Wrench } from "lucide-react";
 import { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createComponent,
@@ -17,7 +17,7 @@ import {
   updateComponent,
   updatePluginInstance
 } from "../lib/dataService";
-import { createPlatformCommand, PlatformCommand, PlatformCommandResult } from "../platform/commands";
+import { createPlatformCommand, PlatformCommand, PlatformCommandResult, PlatformCommandType } from "../platform/commands";
 import {
   BUILTIN_DEVICE_CATALOG_ITEMS,
   ComponentKind,
@@ -44,20 +44,25 @@ import {
   panelTargetsForPluginInstances,
   pluginInstanceDeviceId,
   pluginInstanceDisplayName,
+  pluginInstancesToMotorProfiles,
   pluginInstancesToServoProfiles,
   pluginUsageMap,
   reorderPanelLayoutItems
 } from "../platform/architecture";
 import { BUILTIN_PLUGIN_PACKAGES } from "../platform/builtinPlugins";
 import { CapabilityId, DeviceDescriptor, UiControlSchema, UiPanelSchema } from "../platform/types";
-import { platformCommandForControl, platformControlDefaultsForDevice } from "../platform/ui";
+import { findPlatformUiPanelForDevice, platformCommandForControl, platformControlDefaultsForDevice } from "../platform/ui";
+import { LocalCameraView } from "../features/platform/LocalCameraView";
 import { DataProject } from "../lib/dataService";
 import {
   ARM_MAX_JOINT_LENGTH_PX,
   ARM_MIN_JOINT_LENGTH_PX,
   ArmConfig,
   ArmJointConfig,
+  ArmPoint,
   ArmSegmentPose,
+  armJointLocalEndDirectionDeg,
+  armJointShapeSegments,
   calculateArmDragAngle,
   calculateArmSegmentPoses,
   DEFAULT_ARM_JOINT_LENGTH_PX,
@@ -65,12 +70,60 @@ import {
   DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   normalizeArmConfig
 } from "../lib/storage";
-import { clamp, normalizeServoProfile, rawToAngleDeg, ServoProfile, servoLogicalSpan, servoPhysicalToLogicalAngleWithReverse } from "../lib/protocol";
+import {
+  clamp,
+  FeetechStatusPacket,
+  MotorProfile,
+  MotorStopMode,
+  normalizeMotorChannel,
+  normalizeServoProfile,
+  parseServoFeedback,
+  rawToAngleDeg,
+  ServoProfile,
+  servoLogicalSpan,
+  servoPhysicalToLogicalAngleWithReverse
+} from "../lib/protocol";
+import {
+  COMPONENT_ARM_AUTO_SAMPLE_INTERVAL_MS,
+  applyComponentArmTrajectorySample,
+  createComponentArmTrajectoryArchive,
+  createComponentArmTrajectorySample,
+  deleteComponentArmTrajectoryArchive,
+  normalizeComponentArmAutoConfig,
+  shouldScheduleComponentArmIkLiveMove,
+  upsertComponentArmTrajectoryArchive,
+  type ComponentArmAutoConfig,
+  type ComponentArmIkSendMode,
+  type ComponentArmTrajectoryArchive,
+  type ComponentArmTrajectorySample
+} from "../features/arm/componentArmAuto";
+import { solvePlanarIk, type ArmIkSolution } from "../lib/armKinematics";
 
 export type ArchitectureLayer = "plugins" | "components" | "robots";
 type SaveState = "idle" | "loading" | "saving" | "error";
 type DraftValues = Record<string, string | number | boolean | null>;
 type MetricTone = "neutral" | "online" | "warning" | "danger";
+type ServoFeedbackValue = ReturnType<typeof parseServoFeedback>;
+type PluginDebugDraft = {
+  mode: "position" | "wheel";
+  angleDeg: string;
+  newServoId: string;
+  confirmSingleServo: boolean;
+  speedRaw: string;
+  acc: string;
+  liveDragEnabled: boolean;
+  reverse: boolean;
+  minDeg: string;
+  maxDeg: string;
+  resetDeg: string;
+  motorSpeedPercent: string;
+  stopMode: MotorStopMode;
+  pwmPin: string;
+  in1Pin: string;
+  in2Pin: string;
+  enablePin: string;
+  sensorPin: string;
+};
 
 interface ThreeLayerWorkspaceProps {
   layer: ArchitectureLayer;
@@ -84,6 +137,7 @@ interface ThreeLayerWorkspaceProps {
 }
 
 const deviceTypes: CapabilityId[] = ["servo", "motor", "camera", "gamepad", "sensor"];
+const ARM_WORKSPACE_ORIGIN: ArmPoint = { x: 300, y: 250 };
 const fallbackTypeLabels: Record<CapabilityId, string> = {
   servo: "舵机",
   motor: "电机",
@@ -106,6 +160,26 @@ function servoFeedbackPhysicalAngle(response: unknown): number | null {
   }
   if (typeof feedback.positionRaw === "number" && Number.isFinite(feedback.positionRaw)) {
     return rawToAngleDeg(feedback.positionRaw);
+  }
+  return null;
+}
+
+function servoFeedbackFromResponse(response: unknown): ServoFeedbackValue | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const maybeFeedback = response as Partial<ServoFeedbackValue>;
+  if (maybeFeedback.type === "servo.feedback") {
+    return maybeFeedback as ServoFeedbackValue;
+  }
+  const maybePacket = response as Partial<FeetechStatusPacket>;
+  if (typeof maybePacket.id === "number" && Array.isArray(maybePacket.params) && typeof maybePacket.status === "number") {
+    return parseServoFeedback({
+      id: maybePacket.id,
+      status: maybePacket.status,
+      params: maybePacket.params,
+      checksum: typeof maybePacket.checksum === "number" ? maybePacket.checksum : 0
+    });
   }
   return null;
 }
@@ -143,9 +217,20 @@ export function ThreeLayerWorkspace({
   const [componentPluginIds, setComponentPluginIds] = useState<Set<string>>(() => new Set());
   const [selectedComponentId, setSelectedComponentId] = useState("");
   const [armDraftByComponentId, setArmDraftByComponentId] = useState<Record<string, ArmConfig>>({});
+  const [armAutoDraftByComponentId, setArmAutoDraftByComponentId] = useState<Record<string, ComponentArmAutoConfig>>({});
+  const [armIkSolutionByComponentId, setArmIkSolutionByComponentId] = useState<Record<string, ArmIkSolution>>({});
+  const [armAutoSamplesByComponentId, setArmAutoSamplesByComponentId] = useState<Record<string, ComponentArmTrajectorySample[]>>({});
+  const [armAutoArchiveDraftByComponentId, setArmAutoArchiveDraftByComponentId] = useState<Record<string, { name: string; notes: string; selectedArchiveId: string }>>({});
   const [componentServoLimitDraftByInstanceId, setComponentServoLimitDraftByInstanceId] = useState<Record<string, { minDeg: string; maxDeg: string }>>({});
   const [componentServoLimitErrorByInstanceId, setComponentServoLimitErrorByInstanceId] = useState<Record<string, string>>({});
   const [draggingArmJointId, setDraggingArmJointId] = useState<string | null>(null);
+  const [draggingArmIkComponentId, setDraggingArmIkComponentId] = useState<string | null>(null);
+  const [armArchivePlayingId, setArmArchivePlayingId] = useState<string | null>(null);
+  const [pluginDebugDraftById, setPluginDebugDraftById] = useState<Record<string, PluginDebugDraft>>({});
+  const [pluginServoFeedbackById, setPluginServoFeedbackById] = useState<Record<string, ServoFeedbackValue>>({});
+  const [pluginDebugMessageById, setPluginDebugMessageById] = useState<Record<string, { text: string; tone: MetricTone }>>({});
+  const [pluginServoConfigBusyById, setPluginServoConfigBusyById] = useState<Record<string, boolean>>({});
+  const [pluginSerialLogById, setPluginSerialLogById] = useState<Record<string, string[]>>({});
   const [robotName, setRobotName] = useState("New Robot");
   const [robotComponentIds, setRobotComponentIds] = useState<Set<string>>(() => new Set());
   const [robotPluginIds, setRobotPluginIds] = useState<Set<string>>(() => new Set());
@@ -156,6 +241,8 @@ export function ThreeLayerWorkspace({
   const armLiveTimerRef = useRef<Record<string, number>>({});
   const armLiveSendingRef = useRef<Record<string, boolean>>({});
   const pendingArmLiveMoveRef = useRef<Record<string, { component: ComponentDefinition; config: ArmConfig }>>({});
+  const armAutoRecordingStartRef = useRef<Record<string, number>>({});
+  const armArchivePlaybackGenerationRef = useRef(0);
   const layerTitle = layer === "plugins" ? "插件" : layer === "components" ? "组件" : "机器人";
 
   const driverLibrary = useMemo(() => driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES), []);
@@ -341,6 +428,75 @@ export function ThreeLayerWorkspace({
     return effectivePluginInstancesForComponent(component, pluginInstances);
   }
 
+  function pluginDebugDraft(instance: PluginInstance): PluginDebugDraft {
+    const existing = pluginDebugDraftById[instance.id];
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    const motor = pluginInstancesToMotorProfiles([instance])[0];
+    const minDeg = servo?.minDeg ?? 0;
+    const maxDeg = servo?.maxDeg ?? 360;
+    const span = Math.max(1, maxDeg - minDeg);
+    const resetDeg = clamp(Number.isFinite(Number(instance.config.resetDeg)) ? Number(instance.config.resetDeg) : span / 2, 0, span);
+    const defaults: PluginDebugDraft = {
+      mode: "position",
+      angleDeg: formatArmNumber(resetDeg),
+      newServoId: String(instance.config.servoId ?? servo?.id ?? ""),
+      confirmSingleServo: false,
+      speedRaw: "800",
+      acc: "30",
+      liveDragEnabled: true,
+      reverse: false,
+      minDeg: formatArmNumber(minDeg),
+      maxDeg: formatArmNumber(maxDeg),
+      resetDeg: formatArmNumber(resetDeg),
+      motorSpeedPercent: "0",
+      stopMode: "brake",
+      pwmPin: motor?.pwmPin ?? String(instance.config.pwmPin ?? ""),
+      in1Pin: motor?.in1Pin ?? String(instance.config.in1Pin ?? ""),
+      in2Pin: motor?.in2Pin ?? String(instance.config.in2Pin ?? ""),
+      enablePin: motor?.enablePin ?? String(instance.config.enablePin ?? ""),
+      sensorPin: motor?.sensorPin ?? String(instance.config.sensorPin ?? "")
+    };
+    return existing ? { ...defaults, ...existing } : defaults;
+  }
+
+  function updatePluginDebugDraft(instanceId: string, patch: Partial<PluginDebugDraft>) {
+    const instance = pluginInstances.find((item) => item.id === instanceId);
+    setPluginDebugDraftById((current) => ({
+      ...current,
+      [instanceId]: {
+        ...(instance ? pluginDebugDraft(instance) : current[instanceId]),
+        ...patch
+      } as PluginDebugDraft
+    }));
+  }
+
+  function setPluginDebugMessage(instanceId: string, text: string, tone: MetricTone = "neutral") {
+    setPluginDebugMessageById((current) => ({ ...current, [instanceId]: { text, tone } }));
+  }
+
+  function setPluginServoConfigBusy(instanceId: string, busy: boolean) {
+    setPluginServoConfigBusyById((current) => ({ ...current, [instanceId]: busy }));
+  }
+
+  function appendPluginSerialLog(instanceId: string, lines: string[]) {
+    if (lines.length === 0) {
+      return;
+    }
+    setPluginSerialLogById((current) => ({
+      ...current,
+      [instanceId]: [...(current[instanceId] ?? []), ...lines].slice(-40)
+    }));
+  }
+
+  function servoLogicalSpanForInstance(instance: PluginInstance): number {
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    return servo ? servoLogicalSpan(servo) : 360;
+  }
+
+  function clampPluginServoLogical(instance: PluginInstance, value: number): number {
+    return clamp(Number.isFinite(value) ? value : 0, 0, servoLogicalSpanForInstance(instance));
+  }
+
   function componentServoLimitDraft(instance: PluginInstance, servo: ServoProfile) {
     return componentServoLimitDraftByInstanceId[instance.id] ?? {
       minDeg: formatArmNumber(servo.minDeg ?? 0),
@@ -433,7 +589,9 @@ export function ThreeLayerWorkspace({
         speedRaw: DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
         acc: DEFAULT_LINKAGE_MEMBER_ACC,
         reverse: false,
-        enabled: true
+        enabled: true,
+        shapeSegments: [{ id: "main", name: "主段", lengthPx: DEFAULT_ARM_JOINT_LENGTH_PX, directionDeg: 0 }],
+        childFrameOffsetDeg: 0
       };
     });
     return { joints, liveDragEnabled: false, selectedJointId: joints[0]?.id ?? null };
@@ -450,17 +608,261 @@ export function ThreeLayerWorkspace({
     return armDraftByComponentId[component.id] ?? armConfigForComponent(component);
   }
 
+  function armAutoConfigForComponent(component: ComponentDefinition, config = armConfigForComponent(component)): ComponentArmAutoConfig {
+    return normalizeComponentArmAutoConfig(component.config?.armAuto, config);
+  }
+
+  function currentArmAutoConfigForComponent(component: ComponentDefinition, config = currentArmConfigForComponent(component)): ComponentArmAutoConfig {
+    return armAutoDraftByComponentId[component.id] ?? armAutoConfigForComponent(component, config);
+  }
+
   async function persistComponentArmConfig(component: ComponentDefinition, config: ArmConfig) {
     if (!project) {
       return;
     }
+    const armAuto = currentArmAutoConfigForComponent(component, config);
     const updated = await updateComponent(project.id, component.id, {
       config: {
         ...component.config,
-        armConfig: config
+        armConfig: config,
+        armAuto
       }
     });
     replaceComponent(updated);
+  }
+
+  async function persistComponentArmAutoConfig(component: ComponentDefinition, autoConfig: ComponentArmAutoConfig, config = currentArmConfigForComponent(component)) {
+    if (!project) {
+      return;
+    }
+    const normalized = normalizeComponentArmAutoConfig(autoConfig, config);
+    const updated = await updateComponent(project.id, component.id, {
+      config: {
+        ...component.config,
+        armConfig: config,
+        armAuto: normalized
+      }
+    });
+    replaceComponent(updated);
+    setArmAutoDraftByComponentId((current) => ({ ...current, [component.id]: normalized }));
+  }
+
+  function updateComponentArmAutoConfig(component: ComponentDefinition, updater: (current: ComponentArmAutoConfig) => ComponentArmAutoConfig) {
+    const config = currentArmConfigForComponent(component);
+    const next = normalizeComponentArmAutoConfig(updater(currentArmAutoConfigForComponent(component, config)), config);
+    setArmAutoDraftByComponentId((current) => ({ ...current, [component.id]: next }));
+    void persistComponentArmAutoConfig(component, next, config).catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : "组件机械臂自动配置保存失败");
+      setStatus("error");
+    });
+  }
+
+  function recordComponentIkSample(component: ComponentDefinition, config: ArmConfig, options: { force?: boolean } = {}) {
+    const startedAt = armAutoRecordingStartRef.current[component.id] ?? Date.now();
+    const sample = createComponentArmTrajectorySample(config, Date.now() - startedAt, componentServoProfiles(component));
+    setArmAutoSamplesByComponentId((current) => {
+      const samples = current[component.id] ?? [];
+      const lastSample = samples[samples.length - 1];
+      if (!options.force && lastSample && sample.tMs - lastSample.tMs < COMPONENT_ARM_AUTO_SAMPLE_INTERVAL_MS) {
+        return current;
+      }
+      return { ...current, [component.id]: [...samples, sample].slice(-1200) };
+    });
+  }
+
+  function solveComponentArmIkTarget(component: ComponentDefinition, target: ArmPoint, options: { record?: boolean; forceRecord?: boolean } = {}) {
+    const servos = componentServoProfiles(component);
+    const currentConfig = currentArmConfigForComponent(component);
+    const solution = solvePlanarIk(currentConfig, target, { servos, origin: ARM_WORKSPACE_ORIGIN });
+    const nextConfig = normalizeArmConfig(solution.config, servos);
+    const nextSolution = { ...solution, config: nextConfig };
+    const currentAuto = currentArmAutoConfigForComponent(component, nextConfig);
+    const nextAuto = normalizeComponentArmAutoConfig({ ...currentAuto, mode: "ik", target }, nextConfig);
+
+    setArmDraftByComponentId((current) => ({ ...current, [component.id]: nextConfig }));
+    setArmIkSolutionByComponentId((current) => ({ ...current, [component.id]: nextSolution }));
+    setArmAutoDraftByComponentId((current) => ({ ...current, [component.id]: nextAuto }));
+    scheduleComponentArmConfigSave(component, nextConfig);
+
+    if (options.record) {
+      recordComponentIkSample(component, nextConfig, { force: options.forceRecord });
+    }
+    if (shouldScheduleComponentArmIkLiveMove(currentAuto, nextConfig)) {
+      scheduleComponentArmLiveMove(component, nextConfig);
+    }
+
+    return { config: nextConfig, solution: nextSolution, autoConfig: nextAuto };
+  }
+
+  function startComponentArmIkDrag(component: ComponentDefinition, target: ArmPoint) {
+    armAutoRecordingStartRef.current[component.id] = Date.now();
+    setDraggingArmIkComponentId(component.id);
+    setDraggingArmJointId(null);
+    setArmAutoSamplesByComponentId((current) => ({ ...current, [component.id]: [] }));
+    solveComponentArmIkTarget(component, target, { record: true, forceRecord: true });
+  }
+
+  function finishComponentArmIkDrag(component: ComponentDefinition) {
+    if (draggingArmIkComponentId !== component.id) {
+      return;
+    }
+    delete armAutoRecordingStartRef.current[component.id];
+    setDraggingArmIkComponentId(null);
+    const config = currentArmConfigForComponent(component);
+    const autoConfig = currentArmAutoConfigForComponent(component, config);
+    void persistComponentArmAutoConfig(component, autoConfig, config).catch((nextError) => {
+      setError(nextError instanceof Error ? nextError.message : "组件机械臂自动配置保存失败");
+      setStatus("error");
+    });
+  }
+
+  function componentArmArchiveDraft(componentId: string, autoConfig: ComponentArmAutoConfig) {
+    return armAutoArchiveDraftByComponentId[componentId] ?? {
+      name: "IK 轨迹",
+      notes: "",
+      selectedArchiveId: autoConfig.archives[0]?.id ?? ""
+    };
+  }
+
+  function updateComponentArmArchiveDraft(componentId: string, values: Partial<{ name: string; notes: string; selectedArchiveId: string }>) {
+    setArmAutoArchiveDraftByComponentId((current) => ({
+      ...current,
+      [componentId]: {
+        name: current[componentId]?.name ?? "IK 轨迹",
+        notes: current[componentId]?.notes ?? "",
+        selectedArchiveId: current[componentId]?.selectedArchiveId ?? "",
+        ...values
+      }
+    }));
+  }
+
+  function selectComponentArmArchive(component: ComponentDefinition, archive: ComponentArmTrajectoryArchive | null) {
+    updateComponentArmArchiveDraft(component.id, {
+      selectedArchiveId: archive?.id ?? "",
+      name: archive?.name ?? "IK 轨迹",
+      notes: archive?.notes ?? ""
+    });
+  }
+
+  async function saveCurrentComponentArmArchive(component: ComponentDefinition) {
+    const config = currentArmConfigForComponent(component);
+    const autoConfig = currentArmAutoConfigForComponent(component, config);
+    const draft = componentArmArchiveDraft(component.id, autoConfig);
+    const samples = armAutoSamplesByComponentId[component.id]?.length
+      ? armAutoSamplesByComponentId[component.id]
+      : [createComponentArmTrajectorySample(config, 0, componentServoProfiles(component))];
+    const now = Date.now();
+    const archive = createComponentArmTrajectoryArchive({
+      name: draft.name,
+      notes: draft.notes,
+      target: autoConfig.target,
+      armConfig: config,
+      samples,
+      createdAt: now,
+      updatedAt: now
+    });
+    const nextAuto = normalizeComponentArmAutoConfig({
+      ...autoConfig,
+      archives: upsertComponentArmTrajectoryArchive(autoConfig.archives, archive)
+    }, config);
+
+    setStatus("saving");
+    try {
+      await persistComponentArmAutoConfig(component, nextAuto, config);
+      setArmAutoSamplesByComponentId((current) => ({ ...current, [component.id]: [] }));
+      setArmAutoArchiveDraftByComponentId((current) => ({
+        ...current,
+        [component.id]: {
+          name: archive.name,
+          notes: archive.notes ?? "",
+          selectedArchiveId: archive.id
+        }
+      }));
+      setStatus("idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "组件机械臂轨迹保存失败");
+      setStatus("error");
+    }
+  }
+
+  async function saveComponentArmArchiveMetadata(component: ComponentDefinition, archive: ComponentArmTrajectoryArchive) {
+    const config = currentArmConfigForComponent(component);
+    const autoConfig = currentArmAutoConfigForComponent(component, config);
+    const draft = componentArmArchiveDraft(component.id, autoConfig);
+    const updatedArchive: ComponentArmTrajectoryArchive = {
+      ...archive,
+      name: draft.name.trim() || archive.name,
+      notes: draft.notes.trim() || undefined,
+      updatedAt: Date.now()
+    };
+    const nextAuto = normalizeComponentArmAutoConfig({
+      ...autoConfig,
+      archives: upsertComponentArmTrajectoryArchive(autoConfig.archives, updatedArchive)
+    }, config);
+
+    setStatus("saving");
+    try {
+      await persistComponentArmAutoConfig(component, nextAuto, config);
+      setStatus("idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "组件机械臂轨迹备注保存失败");
+      setStatus("error");
+    }
+  }
+
+  async function deleteComponentArmArchive(component: ComponentDefinition, archiveId: string) {
+    const config = currentArmConfigForComponent(component);
+    const autoConfig = currentArmAutoConfigForComponent(component, config);
+    const nextArchives = deleteComponentArmTrajectoryArchive(autoConfig.archives, archiveId);
+    const nextAuto = normalizeComponentArmAutoConfig({ ...autoConfig, archives: nextArchives }, config);
+
+    setStatus("saving");
+    try {
+      await persistComponentArmAutoConfig(component, nextAuto, config);
+      selectComponentArmArchive(component, nextAuto.archives[0] ?? null);
+      setStatus("idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "组件机械臂轨迹删除失败");
+      setStatus("error");
+    }
+  }
+
+  async function playComponentArchive(component: ComponentDefinition, archive: ComponentArmTrajectoryArchive) {
+    const generation = armArchivePlaybackGenerationRef.current + 1;
+    armArchivePlaybackGenerationRef.current = generation;
+    setArmArchivePlayingId(archive.id);
+
+    const servos = componentServoProfiles(component);
+    const autoConfig = currentArmAutoConfigForComponent(component);
+    let nextConfig = currentArmConfigForComponent(component);
+    let previousTMs = archive.samples[0]?.tMs ?? 0;
+
+    for (const sample of archive.samples) {
+      const delayMs = Math.max(0, sample.tMs - previousTMs);
+      previousTMs = sample.tMs;
+      if (delayMs > 0) {
+        await sleepMs(delayMs);
+      }
+      if (armArchivePlaybackGenerationRef.current !== generation) {
+        return;
+      }
+      nextConfig = normalizeArmConfig(applyComponentArmTrajectorySample(nextConfig, sample, servos), servos);
+      setArmDraftByComponentId((current) => ({ ...current, [component.id]: nextConfig }));
+      if (autoConfig.sendMode === "live") {
+        await sendComponentArmPose(component, nextConfig, true);
+      }
+    }
+
+    if (armArchivePlaybackGenerationRef.current === generation) {
+      scheduleComponentArmConfigSave(component, nextConfig);
+      setArmArchivePlayingId(null);
+    }
+  }
+
+  function pauseComponentArchivePlayback(component: ComponentDefinition) {
+    armArchivePlaybackGenerationRef.current += 1;
+    setArmArchivePlayingId(null);
+    void pauseComponentArm(component);
   }
 
   function scheduleComponentArmConfigSave(component: ComponentDefinition, config: ArmConfig) {
@@ -610,6 +1012,305 @@ export function ThreeLayerWorkspace({
       setError(nextError instanceof Error ? nextError.message : "实际姿态同步失败");
       setStatus("error");
     }
+  }
+
+  async function savePluginServoSettings(instance: PluginInstance) {
+    if (!project) {
+      return;
+    }
+    const draft = pluginDebugDraft(instance);
+    const minDeg = clamp(Number(draft.minDeg), 0, 360);
+    const maxDeg = clamp(Number(draft.maxDeg), 0, 360);
+    if (!Number.isFinite(minDeg) || !Number.isFinite(maxDeg) || minDeg >= maxDeg) {
+      setPluginDebugMessage(instance.id, "限位范围必须在 0-360 度，并且最小值小于最大值", "danger");
+      return;
+    }
+    const resetDeg = clamp(Number.isFinite(Number(draft.resetDeg)) ? Number(draft.resetDeg) : (maxDeg - minDeg) / 2, 0, maxDeg - minDeg);
+    setStatus("saving");
+    try {
+      const updated = await updatePluginInstance(project.id, instance.id, {
+        config: {
+          ...instance.config,
+          minDeg,
+          maxDeg,
+          resetDeg
+        }
+      });
+      replacePluginInstance(updated);
+      updatePluginDebugDraft(instance.id, {
+        minDeg: formatArmNumber(minDeg),
+        maxDeg: formatArmNumber(maxDeg),
+        resetDeg: formatArmNumber(resetDeg),
+        angleDeg: formatArmNumber(clampPluginServoLogical(updated, Number(draft.angleDeg)))
+      });
+      setPluginDebugMessage(instance.id, `已保存限位 ${formatArmNumber(minDeg)}-${formatArmNumber(maxDeg)} deg，复位 ${formatArmNumber(resetDeg)} deg`, "online");
+      setStatus("idle");
+    } catch (nextError) {
+      setPluginDebugMessage(instance.id, nextError instanceof Error ? nextError.message : "插件舵机设置保存失败", "danger");
+      setStatus("error");
+    }
+  }
+
+  async function runPluginCommand(instance: PluginInstance, commandType: PlatformCommandType, payload: Record<string, unknown> = {}) {
+    await onPrepareCommand?.(instance.type);
+    const result = await dispatchPlatformCommand(createPlatformCommand(commandType, pluginInstanceDeviceId(instance), payload));
+    const tone: MetricTone = result.status === "sent" ? "online" : result.status === "timeout" || result.status === "skipped" ? "warning" : "danger";
+    setPluginDebugMessage(instance.id, result.message ?? `命令状态：${result.status}`, tone);
+    return result;
+  }
+
+  async function readPluginServo(instance: PluginInstance) {
+    const result = await runPluginCommand(instance, "servo.read_feedback");
+    const feedback = servoFeedbackFromResponse(result.response);
+    if (feedback) {
+      setPluginServoFeedbackById((current) => ({ ...current, [instance.id]: feedback }));
+      setPluginDebugMessage(instance.id, `已读取当前位置 ${feedback.positionDeg === undefined ? "--" : `${formatArmNumber(feedback.positionDeg)} deg`}`, "online");
+    }
+    return feedback;
+  }
+
+  async function sendPluginServoPosition(instance: PluginInstance, options: { live?: boolean; draft?: PluginDebugDraft } = {}) {
+    const draft = options.draft ?? pluginDebugDraft(instance);
+    const span = servoLogicalSpanForInstance(instance);
+    const logicalAngle = clampPluginServoLogical(instance, Number(draft.angleDeg));
+    const commandAngle = draft.reverse ? span - logicalAngle : logicalAngle;
+    const speedRaw = clamp(Math.round(Number(draft.speedRaw)), 0, 4095);
+    const acc = clamp(Math.round(Number(draft.acc)), 0, 254);
+    await runPluginCommand(instance, "servo.set_position", { angleDeg: commandAngle, speedRaw, acc, live: options.live === true });
+  }
+
+  async function sendPluginServoWheel(instance: PluginInstance, draft = pluginDebugDraft(instance)) {
+    const speedRaw = clamp(Math.round(Number(draft.speedRaw)), 0, 4095) * (draft.reverse ? -1 : 1);
+    const acc = clamp(Math.round(Number(draft.acc)), 0, 254);
+    await runPluginCommand(instance, "servo.set_speed", { speedRaw, acc });
+  }
+
+  async function resetPluginServo(instance: PluginInstance) {
+    const draft = pluginDebugDraft(instance);
+    const resetDeg = clampPluginServoLogical(instance, Number(draft.resetDeg));
+    updatePluginDebugDraft(instance.id, { mode: "position", angleDeg: formatArmNumber(resetDeg) });
+    const span = servoLogicalSpanForInstance(instance);
+    const commandAngle = draft.reverse ? span - resetDeg : resetDeg;
+    await runPluginCommand(instance, "servo.set_position", {
+      angleDeg: commandAngle,
+      speedRaw: clamp(Math.round(Number(draft.speedRaw)), 0, 4095),
+      acc: clamp(Math.round(Number(draft.acc)), 0, 254)
+    });
+    setPluginDebugMessage(instance.id, `已发送复位 ${formatArmNumber(resetDeg)} deg`, "online");
+  }
+
+  function setPluginServoResetFromFeedback(instance: PluginInstance) {
+    const feedback = pluginServoFeedbackById[instance.id];
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    if (!feedback || !servo || feedback.positionDeg === undefined) {
+      setPluginDebugMessage(instance.id, "没有当前位置反馈，请先点击读取反馈", "warning");
+      return;
+    }
+    const logical = servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg, pluginDebugDraft(instance).reverse);
+    updatePluginDebugDraft(instance.id, { resetDeg: formatArmNumber(clampPluginServoLogical(instance, logical)) });
+    setPluginDebugMessage(instance.id, `复位角已设为当前位置 ${formatArmNumber(logical)} deg，请点击保存限位`, "online");
+  }
+
+  async function setPluginServoNeutralFromFeedback(instance: PluginInstance) {
+    if (!project) {
+      return;
+    }
+    const feedback = pluginServoFeedbackById[instance.id];
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    if (!feedback || !servo || feedback.positionDeg === undefined) {
+      setPluginDebugMessage(instance.id, "没有当前位置反馈，请先点击读取反馈", "warning");
+      return;
+    }
+    const neutralDeg = clampPluginServoLogical(instance, servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg, false));
+    setPluginServoConfigBusy(instance.id, true);
+    setStatus("saving");
+    try {
+      const updated = await updatePluginInstance(project.id, instance.id, {
+        config: {
+          ...instance.config,
+          neutralDeg
+        }
+      });
+      replacePluginInstance(updated);
+      await syncRobotArmNeutralForPlugin(instance, servo.id, neutralDeg);
+      updatePluginDebugDraft(instance.id, { angleDeg: formatArmNumber(neutralDeg) });
+      setPluginDebugMessage(instance.id, `逻辑中位已设为当前位置 ${formatArmNumber(neutralDeg)} deg`, "online");
+      setStatus("idle");
+    } catch (nextError) {
+      setPluginDebugMessage(instance.id, nextError instanceof Error ? nextError.message : "逻辑中位保存失败", "danger");
+      setStatus("error");
+    } finally {
+      setPluginServoConfigBusy(instance.id, false);
+    }
+  }
+
+  async function syncRobotArmNeutralForPlugin(instance: PluginInstance, servoId: number, neutralDeg: number) {
+    if (!project) {
+      return;
+    }
+    for (const component of components) {
+      if (component.kind !== "robot-arm" || !component.pluginInstanceIds.includes(instance.id)) {
+        continue;
+      }
+      const currentConfig = currentArmConfigForComponent(component);
+      const nextConfig = normalizeArmConfig(
+        {
+          ...currentConfig,
+          joints: currentConfig.joints.map((joint) => (
+            joint.servoId === servoId
+              ? { ...joint, neutralDeg, angleDeg: neutralDeg }
+              : joint
+          ))
+        },
+        componentServoProfiles(component)
+      );
+      setArmDraftByComponentId((current) => ({ ...current, [component.id]: nextConfig }));
+      const updated = await updateComponent(project.id, component.id, {
+        config: {
+          ...component.config,
+          armConfig: nextConfig
+        }
+      });
+      replaceComponent(updated);
+    }
+  }
+
+  async function syncRobotArmServoIdForPlugin(instance: PluginInstance, updated: PluginInstance, oldServoId: number, newServoId: number) {
+    if (!project) {
+      return;
+    }
+    const nextPluginInstances = pluginInstances.map((item) => (item.id === updated.id ? updated : item));
+    for (const component of components) {
+      if (component.kind !== "robot-arm" || !component.pluginInstanceIds.includes(instance.id)) {
+        continue;
+      }
+      const rawConfig = (armDraftByComponentId[component.id] ?? component.config?.armConfig ?? currentArmConfigForComponent(component)) as ArmConfig;
+      const nextServos = pluginInstancesToServoProfiles(effectivePluginInstancesForComponent(component, nextPluginInstances));
+      const nextConfig = normalizeArmConfig(
+        {
+          ...rawConfig,
+          joints: rawConfig.joints.map((joint) => (
+            joint.servoId === oldServoId
+              ? { ...joint, servoId: newServoId }
+              : joint
+          ))
+        },
+        nextServos
+      );
+      setArmDraftByComponentId((current) => ({ ...current, [component.id]: nextConfig }));
+      const nextComponent = await updateComponent(project.id, component.id, {
+        config: {
+          ...component.config,
+          armConfig: nextConfig
+        }
+      });
+      replaceComponent(nextComponent);
+    }
+  }
+
+  async function writePluginServoPhysicalId(instance: PluginInstance) {
+    if (!project) {
+      return;
+    }
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    if (!servo) {
+      setPluginDebugMessage(instance.id, "这个舵机插件缺少有效 servoId，无法写入 ID", "danger");
+      return;
+    }
+    const draft = pluginDebugDraft(instance);
+    const newServoId = Number(draft.newServoId);
+    if (!Number.isInteger(newServoId) || newServoId < 0 || newServoId > 253) {
+      setPluginDebugMessage(instance.id, "新 ID 必须是 0-253 的整数", "danger");
+      return;
+    }
+    if (newServoId === servo.id) {
+      setPluginDebugMessage(instance.id, "新 ID 需要和当前 ID 不同", "warning");
+      return;
+    }
+    if (!draft.confirmSingleServo) {
+      setPluginDebugMessage(instance.id, "改 ID 前请确认总线上只连接这一只舵机", "warning");
+      return;
+    }
+
+    setPluginServoConfigBusy(instance.id, true);
+    setStatus("saving");
+    try {
+      const result = await runPluginCommand(instance, "servo.set_id", { newId: newServoId, confirmSingleServo: true });
+      const setIdResponse = servoSetIdResponseFromResult(result.response);
+      if (setIdResponse) {
+        appendPluginSerialLog(instance.id, servoSetIdLogLines(setIdResponse));
+      }
+      if (result.status !== "sent") {
+        setPluginDebugMessage(instance.id, result.message ?? `ID ${servo.id} 写入失败`, "danger");
+        setStatus("idle");
+        return;
+      }
+
+      const updated = await updatePluginInstance(project.id, instance.id, {
+        config: {
+          ...instance.config,
+          servoId: newServoId
+        }
+      });
+      replacePluginInstance(updated);
+      await syncRobotArmServoIdForPlugin(instance, updated, servo.id, newServoId);
+      updatePluginDebugDraft(instance.id, {
+        newServoId: String(newServoId),
+        confirmSingleServo: false
+      });
+      setPluginDebugMessage(instance.id, `舵机本体 ID 已从 ${servo.id} 改为 ${newServoId}，插件配置已同步`, "online");
+      setStatus("idle");
+    } catch (nextError) {
+      setPluginDebugMessage(instance.id, nextError instanceof Error ? nextError.message : "舵机 ID 写入失败", "danger");
+      setStatus("error");
+    } finally {
+      setPluginServoConfigBusy(instance.id, false);
+    }
+  }
+
+  async function savePluginMotorMapping(instance: PluginInstance) {
+    if (!project) {
+      return;
+    }
+    const draft = pluginDebugDraft(instance);
+    setStatus("saving");
+    try {
+      const updated = await updatePluginInstance(project.id, instance.id, {
+        config: {
+          ...instance.config,
+          pwmPin: draft.pwmPin.trim(),
+          in1Pin: draft.in1Pin.trim(),
+          in2Pin: draft.in2Pin.trim(),
+          enablePin: draft.enablePin.trim(),
+          sensorPin: draft.sensorPin.trim()
+        }
+      });
+      replacePluginInstance(updated);
+      setPluginDebugMessage(instance.id, "电机端口映射已保存", "online");
+      setStatus("idle");
+    } catch (nextError) {
+      setPluginDebugMessage(instance.id, nextError instanceof Error ? nextError.message : "电机端口映射保存失败", "danger");
+      setStatus("error");
+    }
+  }
+
+  async function sendPluginMotorMapping(instance: PluginInstance) {
+    const draft = pluginDebugDraft(instance);
+    await runPluginCommand(instance, "motor.configure", {
+      pwmPin: draft.pwmPin.trim(),
+      in1Pin: draft.in1Pin.trim(),
+      in2Pin: draft.in2Pin.trim(),
+      enablePin: draft.enablePin.trim() || undefined,
+      sensorPin: draft.sensorPin.trim() || undefined
+    });
+  }
+
+  async function sendPluginMotorSpeed(instance: PluginInstance) {
+    const draft = pluginDebugDraft(instance);
+    await runPluginCommand(instance, "motor.set_speed", {
+      speedPercent: clamp(Math.round(Number(draft.motorSpeedPercent)), -100, 100),
+      stopMode: draft.stopMode
+    });
   }
 
   async function handleCreatePluginInstance() {
@@ -796,7 +1497,28 @@ export function ThreeLayerWorkspace({
     setConfigDraft((current) => ({ ...current, [key]: value }));
   }
 
-  function renderControl(device: DeviceDescriptor, control: UiControlSchema): ReactNode {
+  async function savePluginInstanceConfig(instance: PluginInstance, patch: DeviceConfig) {
+    if (!project) {
+      return;
+    }
+    setStatus("saving");
+    try {
+      const updated = await updatePluginInstance(project.id, instance.id, {
+        config: {
+          ...instance.config,
+          ...patch
+        }
+      });
+      replacePluginInstance(updated);
+      setError("");
+      setStatus("idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Plugin configuration save failed");
+      setStatus("error");
+    }
+  }
+
+  function renderControl(device: DeviceDescriptor, control: UiControlSchema, instance?: PluginInstance): ReactNode {
     if (control.kind === "button") {
       return null;
     }
@@ -804,7 +1526,7 @@ export function ThreeLayerWorkspace({
       return (
         <div className="architecture-control-group" key={control.id}>
           <span>{control.label}</span>
-          <div className="architecture-panel-controls">{(control.controls ?? []).map((child) => renderControl(device, child))}</div>
+          <div className="architecture-panel-controls">{(control.controls ?? []).map((child) => renderControl(device, child, instance))}</div>
         </div>
       );
     }
@@ -844,6 +1566,24 @@ export function ThreeLayerWorkspace({
         <div className="architecture-camera-view" key={control.id}>
           {url ? <img alt={control.label} src={url} /> : <div className="empty-state">未配置视频流</div>}
         </div>
+      );
+    }
+    if (control.kind === "localCameraView") {
+      return (
+        <LocalCameraView
+          fps={typeof device.metadata?.fps === "boolean" ? null : device.metadata?.fps}
+          height={typeof device.metadata?.height === "boolean" ? null : device.metadata?.height}
+          key={control.id}
+          label={control.label}
+          onDeviceSelected={(deviceId) => {
+            updateControlDraft(device.id, "preferredDeviceId", deviceId);
+            if (instance) {
+              void savePluginInstanceConfig(instance, { preferredDeviceId: deviceId });
+            }
+          }}
+          preferredDeviceId={String(device.metadata?.preferredDeviceId ?? "")}
+          width={typeof device.metadata?.width === "boolean" ? null : device.metadata?.width}
+        />
       );
     }
     if (control.kind === "textarea" || control.kind === "output") {
@@ -904,7 +1644,7 @@ export function ThreeLayerWorkspace({
 
   function renderPanelForInstance(instance: PluginInstance, layout?: PanelLayoutItem) {
     const device = createDeviceDescriptorFromPluginInstance(instance);
-    const panel = uiPanels.find((candidate) => candidate.capability === device.type || device.capabilities.some((capability) => capability.id === candidate.capability));
+    const panel = findPlatformUiPanelForDevice(device, uiPanels);
     const actions = platformActionControls(panel?.controls ?? []);
     const style = layout ? ({ gridColumn: `${layout.x + 1} / span ${layout.w}`, gridRow: `span ${layout.h}` } as CSSProperties) : undefined;
     return (
@@ -935,7 +1675,7 @@ export function ThreeLayerWorkspace({
           <div className="empty-state">该能力还没有专用面板</div>
         ) : (
           <>
-            <div className="architecture-panel-controls">{panel.controls.map((control) => renderControl(device, control))}</div>
+            <div className="architecture-panel-controls">{panel.controls.map((control) => renderControl(device, control, instance))}</div>
             <div className="architecture-actions">
               {actions.map((control) => (
                 <button className="icon-button" key={`${device.id}:${control.id}`} onClick={() => void runControlAction(device, control.actionId)} type="button">
@@ -964,6 +1704,283 @@ export function ThreeLayerWorkspace({
     );
   }
 
+  function renderPluginDebug(instance: PluginInstance) {
+    if (renderPluginDebugPanel) {
+      return renderPluginDebugPanel(instance, { refreshArchitecture, replacePluginInstance });
+    }
+    if (instance.type === "servo") {
+      return renderServoPluginDebug(instance);
+    }
+    if (instance.type === "motor") {
+      return renderMotorPluginDebug(instance);
+    }
+    return renderPanelForInstance(instance);
+  }
+
+  function renderServoPluginDebug(instance: PluginInstance) {
+    const servo = pluginInstancesToServoProfiles([instance])[0];
+    if (!servo) {
+      return <div className="empty-state">这个舵机插件缺少有效 servoId，无法调试</div>;
+    }
+    const draft = pluginDebugDraft(instance);
+    const feedback = pluginServoFeedbackById[instance.id];
+    const message = pluginDebugMessageById[instance.id];
+    const span = servoLogicalSpan(servo);
+    const logicalAngle = clampPluginServoLogical(instance, Number(draft.angleDeg));
+    const resetDeg = clampPluginServoLogical(instance, Number(draft.resetDeg));
+    const neutralDeg = clampPluginServoLogical(
+      instance,
+      Number.isFinite(Number(instance.config.neutralDeg)) ? Number(instance.config.neutralDeg) : span / 2
+    );
+    const speedRaw = clamp(Math.round(Number(draft.speedRaw)), 0, 4095);
+    const acc = clamp(Math.round(Number(draft.acc)), 0, 254);
+    const servoConfigBusy = pluginServoConfigBusyById[instance.id] === true;
+    const serialLogs = pluginSerialLogById[instance.id] ?? [];
+
+    function updateAngle(value: string, live = false) {
+      const nextDraft = { ...draft, angleDeg: value };
+      updatePluginDebugDraft(instance.id, { angleDeg: value });
+      if (live && draft.liveDragEnabled && draft.mode === "position" && !servoConfigBusy) {
+        void sendPluginServoPosition(instance, { live: true, draft: nextDraft });
+      }
+    }
+
+    return (
+      <div className="plugin-instance-debug-stack">
+        <article className="servo-command-card selected plugin-debug-card">
+          <div className="servo-command-card-header">
+            <button className="servo-card-select" type="button">
+              <span className="device-id">ID {servo.id}</span>
+              <span className="device-name">{servo.name}</span>
+            </button>
+            <div className="servo-card-status-stack">
+              <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? "有反馈" : "未读取"}</span>
+              <span className="device-signal motion muted">{draft.mode === "position" ? "位置模式" : "轮模式"}</span>
+            </div>
+          </div>
+
+          <div className="command-grid servo-command-grid">
+            <label>
+              <span>控制模式</span>
+              <select disabled={servoConfigBusy} value={draft.mode} onChange={(event) => updatePluginDebugDraft(instance.id, { mode: event.target.value as PluginDebugDraft["mode"] })}>
+                <option value="position">位置角度</option>
+                <option value="wheel">轮模式速度</option>
+              </select>
+            </label>
+            {draft.mode === "position" ? (
+              <div className="angle-combo-field">
+                <div className="angle-field-heading">
+                  <span>角度</span>
+                  <label className="live-drag-toggle">
+                    <input checked={draft.liveDragEnabled} disabled={servoConfigBusy} type="checkbox" onChange={(event) => updatePluginDebugDraft(instance.id, { liveDragEnabled: event.target.checked })} />
+                    <span>实时拖动</span>
+                  </label>
+                </div>
+                <div className="range-number-control">
+                  <input className="angle-range" disabled={servoConfigBusy} type="range" min={0} max={span} step={1} value={formatArmNumber(logicalAngle)} onChange={(event) => updateAngle(event.target.value, true)} />
+                  <input className="angle-number" disabled={servoConfigBusy} type="number" min={0} max={span} step={1} value={draft.angleDeg} onChange={(event) => updateAngle(event.target.value)} />
+                </div>
+              </div>
+            ) : (
+              <label>
+                <span>轮模式速度 raw</span>
+                <input disabled={servoConfigBusy} type="number" min={-4095} max={4095} step={1} value={draft.speedRaw} onChange={(event) => updatePluginDebugDraft(instance.id, { speedRaw: event.target.value })} />
+              </label>
+            )}
+            {draft.mode === "position" ? (
+              <label>
+                <span>速度 raw</span>
+                <input disabled={servoConfigBusy} type="number" min={0} max={4095} step={1} value={draft.speedRaw} onChange={(event) => updatePluginDebugDraft(instance.id, { speedRaw: event.target.value })} />
+              </label>
+            ) : null}
+            <label>
+              <span>加速度</span>
+              <input disabled={servoConfigBusy} type="number" min={0} max={254} step={1} value={draft.acc} onChange={(event) => updatePluginDebugDraft(instance.id, { acc: event.target.value })} />
+            </label>
+          </div>
+
+          <div className="servo-extra-grid">
+            <label className="checkbox-field">
+              <input type="checkbox" checked={draft.reverse} disabled={servoConfigBusy} onChange={(event) => updatePluginDebugDraft(instance.id, { reverse: event.target.checked })} />
+              <span>临时反向</span>
+            </label>
+            <Metric label="逻辑范围" value={`0-${formatArmNumber(span)} deg`} />
+            <Metric label="实际限位" value={`${draft.minDeg}-${draft.maxDeg} deg`} />
+          </div>
+
+          <div className="servo-card-telemetry">
+            <span><small>位置</small><strong>{feedback?.positionDeg === undefined ? "--" : `${feedback.positionDeg.toFixed(1)}°`}</strong></span>
+            <span><small>负载</small><strong>{feedback?.loadPercent === undefined ? "--" : `${feedback.loadPercent.toFixed(1)}%`}</strong></span>
+            <span><small>电压</small><strong>{feedback?.voltageV === undefined ? "--" : `${feedback.voltageV.toFixed(1)}V`}</strong></span>
+            <span><small>温度</small><strong>{feedback?.temperatureC === undefined ? "--" : `${feedback.temperatureC}°C`}</strong></span>
+            <span><small>电流</small><strong>{feedback?.currentMa === undefined ? "--" : `${feedback.currentMa.toFixed(1)}mA`}</strong></span>
+            <span><small>运动</small><strong>{feedback ? (feedback.moving ? "是" : "否") : "--"}</strong></span>
+          </div>
+
+          <div className="action-grid servo-card-actions">
+            <button className="icon-button primary" disabled={servoConfigBusy} onClick={() => (draft.mode === "wheel" ? void sendPluginServoWheel(instance) : void sendPluginServoPosition(instance))} type="button">
+              <Send size={18} />
+              <span>{draft.mode === "wheel" ? "发送速度" : "发送位置"}</span>
+            </button>
+            <button className="icon-button danger" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, draft.mode === "wheel" ? "servo.set_speed" : "servo.set_position", draft.mode === "wheel" ? { speedRaw: 0, acc } : { angleDeg: logicalAngle, speedRaw: 0, acc })} type="button">
+              <Square size={18} />
+              <span>暂停</span>
+            </button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.ping")} type="button"><Radar size={18} /><span>Ping</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void readPluginServo(instance)} type="button"><Activity size={18} /><span>读取反馈</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: true })} type="button"><Wrench size={18} /><span>力矩开</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: false })} type="button"><Wrench size={18} /><span>力矩关</span></button>
+          </div>
+        </article>
+
+        <section className="plugin-servo-limiter">
+          <div className="plugin-servo-limiter-head">
+            <div>
+              <strong>限位与复位</strong>
+              <span>保存到当前插件实例配置，刷新后仍保留。复位角是当前限位范围内的逻辑角度。</span>
+            </div>
+            <div className="plugin-servo-limiter-metrics">
+              <Metric label="复位角" value={`${formatArmNumber(resetDeg)} deg`} tone="online" />
+              <Metric label="逻辑中位" value={`${formatArmNumber(neutralDeg)} deg`} />
+              <Metric label="舵机 ID" value={servo.id} />
+            </div>
+          </div>
+          <div className="command-grid plugin-servo-limit-grid">
+            <label>
+              <span>最小角度</span>
+              <input disabled={servoConfigBusy} type="number" min={0} max={360} step={1} value={draft.minDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { minDeg: event.target.value })} />
+            </label>
+            <label>
+              <span>最大角度</span>
+              <input disabled={servoConfigBusy} type="number" min={0} max={360} step={1} value={draft.maxDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { maxDeg: event.target.value })} />
+            </label>
+            <label>
+              <span>复位角度</span>
+              <input disabled={servoConfigBusy} type="number" min={0} max={span} step={1} value={draft.resetDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { resetDeg: event.target.value })} />
+            </label>
+          </div>
+          <div className="action-grid plugin-servo-limit-actions">
+            <button className="icon-button primary" disabled={servoConfigBusy} onClick={() => void savePluginServoSettings(instance)} type="button"><Save size={18} /><span>保存限位/复位</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => setPluginServoResetFromFeedback(instance)} type="button"><Activity size={18} /><span>设为复位点</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void setPluginServoNeutralFromFeedback(instance)} type="button"><Activity size={18} /><span>设为逻辑中位</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void resetPluginServo(instance)} type="button"><RotateCcw size={18} /><span>复位</span></button>
+          </div>
+        </section>
+
+        <section className="plugin-servo-limiter plugin-servo-advanced">
+          <div className="plugin-servo-limiter-head">
+            <div>
+              <strong>舵机内部配置</strong>
+              <span>会写入飞特舵机本体 EEPROM。改 ID 前请只连接这一只舵机，写入成功后会同步插件配置。</span>
+            </div>
+            <div className="plugin-servo-limiter-metrics">
+              <Metric label="当前 ID" value={servo.id} tone="warning" />
+              <Metric label="目标 ID" value={draft.newServoId || "--"} />
+            </div>
+          </div>
+          <div className="command-grid plugin-servo-advanced-grid">
+            <label>
+              <span>新 ID</span>
+              <input disabled={servoConfigBusy} type="number" min={0} max={253} step={1} value={draft.newServoId} onChange={(event) => updatePluginDebugDraft(instance.id, { newServoId: event.target.value })} />
+            </label>
+            <label className="checkbox-field plugin-servo-confirm">
+              <input checked={draft.confirmSingleServo} disabled={servoConfigBusy} type="checkbox" onChange={(event) => updatePluginDebugDraft(instance.id, { confirmSingleServo: event.target.checked })} />
+              <span>我确认总线上只连接这一只舵机</span>
+            </label>
+          </div>
+          <div className="action-grid plugin-servo-limit-actions">
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.ping")} type="button"><Radar size={18} /><span>Ping 当前 ID</span></button>
+            <button className="icon-button danger" disabled={servoConfigBusy || !draft.confirmSingleServo} onClick={() => void writePluginServoPhysicalId(instance)} type="button"><Wrench size={18} /><span>{servoConfigBusy ? "写入中" : "写入新 ID"}</span></button>
+          </div>
+        </section>
+
+        <section className="plugin-serial-monitor">
+          <div className="plugin-serial-monitor-head">
+            <div>
+              <strong>舵机写入收发</strong>
+              <span>显示最近一次高级写入的 TX/RX 摘要；完整串口日志仍在系统日志里。</span>
+            </div>
+            <button className="icon-button" disabled={serialLogs.length === 0} onClick={() => setPluginSerialLogById((current) => ({ ...current, [instance.id]: [] }))} type="button">
+              <Trash2 size={16} />
+              <span>清空</span>
+            </button>
+          </div>
+          <div className="plugin-serial-log-list">
+            {serialLogs.length === 0 ? <div className="empty-state">还没有高级写入记录</div> : serialLogs.map((line, index) => <code key={`${line}-${index}`}>{line}</code>)}
+          </div>
+        </section>
+
+        {message ? <div className={`architecture-debug-message ${message.tone}`}>{message.text}</div> : null}
+      </div>
+    );
+  }
+
+  function renderMotorPluginDebug(instance: PluginInstance) {
+    const motor = pluginInstancesToMotorProfiles([instance])[0];
+    if (!motor) {
+      return <div className="empty-state">这个电机插件缺少有效 channel，无法调试</div>;
+    }
+    const draft = pluginDebugDraft(instance);
+    const message = pluginDebugMessageById[instance.id];
+    const speed = clamp(Math.round(Number(draft.motorSpeedPercent)), -100, 100);
+    return (
+      <div className="plugin-instance-debug-stack">
+        <article className="servo-command-card selected plugin-debug-card">
+          <div className="servo-command-card-header">
+            <button className="servo-card-select" type="button">
+              <span className="device-id">{normalizeMotorChannel(motor.channel)}</span>
+              <span className="device-name">{motor.name}</span>
+            </button>
+            <span className="device-signal motion muted">TB6618 电机</span>
+          </div>
+          <div className="command-grid motor-command-grid">
+            <label>
+              <span>速度百分比</span>
+              <input type="number" min={-100} max={100} step={1} value={draft.motorSpeedPercent} onChange={(event) => updatePluginDebugDraft(instance.id, { motorSpeedPercent: event.target.value })} />
+            </label>
+            <label>
+              <span>停止模式</span>
+              <select value={draft.stopMode} onChange={(event) => updatePluginDebugDraft(instance.id, { stopMode: event.target.value as MotorStopMode })}>
+                <option value="coast">滑行</option>
+                <option value="brake">刹车</option>
+              </select>
+            </label>
+          </div>
+          <label className="speed-slider-field">
+            <span>速度滑杆</span>
+            <input type="range" min={-100} max={100} step={1} value={speed} onChange={(event) => updatePluginDebugDraft(instance.id, { motorSpeedPercent: event.target.value })} />
+          </label>
+          <div className="port-config-panel plugin-motor-config-panel">
+            <div className="port-config-title">
+              <Wrench size={17} />
+              <span>端口映射</span>
+            </div>
+            <div className="port-config-grid">
+              <label><span>PWM</span><input value={draft.pwmPin} onChange={(event) => updatePluginDebugDraft(instance.id, { pwmPin: event.target.value })} /></label>
+              <label><span>IN1</span><input value={draft.in1Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in1Pin: event.target.value })} /></label>
+              <label><span>IN2</span><input value={draft.in2Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in2Pin: event.target.value })} /></label>
+              <label><span>EN/STBY</span><input value={draft.enablePin} onChange={(event) => updatePluginDebugDraft(instance.id, { enablePin: event.target.value })} /></label>
+              <label><span>传感器</span><input value={draft.sensorPin} onChange={(event) => updatePluginDebugDraft(instance.id, { sensorPin: event.target.value })} /></label>
+            </div>
+          </div>
+          <div className="preview-grid motor-preview-grid">
+            <Metric label="目标通道" value={normalizeMotorChannel(motor.channel)} />
+            <Metric label="速度" value={`${speed}%`} tone={speed === 0 ? "neutral" : "warning"} />
+            <Metric label="停止模式" value={draft.stopMode === "brake" ? "刹车" : "滑行"} />
+          </div>
+          <div className="action-grid">
+            <button className="icon-button primary" onClick={() => void sendPluginMotorSpeed(instance)} type="button"><Send size={18} /><span>发送速度</span></button>
+            <button className="icon-button danger" onClick={() => void runPluginCommand(instance, "motor.stop", { stopMode: draft.stopMode })} type="button"><Square size={18} /><span>停止</span></button>
+            <button className="icon-button" onClick={() => void runPluginCommand(instance, "motor.read_feedback")} type="button"><Activity size={18} /><span>读取反馈</span></button>
+            <button className="icon-button" onClick={() => void savePluginMotorMapping(instance)} type="button"><Save size={18} /><span>保存映射</span></button>
+            <button className="icon-button" onClick={() => void sendPluginMotorMapping(instance)} type="button"><Wrench size={18} /><span>下发映射</span></button>
+          </div>
+        </article>
+        {message ? <div className={`architecture-debug-message ${message.tone}`}>{message.text}</div> : null}
+      </div>
+    );
+  }
+
   function renderRobotArmComponentPanel(component: ComponentDefinition) {
     const componentInstances = componentPluginInstances(component);
     const servoProfiles = componentServoProfiles(component);
@@ -979,9 +1996,33 @@ export function ThreeLayerWorkspace({
     const selectedJointIndex = selectedJoint ? config.joints.findIndex((joint) => joint.id === selectedJoint.id) : -1;
     const selectedLimitDraft = selectedServo && selectedServoInstance ? componentServoLimitDraft(selectedServoInstance, selectedServo) : null;
     const selectedLimitError = selectedServoInstance ? componentServoLimitErrorByInstanceId[selectedServoInstance.id] : "";
+    const autoConfig = currentArmAutoConfigForComponent(component, config);
+    const isIkMode = autoConfig.mode === "ik";
+    const ikSolution = armIkSolutionByComponentId[component.id];
+    const endEffector = poses[poses.length - 1];
+    const targetPoint = ikSolution?.target ?? autoConfig.target ?? (endEffector ? { x: endEffector.endX, y: endEffector.endY } : ARM_WORKSPACE_ORIGIN);
+    const recordedSamples = armAutoSamplesByComponentId[component.id] ?? [];
+    const archiveDraft = componentArmArchiveDraft(component.id, autoConfig);
+    const selectedArchive = autoConfig.archives.find((archive) => archive.id === archiveDraft.selectedArchiveId) ?? autoConfig.archives[0] ?? null;
+    const archivePlaying = selectedArchive ? armArchivePlayingId === selectedArchive.id : false;
+    const ikStatusTone: MetricTone = !ikSolution ? "neutral" : ikSolution.converged ? "online" : "warning";
+    const ikStatusClass = !ikSolution ? "info" : ikSolution.converged ? "ok" : "warning";
+    const selectedPose = selectedJoint ? poses.find((pose) => pose.jointId === selectedJoint.id) : undefined;
+    const selectedJointNeutralFrameDeg = selectedJoint && selectedPose ? selectedPose.frameDeg - (selectedJoint.angleDeg - selectedJoint.neutralDeg) : 0;
 
     function updateArm(updater: (current: ArmConfig) => ArmConfig, live = false) {
       updateComponentArmConfig(component, updater, { live });
+    }
+
+    function setArmAutoMode(mode: ComponentArmAutoConfig["mode"]) {
+      updateComponentArmAutoConfig(component, (current) => ({ ...current, mode }));
+      if (mode === "manual") {
+        setDraggingArmIkComponentId(null);
+      }
+    }
+
+    function setArmIkSendMode(sendMode: ComponentArmIkSendMode) {
+      updateComponentArmAutoConfig(component, (current) => ({ ...current, sendMode }));
     }
 
     function updateJoint(jointId: string, updater: (joint: ArmJointConfig) => ArmJointConfig, live = false) {
@@ -1005,7 +2046,9 @@ export function ThreeLayerWorkspace({
           const servo = servoProfiles.find((item) => item.id === joint.servoId);
           const span = servo ? servoLogicalSpan(servo) : 360;
           if (field === "lengthPx") {
-            return { ...joint, lengthPx: clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX) };
+            const lengthPx = clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
+            const shapeSegments = armJointShapeSegments(joint).map((segment, index) => (index === 0 ? { ...segment, lengthPx } : segment));
+            return { ...joint, lengthPx, shapeSegments };
           }
           if (field === "speedRaw") {
             return { ...joint, speedRaw: clamp(Math.round(numericValue), 0, 4095) };
@@ -1017,6 +2060,74 @@ export function ThreeLayerWorkspace({
         },
         live
       );
+    }
+
+    function updateJointShapeSegment(
+      jointId: string,
+      segmentId: string,
+      updater: (segment: ReturnType<typeof armJointShapeSegments>[number]) => ReturnType<typeof armJointShapeSegments>[number]
+    ) {
+      updateJoint(jointId, (joint) => {
+        const shapeSegments = armJointShapeSegments(joint).map((segment) => (segment.id === segmentId ? updater(segment) : segment));
+        return { ...joint, shapeSegments, lengthPx: shapeSegments[0]?.lengthPx ?? joint.lengthPx };
+      });
+    }
+
+    function updateJointShapeSegmentNumber(jointId: string, segmentId: string, field: "lengthPx" | "directionDeg", value: string) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+      updateJointShapeSegment(jointId, segmentId, (segment) => ({
+        ...segment,
+        [field]: field === "lengthPx"
+          ? clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX)
+          : ((numericValue % 360) + 360) % 360
+      }));
+    }
+
+    function updateJointShapeSegmentCanvasDirection(jointId: string, segmentId: string, value: string) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+      const localDirectionDeg = normalizeArmDisplayDegrees(numericValue - selectedJointNeutralFrameDeg);
+      updateJointShapeSegmentNumber(jointId, segmentId, "directionDeg", String(localDirectionDeg));
+    }
+
+    function segmentCanvasDirectionDeg(directionDeg: number) {
+      return normalizeArmDisplayDegrees(selectedJointNeutralFrameDeg + directionDeg);
+    }
+
+    function addJointShapeSegment(jointId: string) {
+      updateJoint(jointId, (joint) => {
+        const shapeSegments = armJointShapeSegments(joint);
+        const id = `shape-${Date.now().toString(36)}`;
+        const nextSegments = [
+          ...shapeSegments,
+          { id, name: `段 ${shapeSegments.length + 1}`, lengthPx: DEFAULT_ARM_JOINT_LENGTH_PX, directionDeg: 90 }
+        ];
+        return { ...joint, shapeSegments: nextSegments, lengthPx: nextSegments[0]?.lengthPx ?? joint.lengthPx };
+      });
+    }
+
+    function removeJointShapeSegment(jointId: string, segmentId: string) {
+      updateJoint(jointId, (joint) => {
+        const shapeSegments = armJointShapeSegments(joint);
+        if (shapeSegments.length <= 1) {
+          return joint;
+        }
+        const nextSegments = shapeSegments.filter((segment) => segment.id !== segmentId);
+        return { ...joint, shapeSegments: nextSegments, lengthPx: nextSegments[0]?.lengthPx ?? joint.lengthPx };
+      });
+    }
+
+    function updateJointChildFrameOffset(jointId: string, value: string) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+      updateJoint(jointId, (joint) => ({ ...joint, childFrameOffsetDeg: clamp(numericValue, -180, 180) }));
     }
 
     function setJointIndex(jointId: string, nextIndex: number) {
@@ -1062,12 +2173,30 @@ export function ThreeLayerWorkspace({
       const nextAngle = calculateArmDragAngle({
         anchor: previousPose ? { x: previousPose.endX, y: previousPose.endY } : { x: currentPose?.startX ?? 300, y: currentPose?.startY ?? 250 },
         pointer,
-        parentGlobalDeg: previousPose?.globalDeg ?? 0,
+        parentGlobalDeg: previousPose?.childFrameDeg ?? 0,
         neutralDeg: joint.neutralDeg,
         servoSpanDeg: servoLogicalSpan(servo),
-        currentAngleDeg: joint.angleDeg
+        currentAngleDeg: joint.angleDeg,
+        localEndDirectionDeg: armJointLocalEndDirectionDeg(joint)
       });
       updateJointNumber(joint.id, "angleDeg", String(nextAngle), true);
+    }
+
+    function handleArmSvgPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+      const pointer = svgPoint(event.currentTarget, event);
+      if (isIkMode && draggingArmIkComponentId === component.id) {
+        solveComponentArmIkTarget(component, pointer, { record: true });
+        return;
+      }
+      const joint = !isIkMode ? config.joints.find((item) => item.id === draggingArmJointId) : null;
+      if (joint) {
+        dragJoint(joint, pointer);
+      }
+    }
+
+    function finishArmPointerInteraction() {
+      finishComponentArmIkDrag(component);
+      setDraggingArmJointId(null);
     }
 
     if (servoProfiles.length === 0 || config.joints.length === 0) {
@@ -1092,17 +2221,12 @@ export function ThreeLayerWorkspace({
                 viewBox="0 0 600 420"
                 role="img"
                 aria-label={`${component.name} 机械臂姿态`}
-                onPointerMove={(event) => {
-                  const joint = config.joints.find((item) => item.id === draggingArmJointId);
-                  if (joint) {
-                    dragJoint(joint, svgPoint(event.currentTarget, event));
-                  }
-                }}
-                onPointerUp={() => setDraggingArmJointId(null)}
-                onPointerCancel={() => setDraggingArmJointId(null)}
+                onPointerMove={handleArmSvgPointerMove}
+                onPointerUp={finishArmPointerInteraction}
+                onPointerCancel={finishArmPointerInteraction}
                 onPointerLeave={(event) => {
                   if (event.buttons === 0) {
-                    setDraggingArmJointId(null);
+                    finishArmPointerInteraction();
                   }
                 }}
               >
@@ -1123,36 +2247,165 @@ export function ThreeLayerWorkspace({
                   }
                   return (
                     <g className={selected ? "arm-segment selected" : "arm-segment"} key={pose.jointId}>
-                      <line x1={pose.startX} y1={pose.startY} x2={pose.endX} y2={pose.endY} />
+                      <polyline points={pose.pathPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
                       <circle
                         className="arm-handle"
-                        cx={pose.startX}
-                        cy={pose.startY}
+                        cx={pose.endX}
+                        cy={pose.endY}
                         r={selected ? 12 : 10}
                         tabIndex={0}
                         onPointerDown={(event) => {
                           event.preventDefault();
+                          updateArm((current) => ({ ...current, selectedJointId: joint.id }));
+                          if (isIkMode) {
+                            return;
+                          }
                           event.currentTarget.setPointerCapture(event.pointerId);
                           setDraggingArmJointId(joint.id);
-                          updateArm((current) => ({ ...current, selectedJointId: joint.id }));
                         }}
                       />
-                      <text className="arm-label" x={pose.startX + 12} y={pose.startY - 12}>
+                      <text className="arm-label" x={pose.endX + 12} y={pose.endY - 12}>
                         ID {pose.servoId} · {formatArmNumber(pose.angleDeg)}° · {pose.lengthPx}px
                       </text>
                     </g>
                   );
                 })}
+                {isIkMode ? (
+                  <g className="arm-ik-target-marker">
+                    <line x1={targetPoint.x - 10} y1={targetPoint.y} x2={targetPoint.x + 10} y2={targetPoint.y} />
+                    <line x1={targetPoint.x} y1={targetPoint.y - 10} x2={targetPoint.x} y2={targetPoint.y + 10} />
+                  </g>
+                ) : null}
                 {poses.length > 0 ? (
-                  <circle className="arm-end-effector" cx={poses[poses.length - 1].endX} cy={poses[poses.length - 1].endY} r="7" />
+                  <circle
+                    className={isIkMode ? "arm-end-effector arm-ik-target" : "arm-end-effector"}
+                    cx={poses[poses.length - 1].endX}
+                    cy={poses[poses.length - 1].endY}
+                    r={isIkMode ? 10 : 7}
+                    tabIndex={isIkMode ? 0 : undefined}
+                    onPointerDown={isIkMode ? (event) => {
+                      const svg = event.currentTarget.ownerSVGElement;
+                      if (!svg) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      startComponentArmIkDrag(component, svgPoint(svg, event));
+                    } : undefined}
+                  />
                 ) : null}
               </svg>
               <div className="arm-status-strip">
                 <Metric label="关节" value={config.joints.filter((joint) => joint.enabled).length} />
-                <Metric label="模式" value={config.liveDragEnabled ? "实时拖动" : "预览"} tone={config.liveDragEnabled ? "warning" : "neutral"} />
+                <Metric label="模式" value={isIkMode ? `自动 IK / ${autoConfig.sendMode === "live" ? "实时" : "预览"}` : config.liveDragEnabled ? "实时拖动" : "预览"} tone={isIkMode ? ikStatusTone : config.liveDragEnabled ? "warning" : "neutral"} />
                 <Metric label="已选关节" value={selectedJoint?.name ?? "--"} />
               </div>
             </div>
+
+            <section className="arm-kinematics-panel component-arm-auto-panel">
+              <div className="panel-heading-row component-arm-auto-heading">
+                <div className="port-config-title">
+                  <Crosshair size={17} />
+                  <span>组件自动 IK</span>
+                </div>
+                <span className={`tuning-status ${ikStatusClass}`}>
+                  {isIkMode ? (ikSolution ? (ikSolution.converged ? "已收敛" : "接近姿态") : "待拖动") : "手动关节"}
+                </span>
+              </div>
+
+              <div className="component-arm-mode-switch" role="group" aria-label="机械臂组件模式">
+                <button className={autoConfig.mode === "manual" ? "active" : ""} onClick={() => setArmAutoMode("manual")} type="button">手动关节</button>
+                <button className={autoConfig.mode === "ik" ? "active" : ""} onClick={() => setArmAutoMode("ik")} type="button">自动 IK</button>
+              </div>
+
+              {isIkMode ? (
+                <>
+                  <div className="component-arm-mode-switch compact" role="group" aria-label="自动 IK 下发模式">
+                    <button className={autoConfig.sendMode === "preview" ? "active" : ""} onClick={() => setArmIkSendMode("preview")} type="button">预览</button>
+                    <button className={autoConfig.sendMode === "live" ? "active" : ""} onClick={() => setArmIkSendMode("live")} type="button">实时</button>
+                  </div>
+
+                  <div className="arm-ik-result-list component-arm-ik-result-list">
+                    <span><strong>目标 X</strong><code>{formatArmNumber(targetPoint.x)}</code></span>
+                    <span><strong>目标 Y</strong><code>{formatArmNumber(targetPoint.y)}</code></span>
+                    <span><strong>误差</strong><code>{ikSolution ? `${formatArmNumber(ikSolution.errorPx)} px` : "--"}</code></span>
+                    <span><strong>步数</strong><code>{ikSolution?.iterations ?? "--"}</code></span>
+                    <span><strong>可达</strong><code>{ikSolution ? (ikSolution.reachable ? "是" : "否") : "--"}</code></span>
+                    <span><strong>移动关节</strong><code>{ikSolution?.movedJointIds.length ?? 0}</code></span>
+                    <span><strong>下发</strong><code>{autoConfig.sendMode === "live" ? (config.liveDragEnabled ? "实时" : "需开启实时拖动") : "预览"}</code></span>
+                  </div>
+
+                  <label className="checkbox-field component-arm-correction-row">
+                    <input type="checkbox" checked={autoConfig.correctionEnabled} disabled readOnly />
+                    <span>反馈修正：关闭 / 模板预留</span>
+                  </label>
+
+                  <div className="component-arm-archive-grid">
+                    <label>
+                      <span>轨迹名称</span>
+                      <input value={archiveDraft.name} onChange={(event) => updateComponentArmArchiveDraft(component.id, { name: event.target.value })} />
+                    </label>
+                    <label>
+                      <span>备注</span>
+                      <input value={archiveDraft.notes} onChange={(event) => updateComponentArmArchiveDraft(component.id, { notes: event.target.value })} />
+                    </label>
+                    <label>
+                      <span>存档</span>
+                      <select
+                        value={selectedArchive?.id ?? ""}
+                        onChange={(event) => selectComponentArmArchive(component, autoConfig.archives.find((archive) => archive.id === event.target.value) ?? null)}
+                      >
+                        <option value="">未选择</option>
+                        {autoConfig.archives.map((archive) => (
+                          <option key={archive.id} value={archive.id}>{archive.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="action-grid component-arm-archive-actions">
+                    <button className="icon-button primary" onClick={() => void saveCurrentComponentArmArchive(component)} type="button">
+                      <Save size={18} />
+                      <span>保存当前轨迹</span>
+                    </button>
+                    <button
+                      className={archivePlaying ? "icon-button danger" : "icon-button"}
+                      disabled={!selectedArchive}
+                      onClick={() => {
+                        if (!selectedArchive) {
+                          return;
+                        }
+                        if (archivePlaying) {
+                          pauseComponentArchivePlayback(component);
+                          return;
+                        }
+                        void playComponentArchive(component, selectedArchive);
+                      }}
+                      type="button"
+                    >
+                      {archivePlaying ? <Square size={18} /> : <Play size={18} />}
+                      <span>{archivePlaying ? "停止播放" : "播放存档"}</span>
+                    </button>
+                    <button className="icon-button" disabled={!selectedArchive} onClick={() => selectedArchive ? void saveComponentArmArchiveMetadata(component, selectedArchive) : undefined} type="button">
+                      <Save size={18} />
+                      <span>保存备注</span>
+                    </button>
+                    <button className="icon-button danger" disabled={!selectedArchive} onClick={() => selectedArchive ? void deleteComponentArmArchive(component, selectedArchive.id) : undefined} type="button">
+                      <Trash2 size={18} />
+                      <span>删除存档</span>
+                    </button>
+                  </div>
+
+                  <div className="arm-ik-result-list component-arm-archive-summary">
+                    <span><strong>本次样本</strong><code>{recordedSamples.length}</code></span>
+                    <span><strong>本次时长</strong><code>{recordedSamples.length ? `${recordedSamples[recordedSamples.length - 1].tMs} ms` : "--"}</code></span>
+                    <span><strong>存档数</strong><code>{autoConfig.archives.length}</code></span>
+                    <span><strong>选中样本</strong><code>{selectedArchive?.samples.length ?? 0}</code></span>
+                    <span><strong>选中时长</strong><code>{selectedArchive ? `${selectedArchive.durationMs} ms` : "--"}</code></span>
+                  </div>
+                </>
+              ) : null}
+            </section>
 
             <div className="device-list arm-joint-list">
               {config.joints.map((joint, index) => (
@@ -1237,6 +2490,70 @@ export function ThreeLayerWorkspace({
                   <span>实时拖动</span>
                 </label>
               </div>
+              <section className="component-arm-shape-panel">
+                <div className="panel-heading-row component-arm-shape-heading">
+                  <div>
+                    <strong>几何形状</strong>
+                    <span>配置中位姿态下的折线段，可表达 L 型、折返和重叠结构</span>
+                  </div>
+                  <button className="icon-button" onClick={() => addJointShapeSegment(selectedJoint.id)} type="button">
+                    <Plus size={16} />
+                    <span>新增段</span>
+                  </button>
+                </div>
+                <label className="component-arm-frame-offset">
+                  <span>下一关节安装偏移</span>
+                  <input
+                    type="number"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={formatArmNumber(selectedJoint.childFrameOffsetDeg ?? 0)}
+                    onChange={(event) => updateJointChildFrameOffset(selectedJoint.id, event.target.value)}
+                  />
+                </label>
+                <div className="component-arm-shape-list">
+                  {armJointShapeSegments(selectedJoint).map((segment, index) => (
+                    <div className="component-arm-shape-row" key={segment.id}>
+                      <label>
+                        <span>段名称</span>
+                        <input value={segment.name} onChange={(event) => updateJointShapeSegment(selectedJoint.id, segment.id, (item) => ({ ...item, name: event.target.value }))} />
+                      </label>
+                      <label>
+                        <span>长度 px</span>
+                        <input
+                          type="number"
+                          min={ARM_MIN_JOINT_LENGTH_PX}
+                          max={ARM_MAX_JOINT_LENGTH_PX}
+                          step={1}
+                          value={segment.lengthPx}
+                          onChange={(event) => updateJointShapeSegmentNumber(selectedJoint.id, segment.id, "lengthPx", event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span>初始方向</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={360}
+                          step={1}
+                          value={formatArmNumber(segmentCanvasDirectionDeg(segment.directionDeg))}
+                          onChange={(event) => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, event.target.value)}
+                        />
+                      </label>
+                      <div className="component-arm-direction-presets" role="group" aria-label={`${segment.name} 初始方向`}>
+                        <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "0")}>+X</button>
+                        <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "90")}>+Y</button>
+                        <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "180")}>-X</button>
+                        <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "270")}>-Y</button>
+                      </div>
+                      <button className="icon-only danger" disabled={index === 0 && armJointShapeSegments(selectedJoint).length === 1} onClick={() => removeJointShapeSegment(selectedJoint.id, segment.id)} title="删除形状段" type="button" aria-label={`删除 ${segment.name}`}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
               {selectedServo && selectedServoInstance && selectedLimitDraft ? (
                 <section className="plugin-servo-limiter">
                   <div className="plugin-servo-limiter-head">
@@ -1431,7 +2748,7 @@ export function ThreeLayerWorkspace({
                   <small>{driverSourceForInstance(selectedPlugin, driverLibrary)}</small>
                   <span>{selectedPlugin.brand} · {selectedPlugin.model}</span>
                 </div>
-                {renderPluginDebugPanel?.(selectedPlugin, { refreshArchitecture, replacePluginInstance }) ?? renderPanelForInstance(selectedPlugin)}
+                {renderPluginDebug(selectedPlugin)}
               </>
             ) : (
               <>
@@ -1706,6 +3023,54 @@ function nextPluginName(catalogItem: DeviceCatalogItem, instances: PluginInstanc
   return name;
 }
 
+type ServoSetIdStepLog = {
+  label: string;
+  tx: string;
+  rx: string | null;
+  status: number | null;
+};
+
+type ServoSetIdCommandResponse = {
+  ok: boolean;
+  oldId: number;
+  newId: number;
+  stage: string;
+  steps: ServoSetIdStepLog[];
+};
+
+function servoSetIdResponseFromResult(response: unknown): ServoSetIdCommandResponse | null {
+  if (!response || typeof response !== "object") {
+    return null;
+  }
+  const draft = response as Partial<ServoSetIdCommandResponse>;
+  if (typeof draft.oldId !== "number" || typeof draft.newId !== "number" || !Array.isArray(draft.steps)) {
+    return null;
+  }
+  return {
+    ok: draft.ok === true,
+    oldId: draft.oldId,
+    newId: draft.newId,
+    stage: typeof draft.stage === "string" ? draft.stage : "unknown",
+    steps: draft.steps
+      .filter((step): step is ServoSetIdStepLog => (
+        step &&
+        typeof step.label === "string" &&
+        typeof step.tx === "string" &&
+        (typeof step.rx === "string" || step.rx === null) &&
+        (typeof step.status === "number" || step.status === null)
+      ))
+  };
+}
+
+function servoSetIdLogLines(response: ServoSetIdCommandResponse): string[] {
+  const lines = [`ID ${response.oldId} -> ${response.newId} ${response.ok ? "OK" : `FAILED ${response.stage}`}`];
+  for (const step of response.steps) {
+    lines.push(`${step.label} TX ${step.tx}`);
+    lines.push(`${step.label} RX ${step.rx ?? "--"}${step.status === null ? "" : ` status=${step.status}`}`);
+  }
+  return lines;
+}
+
 function platformActionControls(controls: UiControlSchema[]): UiControlSchema[] {
   return controls.flatMap((control) => {
     const children = control.kind === "group" ? platformActionControls(control.controls ?? []) : [];
@@ -1715,6 +3080,14 @@ function platformActionControls(controls: UiControlSchema[]): UiControlSchema[] 
 
 function formatArmNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function normalizeArmDisplayDegrees(value: number): number {
+  return ((value % 360) + 360) % 360;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function Metric({ label, value, tone = "neutral" }: { label: string; value: ReactNode; tone?: MetricTone }) {

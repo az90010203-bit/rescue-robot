@@ -150,6 +150,15 @@ export interface ArmJointConfig {
   acc: number;
   reverse: boolean;
   enabled: boolean;
+  shapeSegments?: ArmLinkShapeSegment[];
+  childFrameOffsetDeg?: number;
+}
+
+export interface ArmLinkShapeSegment {
+  id: string;
+  name: string;
+  lengthPx: number;
+  directionDeg: number;
 }
 
 export interface ArmConfig {
@@ -166,6 +175,22 @@ export interface ArmSegmentPose {
   angleDeg: number;
   neutralDeg: number;
   relativeDeg: number;
+  globalDeg: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  pathPoints: ArmPoint[];
+  shapeSegments: ArmLinkShapeSegmentPose[];
+  frameDeg: number;
+  childFrameDeg: number;
+}
+
+export interface ArmLinkShapeSegmentPose {
+  id: string;
+  name: string;
+  lengthPx: number;
+  directionDeg: number;
   globalDeg: number;
   startX: number;
   startY: number;
@@ -415,18 +440,68 @@ export function saveArmConfig(config: ArmConfig, servos: ServoProfile[], storage
   storage.setItem(ARM_CONFIG_STORAGE_KEY, JSON.stringify(normalizeArmConfig(config, servos)));
 }
 
+export function armJointShapeSegments(joint: ArmJointConfig): ArmLinkShapeSegment[] {
+  return normalizeArmLinkShapeSegments(joint.shapeSegments, joint.lengthPx);
+}
+
+export function armJointShapeLengthPx(joint: ArmJointConfig): number {
+  return armJointShapeSegments(joint).reduce((total, segment) => total + Math.max(0, segment.lengthPx), 0);
+}
+
+export function armJointLocalEndOffset(joint: ArmJointConfig): ArmPoint {
+  return armJointShapeSegments(joint).reduce<ArmPoint>((point, segment) => {
+    const radians = degreesToRadians(normalizeDegrees(segment.directionDeg));
+    return {
+      x: point.x + Math.cos(radians) * segment.lengthPx,
+      y: point.y - Math.sin(radians) * segment.lengthPx
+    };
+  }, { x: 0, y: 0 });
+}
+
+export function armJointLocalEndDirectionDeg(joint: ArmJointConfig): number {
+  const offset = armJointLocalEndOffset(joint);
+  if (Math.hypot(offset.x, offset.y) < 0.001) {
+    return 0;
+  }
+  return normalizeDegrees(radiansToDegrees(Math.atan2(-offset.y, offset.x)));
+}
+
 export function calculateArmSegmentPoses(joints: ArmJointConfig[], origin: ArmPoint = { x: 300, y: 250 }): ArmSegmentPose[] {
   const poses: ArmSegmentPose[] = [];
   let startX = origin.x;
   let startY = origin.y;
-  let globalDeg = 0;
+  let parentFrameDeg = 0;
 
   for (const joint of joints) {
     const relativeDeg = joint.angleDeg - joint.neutralDeg;
-    globalDeg += relativeDeg;
-    const radians = degreesToRadians(globalDeg);
-    const endX = startX + Math.cos(radians) * joint.lengthPx;
-    const endY = startY - Math.sin(radians) * joint.lengthPx;
+    const frameDeg = parentFrameDeg + relativeDeg;
+    const shapeSegments = armJointShapeSegments(joint);
+    const pathPoints: ArmPoint[] = [{ x: startX, y: startY }];
+    const segmentPoses: ArmLinkShapeSegmentPose[] = [];
+    let cursorX = startX;
+    let cursorY = startY;
+
+    for (const segment of shapeSegments) {
+      const segmentGlobalDeg = frameDeg + segment.directionDeg;
+      const radians = degreesToRadians(segmentGlobalDeg);
+      const endX = cursorX + Math.cos(radians) * segment.lengthPx;
+      const endY = cursorY - Math.sin(radians) * segment.lengthPx;
+      segmentPoses.push({
+        ...segment,
+        globalDeg: segmentGlobalDeg,
+        startX: cursorX,
+        startY: cursorY,
+        endX,
+        endY
+      });
+      cursorX = endX;
+      cursorY = endY;
+      pathPoints.push({ x: cursorX, y: cursorY });
+    }
+
+    const endX = cursorX;
+    const endY = cursorY;
+    const childFrameDeg = frameDeg + normalizeSignedDegrees(joint.childFrameOffsetDeg ?? 0);
     poses.push({
       jointId: joint.id,
       name: joint.name,
@@ -435,14 +510,19 @@ export function calculateArmSegmentPoses(joints: ArmJointConfig[], origin: ArmPo
       angleDeg: joint.angleDeg,
       neutralDeg: joint.neutralDeg,
       relativeDeg,
-      globalDeg,
+      globalDeg: frameDeg,
       startX,
       startY,
       endX,
-      endY
+      endY,
+      pathPoints,
+      shapeSegments: segmentPoses,
+      frameDeg,
+      childFrameDeg
     });
     startX = endX;
     startY = endY;
+    parentFrameDeg = childFrameDeg;
   }
 
   return poses;
@@ -455,9 +535,10 @@ export function calculateArmDragAngle(options: {
   neutralDeg: number;
   servoSpanDeg: number;
   currentAngleDeg?: number;
+  localEndDirectionDeg?: number;
 }): number {
   const rawGlobalDeg = radiansToDegrees(Math.atan2(options.anchor.y - options.pointer.y, options.pointer.x - options.anchor.x));
-  const baseAngleDeg = rawGlobalDeg - options.parentGlobalDeg + options.neutralDeg;
+  const baseAngleDeg = rawGlobalDeg - options.parentGlobalDeg - (options.localEndDirectionDeg ?? 0) + options.neutralDeg;
   const span = clamp(Number.isFinite(options.servoSpanDeg) ? options.servoSpanDeg : 0, 0, 360);
   const currentAngle = clamp(Number.isFinite(options.currentAngleDeg) ? options.currentAngleDeg! : options.neutralDeg, 0, span);
   const candidates = [-720, -360, 0, 360, 720]
@@ -730,6 +811,19 @@ function positiveNumberOrDefault(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+export function normalizeArmLinkShapeSegments(value: unknown, fallbackLengthPx = DEFAULT_ARM_JOINT_LENGTH_PX): ArmLinkShapeSegment[] {
+  const fallbackLength = clamp(Math.round(numberOrDefault(fallbackLengthPx, DEFAULT_ARM_JOINT_LENGTH_PX)), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
+  if (!Array.isArray(value)) {
+    return [{ id: "main", name: "主段", lengthPx: fallbackLength, directionDeg: 0 }];
+  }
+
+  const usedIds = new Set<string>();
+  const segments = value
+    .map((item, index) => normalizeArmLinkShapeSegment(item, index, usedIds, fallbackLength))
+    .filter((segment): segment is ArmLinkShapeSegment => segment !== null);
+  return segments.length > 0 ? segments : [{ id: "main", name: "主段", lengthPx: fallbackLength, directionDeg: 0 }];
+}
+
 export function normalizeArmConfig(value: unknown, servos: ServoProfile[]): ArmConfig {
   if (!value || typeof value !== "object") {
     return createDefaultArmConfig(servos);
@@ -892,6 +986,25 @@ function normalizeServoLinkageMember(value: unknown, validServoIds: ReadonlySet<
   };
 }
 
+function normalizeArmLinkShapeSegment(value: unknown, index: number, usedIds: Set<string>, fallbackLengthPx: number): ArmLinkShapeSegment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const draft = value as Partial<ArmLinkShapeSegment>;
+  const fallbackId = index === 0 ? "main" : `segment-${index + 1}`;
+  const rawId = typeof draft.id === "string" && draft.id.trim() ? draft.id.trim() : fallbackId;
+  const id = uniqueLinkageGroupId(rawId, usedIds);
+  usedIds.add(id);
+
+  return {
+    id,
+    name: typeof draft.name === "string" && draft.name.trim() ? draft.name.trim() : index === 0 ? "主段" : `段 ${index + 1}`,
+    lengthPx: clamp(Math.round(numberOrDefault(draft.lengthPx, fallbackLengthPx)), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX),
+    directionDeg: normalizeDegrees(numberOrDefault(draft.directionDeg, 0))
+  };
+}
+
 function createDefaultArmJoint(servo: ServoProfile, index: number): ArmJointConfig {
   const normalized = normalizeServoProfile(servo);
   const neutralDeg = clamp(90, 0, servoLogicalSpan(normalized));
@@ -905,7 +1018,9 @@ function createDefaultArmJoint(servo: ServoProfile, index: number): ArmJointConf
     speedRaw: DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
     acc: DEFAULT_LINKAGE_MEMBER_ACC,
     reverse: false,
-    enabled: true
+    enabled: true,
+    shapeSegments: [{ id: "main", name: "主段", lengthPx: DEFAULT_ARM_JOINT_LENGTH_PX, directionDeg: 0 }],
+    childFrameOffsetDeg: 0
   };
 }
 
@@ -938,6 +1053,9 @@ function normalizeArmJoint(
   const neutralDeg = clamp(numberOrDefault(draft.neutralDeg, clamp(90, 0, span)), 0, span);
   const speedRaw = clamp(Math.round(numberOrDefault(draft.speedRaw, DEFAULT_LINKAGE_MEMBER_SPEED_RAW)), 0, 4095);
   const acc = clamp(Math.round(numberOrDefault(draft.acc, DEFAULT_LINKAGE_MEMBER_ACC)), 0, 254);
+  const fallbackLengthPx = clamp(Math.round(numberOrDefault(draft.lengthPx, DEFAULT_ARM_JOINT_LENGTH_PX)), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
+  const shapeSegments = normalizeArmLinkShapeSegments(draft.shapeSegments, fallbackLengthPx);
+  const lengthPx = shapeSegments[0]?.lengthPx ?? fallbackLengthPx;
 
   usedJointIds.add(id);
   usedServoIds.add(draft.servoId!);
@@ -945,13 +1063,15 @@ function normalizeArmJoint(
     id,
     name: typeof draft.name === "string" && draft.name.trim() ? draft.name.trim() : `Joint ${index + 1}`,
     servoId: draft.servoId!,
-    lengthPx: clamp(Math.round(numberOrDefault(draft.lengthPx, DEFAULT_ARM_JOINT_LENGTH_PX)), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX),
+    lengthPx,
     angleDeg: clamp(numberOrDefault(draft.angleDeg, neutralDeg), 0, span),
     neutralDeg,
     speedRaw,
     acc,
     reverse: draft.reverse === true,
-    enabled: draft.enabled !== false
+    enabled: draft.enabled !== false,
+    shapeSegments,
+    childFrameOffsetDeg: normalizeSignedDegrees(numberOrDefault(draft.childFrameOffsetDeg, 0))
   };
 }
 
@@ -974,6 +1094,15 @@ function uniqueLinkageGroupId(id: string, usedIds: ReadonlySet<string>): string 
       return candidate;
     }
   }
+}
+
+function normalizeDegrees(value: number): number {
+  return ((value % 360) + 360) % 360;
+}
+
+function normalizeSignedDegrees(value: number): number {
+  const normalized = normalizeDegrees(value);
+  return normalized > 180 ? normalized - 360 : normalized;
 }
 
 function degreesToRadians(value: number): number {
