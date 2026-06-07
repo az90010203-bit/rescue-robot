@@ -179,6 +179,48 @@ describe("pc json protocol", () => {
       { type: "servo.feedback", seq: 2, id: 1 }
     ]);
   });
+
+  it("preserves RoboMaster A encoder diagnostics in motor feedback", () => {
+    const parser = new LineDelimitedJsonParser();
+
+    expect(parser.push('{"type":"motor.feedback","seq":8,"channel":"M1","encoderTicks":128,"pulseHz":64,"encoderA":1,"encoderB":0,"encoderDelta":4,"encoderDirection":"forward","sampleMs":12345}\n')).toEqual([
+      {
+        type: "motor.feedback",
+        seq: 8,
+        channel: "M1",
+        encoderTicks: 128,
+        pulseHz: 64,
+        encoderA: 1,
+        encoderB: 0,
+        encoderDelta: 4,
+        encoderDirection: "forward",
+        sampleMs: 12345
+      }
+    ]);
+  });
+
+  it("preserves RoboMaster A IMU feedback fields", () => {
+    const parser = new LineDelimitedJsonParser();
+
+    expect(
+      parser.push(
+        '{"type":"imu.feedback","seq":12,"ready":true,"mpuWhoAmI":112,"istWhoAmI":16,"accelRaw":{"x":10,"y":20,"z":4096},"gyroRaw":{"x":1,"y":2,"z":3},"magRaw":{"x":-30,"y":40,"z":50},"tempRaw":256,"sampleMs":1234}\n'
+      )
+    ).toEqual([
+      {
+        type: "imu.feedback",
+        seq: 12,
+        ready: true,
+        mpuWhoAmI: 112,
+        istWhoAmI: 16,
+        accelRaw: { x: 10, y: 20, z: 4096 },
+        gyroRaw: { x: 1, y: 2, z: 3 },
+        magRaw: { x: -30, y: 40, z: 50 },
+        tempRaw: 256,
+        sampleMs: 1234
+      }
+    ]);
+  });
 });
 
 describe("pwm motor json protocol", () => {
@@ -198,7 +240,7 @@ describe("pwm motor json protocol", () => {
   });
 
   it("builds motor.config commands for TB6618 board-side pin mapping", () => {
-    expect(buildMotorConfigCommand(6, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", enablePin: "d10", sensorPin: "d2" })).toEqual({
+    expect(buildMotorConfigCommand(6, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", enablePin: "d10", sensorPin: "d2", encoderAPin: "pa0", encoderBPin: "pa1" })).toEqual({
       type: "motor.config",
       seq: 6,
       channel: "M1",
@@ -208,6 +250,23 @@ describe("pwm motor json protocol", () => {
         in1: "D4",
         in2: "D7",
         enable: "D10",
+        sensor: "D2",
+        encoderA: "PA0",
+        encoderB: "PA1"
+      }
+    });
+  });
+
+  it("keeps legacy sensor-only motor.config mappings compatible", () => {
+    expect(buildMotorConfigCommand(7, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", sensorPin: "d2" })).toEqual({
+      type: "motor.config",
+      seq: 7,
+      channel: "M1",
+      driver: "tb6618",
+      pins: {
+        pwm: "D5",
+        in1: "D4",
+        in2: "D7",
         sensor: "D2"
       }
     });

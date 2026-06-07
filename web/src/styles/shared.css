@@ -108,6 +108,13 @@ textarea:focus {
   font-weight: 640;
 }
 
+.form-hint {
+  margin: 10px 0 0;
+  color: var(--steel);
+  font-size: 0.84rem;
+  font-weight: 640;
+}
+
 .icon-button,
 .icon-only {
   min-height: 40px;

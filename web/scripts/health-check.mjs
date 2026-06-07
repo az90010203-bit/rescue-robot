@@ -2,7 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const scriptDir = dirname(fileURLToPath(import.meta.url));
+const scriptPath = fileURLToPath(import.meta.url);
+const scriptDir = dirname(scriptPath);
 const webRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(webRoot, "..");
 const sourceExtensions = new Set([".ts", ".tsx", ".mjs", ".cpp", ".h"]);
@@ -39,6 +40,7 @@ const invalidUtf8Docs = docs.filter((file) => {
     return true;
   }
 });
+const mojibakeMatches = scanMojibake([...new Set([...sourceFiles.filter((file) => file !== scriptPath), ...docs])]);
 
 const report = {
   largestFiles: sourceStats.slice(0, 10),
@@ -51,6 +53,9 @@ const report = {
   utf8Docs: {
     checked: docs.map(relative),
     invalid: invalidUtf8Docs.map(relative)
+  },
+  mojibake: {
+    matches: mojibakeMatches
   }
 };
 
@@ -62,6 +67,9 @@ if (mainChunk && mainChunk.bytes > 500 * 1024) {
 }
 if (invalidUtf8Docs.length > 0) {
   failures.push(`Docs are not valid UTF-8: ${invalidUtf8Docs.map(relative).join(", ")}`);
+}
+if (mojibakeMatches.length > 0) {
+  failures.push(`Possible mojibake text found: ${mojibakeMatches.map((item) => `${item.path}:${item.line}`).join(", ")}`);
 }
 if (failures.length > 0) {
   for (const failure of failures) {
@@ -106,6 +114,47 @@ function readUtf8(path) {
 
 function countMatches(text, pattern) {
   return text.match(pattern)?.length ?? 0;
+}
+
+function scanMojibake(files) {
+  const patterns = [
+    /鑸垫満/u,
+    /鐢垫満/u,
+    /鎽勫儚/u,
+    /椋炵壒/u,
+    /鐩磋繛/u,
+    /涓嶉渶/u,
+    /涓嶅彂/u,
+    /宸叉敼/u,
+    /鎬荤嚎/u,
+    /閼稿灚/u
+  ];
+  const matches = [];
+  for (const file of files) {
+    let text;
+    try {
+      text = readUtf8(file);
+    } catch {
+      continue;
+    }
+    const lines = text.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      const pattern = patterns.find((candidate) => candidate.test(line));
+      if (!pattern) {
+        continue;
+      }
+      matches.push({
+        path: relative(file),
+        line: index + 1,
+        pattern: pattern.source,
+        text: line.trim().slice(0, 160)
+      });
+      if (matches.length >= 50) {
+        return matches;
+      }
+    }
+  }
+  return matches;
 }
 
 function relative(path) {

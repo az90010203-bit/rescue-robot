@@ -14,12 +14,12 @@ function createNavigation(options: {
   const tests: TestPanel[] = [];
   const disconnectSerial = vi.fn(async () => {});
   const sendDebugSet = vi.fn(async () => true);
+  const addSystemLog = vi.fn();
 
   const navigation = useAppNavigation({
     activeModule: options.activeModule ?? "camera",
     activeTest: options.activeTest ?? "servo",
-    addLog: vi.fn(),
-    addSystemLog: vi.fn(),
+    addSystemLog,
     connected: options.connected ?? false,
     connectionMode: options.connectionMode ?? null,
     debugEnabled: options.debugEnabled ?? false,
@@ -33,7 +33,7 @@ function createNavigation(options: {
     setDebugEnabled: vi.fn()
   });
 
-  return { disconnectSerial, modules, navigation, sections, sendDebugSet, tests };
+  return { addSystemLog, disconnectSerial, modules, navigation, sections, sendDebugSet, tests };
 }
 
 describe("useAppNavigation", () => {
@@ -50,6 +50,7 @@ describe("useAppNavigation", () => {
     ["servo", "servo"],
     ["motor", "motor"],
     ["arm", "arm"],
+    ["arm3d", "arm"],
     ["driveCamera", "camera"]
   ] as Array<[TestPanel, ActiveModule]>)("selects %s when opening the tests section", async (activeTest, expectedModule) => {
     const { modules, navigation, sections } = createNavigation({ activeTest });
@@ -60,8 +61,8 @@ describe("useAppNavigation", () => {
     expect(modules).toEqual([expectedModule]);
   });
 
-  it("does not switch hardware modules when opening tests on the Pi panel", async () => {
-    const { modules, navigation, sections } = createNavigation({ activeModule: "camera", activeTest: "pi" });
+  it.each(["pi", "canServo"] as TestPanel[])("does not switch hardware modules when opening tests on the %s panel", async (activeTest) => {
+    const { modules, navigation, sections } = createNavigation({ activeModule: "camera", activeTest });
 
     await navigation.selectSection("tests");
 
@@ -71,6 +72,7 @@ describe("useAppNavigation", () => {
 
   it.each([
     ["arm", "arm"],
+    ["arm3d", "arm"],
     ["driveCamera", "camera"]
   ] as Array<[TestPanel, ActiveModule]>)("routes the %s test tab to its runtime module", async (panel, expectedModule) => {
     const { modules, navigation, sections, tests } = createNavigation();
@@ -82,13 +84,22 @@ describe("useAppNavigation", () => {
     expect(modules).toEqual([expectedModule]);
   });
 
-  it("leaves the current hardware module alone for the Pi remote tab", async () => {
+  it.each(["pi", "canServo"] as TestPanel[])("leaves the current hardware module alone for the %s tab", async (panel) => {
     const { modules, navigation, sections, tests } = createNavigation({ activeModule: "motor" });
 
-    await navigation.selectTestPanel("pi");
+    await navigation.selectTestPanel(panel);
 
     expect(sections).toEqual(["tests"]);
-    expect(tests).toEqual(["pi"]);
+    expect(tests).toEqual([panel]);
     expect(modules).toEqual([]);
+  });
+
+  it("logs the translated direct-bus hint instead of raw text for servo-bus modules", async () => {
+    const { addSystemLog, navigation, sendDebugSet } = createNavigation({ activeModule: "servo" });
+
+    await navigation.toggleDebugMode();
+
+    expect(addSystemLog).toHaveBeenCalledWith("logs.directBusHint");
+    expect(sendDebugSet).not.toHaveBeenCalled();
   });
 });

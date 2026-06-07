@@ -42,14 +42,17 @@ export interface LogEntry {
 export type ActiveModule = "servo" | "arm" | "motor" | "camera" | "mapping";
 export type ArchitectureSection = "plugins" | "components" | "robots";
 export type AppSection = "console" | ArchitectureSection | "tests" | "settings";
-export type TestPanel = "servo" | "motor" | "arm" | "driveCamera" | "pi";
+export type TestPanel = "servo" | "motor" | "arm" | "arm3d" | "driveCamera" | "pi" | "canServo";
 export type ConnectionMode = "servo-bus" | "controller";
 export type ServoControlMode = "position" | "wheel";
+export type MotorTestBoard = "arduino" | "robomaster-a";
 export type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused";
 export type ServoSafetyDisplayState = "idle" | "monitoring" | "stopped";
 export type ArmTeachStatus = "idle" | "preparing" | "recording" | "stopped" | "playing" | "error";
 export type DatabaseSaveStatus = "loading" | "saving" | "saved" | "error" | "offline";
 export type MotorDebugHandshakeStatus = "unknown" | "syncing" | "ready" | "error";
+export type AboardBridgeStatus = "idle" | "checking" | "starting" | "connected" | "error";
+export type PiServoBridgeStatus = "idle" | "checking" | "starting" | "connected" | "error";
 export type FirmwareUploadStatus = "idle" | "checking" | "loadingPorts" | "compiling" | "compiled" | "uploading" | "uploaded" | "error";
 export type PiRemoteStatus = "idle" | "checking" | "settingUp" | "ready" | "uploading" | "running" | "complete" | "error";
 export type PiCameraStatus = "idle" | "checking" | "installing" | "starting" | "streaming" | "stopping" | "error";
@@ -156,7 +159,7 @@ export type CameraNumberField = Exclude<
   keyof CameraConfig,
   "streamUrl" | "webrtcOfferUrl" | "streamMode" | "latencyProfile" | "videoSources" | "activeVideoSourceId" | "videoLayout"
 >;
-export type MotorMappingField = "pwmPin" | "in1Pin" | "in2Pin" | "enablePin" | "sensorPin";
+export type MotorMappingField = "pwmPin" | "in1Pin" | "in2Pin" | "enablePin" | "sensorPin" | "encoderAPin" | "encoderBPin";
 export type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 export type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;
 export type GamepadAxisName = keyof InputMapping["gamepad"]["axes"];
@@ -177,13 +180,13 @@ export const defaultMotorDraft = { channel: "M7", name: "Motor 7" };
 export const defaultPiRemoteForm: PiRemoteForm = {
   host: "raspberrypi.local",
   port: "22",
-  username: "pi",
-  password: "",
+  username: "robot1",
+  password: "oct",
   authMode: "password",
   privateKeyPath: "",
   workspaceDir: "~/rescue-robot",
-  remotePath: "/home/pi/rescue/uploaded.py",
-  command: "python3 /home/pi/rescue/uploaded.py",
+  remotePath: "/home/robot1/rescue/uploaded.py",
+  command: "python3 /home/robot1/rescue/uploaded.py",
   cwd: "",
   timeoutSeconds: "30"
 };
@@ -322,7 +325,9 @@ export function motorPinSummary(motor: MotorProfile) {
     motor.in1Pin ? `IN1 ${motor.in1Pin}` : "",
     motor.in2Pin ? `IN2 ${motor.in2Pin}` : "",
     motor.enablePin ? `EN ${motor.enablePin}` : "",
-    motor.sensorPin ? `SNS ${motor.sensorPin}` : ""
+    motor.sensorPin ? `SNS ${motor.sensorPin}` : "",
+    motor.encoderAPin ? `EA ${motor.encoderAPin}` : "",
+    motor.encoderBPin ? `EB ${motor.encoderBPin}` : ""
   ].filter(Boolean);
   return parts.join(" · ");
 }

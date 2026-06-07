@@ -29,8 +29,6 @@ interface UseServoPauseRuntimeOptions {
   cancelServoMotionForServo: (id: number, status?: any) => void;
   cancelServoSafetyMonitor: (id?: number) => void;
   cancelWheelTurnMonitor: (key?: string) => void;
-  connected: boolean;
-  connectionMode: string | null;
   enqueueServoSerialTask: <T>(task: () => Promise<T>) => Promise<T>;
   lastServoPhysicalAngleRef: { current: Record<number, number> };
   lastServoWheelSpeedRef: { current: Record<number, number> };
@@ -38,7 +36,7 @@ interface UseServoPauseRuntimeOptions {
   rememberServoFeedback: (feedback: InboundMessage & { type: "servo.feedback" }) => void;
   sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean) => Promise<any>;
   sendServoFrames: (frames: number[] | number[][], waitMs?: number) => Promise<any>;
-  serialRef: { current: unknown };
+  servoBusReady: boolean;
   servos: ServoProfile[];
   setLinkageWheelDirectionByGroup: (updater: (current: Record<string, any>) => Record<string, any>) => void;
   updateServoCommandField: <K extends keyof ServoCommandState>(id: number, field: K, value: ServoCommandState[K]) => void;
@@ -54,8 +52,6 @@ export function useServoPauseRuntime({
   cancelServoMotionForServo,
   cancelServoSafetyMonitor,
   cancelWheelTurnMonitor,
-  connected,
-  connectionMode,
   enqueueServoSerialTask,
   lastServoPhysicalAngleRef,
   lastServoWheelSpeedRef,
@@ -63,7 +59,7 @@ export function useServoPauseRuntime({
   rememberServoFeedback,
   sendServoFrameUnlocked,
   sendServoFrames,
-  serialRef,
+  servoBusReady,
   servos,
   setLinkageWheelDirectionByGroup,
   updateServoCommandField
@@ -170,7 +166,7 @@ export function useServoPauseRuntime({
         return;
       }
 
-      if (!serialRef.current || !connected || connectionMode !== "servo-bus") {
+      if (!servoBusReady) {
         addSystemLog("logs.servoBusRequired", "warn");
         return;
       }

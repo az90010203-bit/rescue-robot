@@ -122,7 +122,9 @@ export function useMotorLibrary({
           in1Pin: selectedMotor.in1Pin ?? "",
           in2Pin: selectedMotor.in2Pin ?? "",
           enablePin: selectedMotor.enablePin,
-          sensorPin: selectedMotor.sensorPin
+          sensorPin: selectedMotor.sensorPin,
+          encoderAPin: selectedMotor.encoderAPin,
+          encoderBPin: selectedMotor.encoderBPin
         })
       );
       if (result.status === "sent") {

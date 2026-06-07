@@ -7,6 +7,7 @@ import {
   installPiCameraTools,
   isPiRemoteError,
   parsePiCameraCheckOutput,
+  parsePiCameraLanHost,
   requestPiHelperHealth,
   runUploadedFile,
   setupPiCameraScripts,
@@ -264,10 +265,16 @@ describe("Raspberry Pi remote client", () => {
     });
   });
 
+  it("prefers the Pi LAN IP for browser camera URLs when the remote reports it", () => {
+    expect(parsePiCameraLanHost("lan_ip:192.168.1.44\n")).toBe("192.168.1.44");
+    expect(parsePiCameraLanHost("lan_ip:\n")).toBe("");
+    expect(parsePiCameraLanHost("lan_ip:raspberrypi.local\n")).toBe("");
+  });
+
   it("checks USB camera, ustreamer, and stream status", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({
-        stdout: "device:/dev/video0\ncamera:0\nustreamer:0\nwebrtc:0\nrunning:0\n",
+        stdout: "device:/dev/video0\ncamera:0\nustreamer:0\nwebrtc:0\nrunning:0\nlan_ip:192.168.1.44\n",
         stderr: "",
         exitCode: 0,
         signal: null,
@@ -288,8 +295,8 @@ describe("Raspberry Pi remote client", () => {
       ustreamerAvailable: true,
       webrtcAvailable: true,
       streamRunning: true,
-      streamUrl: "http://pi.local:8080/stream",
-      webrtcOfferUrl: "http://pi.local:8080/offer"
+      streamUrl: "http://192.168.1.44:8080/stream",
+      webrtcOfferUrl: "http://192.168.1.44:8080/offer"
     });
   });
 
@@ -326,7 +333,7 @@ describe("Raspberry Pi remote client", () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ stdout: "", stderr: "", exitCode: 0, signal: null, durationMs: 15, timedOut: false }))
-      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\nsize:320x240\nfps:30\nwebrtc:0\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
+      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\nsize:320x240\nfps:30\nwebrtc:0\nlan_ip:192.168.1.45\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
 
     await expect(
       startPiCameraStream(
@@ -337,8 +344,8 @@ describe("Raspberry Pi remote client", () => {
     ).resolves.toMatchObject({
       ok: true,
       device: "/dev/video0",
-      streamUrl: "http://raspberrypi.local:8080/stream",
-      webrtcOfferUrl: "http://raspberrypi.local:8080/offer",
+      streamUrl: "http://192.168.1.45:8080/stream",
+      webrtcOfferUrl: "http://192.168.1.45:8080/offer",
       exec: { exitCode: 0 }
     });
 

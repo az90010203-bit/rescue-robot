@@ -310,15 +310,14 @@ export async function checkPiCamera(
   const source = normalizePiCameraSource(sourceProvided ? sourceOrOptions : undefined);
   const requestOptions = sourceProvided ? options : sourceOrOptions;
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
-  const streamUrl = buildPiCameraStreamUrl(connection.host, source.port);
-  const webrtcOfferUrl = buildPiCameraWebrtcOfferUrl(connection.host, source.port);
   const command = createPiCameraCheckCommand(workspaceDir, source);
   const exec = await execPiCommand({ ...connection, command, timeoutMs: 12_000 }, requestOptions);
   const parsed = parsePiCameraCheckOutput(exec.stdout);
+  const streamHost = parsePiCameraLanHost(exec.stdout) || connection.host;
   return {
     ...parsed,
-    streamUrl,
-    webrtcOfferUrl,
+    streamUrl: buildPiCameraStreamUrl(streamHost, source.port),
+    webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(streamHost, source.port),
     stdout: exec.stdout,
     stderr: exec.stderr
   };
@@ -350,12 +349,13 @@ export async function startPiCameraStream(
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const settings = normalizePiCameraStreamSettings(requestOptions);
   const setup = await setupPiCameraScripts(connection, profile, requestOptions);
+  const fallbackStreamHost = connection.host;
   if (!setup.ok) {
     return {
       ok: false,
       device: source.devicePath,
-      streamUrl: buildPiCameraStreamUrl(connection.host, source.port),
-      webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(connection.host, source.port),
+      streamUrl: buildPiCameraStreamUrl(fallbackStreamHost, source.port),
+      webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(fallbackStreamHost, source.port),
       exec: setup.exec
     };
   }
@@ -367,11 +367,12 @@ export async function startPiCameraStream(
     },
     requestOptions
   );
+  const streamHost = parsePiCameraLanHost(exec.stdout) || fallbackStreamHost;
   return {
     ok: exec.exitCode === 0,
     device: source.devicePath,
-    streamUrl: buildPiCameraStreamUrl(connection.host, source.port),
-    webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(connection.host, source.port),
+    streamUrl: buildPiCameraStreamUrl(streamHost, source.port),
+    webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(streamHost, source.port),
     exec
   };
 }
@@ -467,6 +468,11 @@ export function parsePiCameraCheckOutput(stdout: string): Omit<PiCameraCheckResu
   };
 }
 
+export function parsePiCameraLanHost(stdout: string): string {
+  const lanIp = lineValue(stdout, "lan_ip");
+  return isLikelyLanIp(lanIp) ? lanIp : "";
+}
+
 function normalizePiCameraStreamSettings(options: PiCameraStreamOptions): Required<Pick<PiCameraStreamOptions, "width" | "height" | "fps">> {
   return {
     width: normalizePositiveInteger(options.width, 320),
@@ -494,6 +500,10 @@ function isPiCameraSourceInput(value: unknown): value is PiCameraSourceInput {
 function normalizePositiveInteger(value: unknown, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 && parsed <= 4096 ? parsed : fallback;
+}
+
+function isLikelyLanIp(value: string): boolean {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value.trim());
 }
 
 export function validatePiUploadFile(file: File): void {
@@ -551,6 +561,7 @@ function createPiCameraCheckCommand(workspaceDir: string, source: PiCameraSource
     "then webrtc=0; else webrtc=1; fi",
     `pid_file=${shellQuote(pidFile)}`,
     `legacy_pid_file=${shellQuote(legacyPidFile)}`,
+    "lan_ip=\"$(hostname -I 2>/dev/null | awk '{print $1}' || true)\"",
     "running=1",
     "if [ -f \"$pid_file\" ] && kill -0 \"$(cat \"$pid_file\")\" 2>/dev/null; then running=0; fi",
     source.port === 8080 ? "if [ \"$running\" != \"0\" ] && [ -f \"$legacy_pid_file\" ] && kill -0 \"$(cat \"$legacy_pid_file\")\" 2>/dev/null; then running=0; fi" : ":",
@@ -558,7 +569,8 @@ function createPiCameraCheckCommand(workspaceDir: string, source: PiCameraSource
     "echo \"camera:$camera\"",
     "echo \"ustreamer:$ustreamer\"",
     "echo \"webrtc:$webrtc\"",
-    "echo \"running:$running\""
+    "echo \"running:$running\"",
+    "echo \"lan_ip:$lan_ip\""
   ].join("\n");
 }
 
@@ -893,6 +905,7 @@ function createPiCameraSetupCommand(workspaceDir: string): string {
     'echo "fps:$fps"',
     'echo "tool:$stream_tool"',
     'echo "webrtc:$webrtc"',
+    'echo "lan_ip:$(hostname -I 2>/dev/null | awk \'{print $1}\' || true)"',
     'echo "pid:$(cat "$pid_file")"',
     "RESCUE_ROBOT_CAMERA_START",
     `cat > ${shellQuote(stopScript)} <<'RESCUE_ROBOT_CAMERA_STOP'`,

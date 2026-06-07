@@ -191,6 +191,11 @@
     width: 100%;
   }
 
+  .topbar-status-area {
+    width: 100%;
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  }
+
   .workspace {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   }
@@ -253,6 +258,11 @@
 
   .system-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topbar-status-area,
+  .header-connection-strip {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .control-bar {

@@ -25,8 +25,6 @@ interface UseServoCommandRuntimeOptions {
   cancelLiveWheelMove: (id?: number) => void;
   cancelServoSafetyMonitor: (id?: number) => void;
   cancelWheelTurnMonitor: (key?: string) => void;
-  connected: boolean;
-  connectionMode: string | null;
   liveAngleSendingRef: { current: Record<number, boolean> };
   liveAngleTimerRef: { current: Record<number, number> };
   livePositionModeServoRef: { current: Set<number> };
@@ -36,6 +34,7 @@ interface UseServoCommandRuntimeOptions {
   pendingLiveWheelRef: { current: Record<number, PendingLiveWheelMove> };
   runServoPositionMotion: (servo: ServoProfile, state: ServoCommandState, angle: number, options?: { live?: boolean }) => Promise<unknown>;
   sendMoveForServo: (servo: ServoProfile, state: ServoCommandState, options?: { live?: boolean }) => Promise<unknown>;
+  servoBusReady: boolean;
   servoSmoothingEnabled: boolean;
   setServoCommandById: (updater: (current: ServoCommandStateMap) => ServoCommandStateMap) => void;
 }
@@ -48,8 +47,6 @@ export function useServoCommandRuntime({
   cancelLiveWheelMove,
   cancelServoSafetyMonitor,
   cancelWheelTurnMonitor,
-  connected,
-  connectionMode,
   liveAngleSendingRef,
   liveAngleTimerRef,
   livePositionModeServoRef,
@@ -59,6 +56,7 @@ export function useServoCommandRuntime({
   pendingLiveWheelRef,
   runServoPositionMotion,
   sendMoveForServo,
+  servoBusReady,
   servoSmoothingEnabled,
   setServoCommandById
 }: UseServoCommandRuntimeOptions) {
@@ -125,7 +123,7 @@ export function useServoCommandRuntime({
   }
 
   function scheduleLiveAngleMove(servo: ServoProfile, state: ServoCommandState, angle: number) {
-    if (!state.liveDragEnabled || state.mode !== "position" || !connected || connectionMode !== "servo-bus" || !Number.isFinite(angle)) {
+    if (!state.liveDragEnabled || state.mode !== "position" || !servoBusReady || !Number.isFinite(angle)) {
       return;
     }
 
@@ -147,7 +145,7 @@ export function useServoCommandRuntime({
 
     const pending = pendingLiveAngleRef.current[id];
     delete pendingLiveAngleRef.current[id];
-    if (!pending || !pending.state.liveDragEnabled || pending.state.mode !== "position" || !connected || connectionMode !== "servo-bus") {
+    if (!pending || !pending.state.liveDragEnabled || pending.state.mode !== "position" || !servoBusReady) {
       return;
     }
 
@@ -172,7 +170,7 @@ export function useServoCommandRuntime({
   }
 
   function scheduleLiveWheelMove(servo: ServoProfile, state: ServoCommandState) {
-    if (state.mode !== "wheel" || !connected || connectionMode !== "servo-bus") {
+    if (state.mode !== "wheel" || !servoBusReady) {
       return;
     }
 
@@ -194,7 +192,7 @@ export function useServoCommandRuntime({
 
     const pending = pendingLiveWheelRef.current[id];
     delete pendingLiveWheelRef.current[id];
-    if (!pending || pending.state.mode !== "wheel" || !connected || connectionMode !== "servo-bus") {
+    if (!pending || pending.state.mode !== "wheel" || !servoBusReady) {
       return;
     }
 

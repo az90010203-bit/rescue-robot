@@ -35,21 +35,34 @@ export function useCameraSourceRuntime({ cameraConfig }: UseCameraSourceRuntimeO
   const cameraVisibleLatencySignature = cameraVideoSources.map((source) => `${source.id}:${source.streamUrl}`).join("|");
 
   const setCameraSourceRuntime = useCallback((sourceId: string, patch: Partial<CameraSourceRuntimeStatus>) => {
-    setCameraSourceRuntimeById((current) => ({
-      ...current,
-      [sourceId]: {
-        ...defaultCameraSourceRuntimeStatus(),
-        ...current[sourceId],
-        ...patch
+    setCameraSourceRuntimeById((current) => {
+      const existing = current[sourceId] ?? defaultCameraSourceRuntimeStatus();
+      if (cameraRuntimePatchMatches(existing, patch)) {
+        return current;
       }
-    }));
+      return {
+        ...current,
+        [sourceId]: {
+          ...defaultCameraSourceRuntimeStatus(),
+          ...existing,
+          ...patch
+        }
+      };
+    });
   }, []);
 
   const resetCameraSourceRuntime = useCallback((sourceId: string) => {
-    setCameraSourceRuntimeById((current) => ({
-      ...current,
-      [sourceId]: defaultCameraSourceRuntimeStatus()
-    }));
+    setCameraSourceRuntimeById((current) => {
+      const resetStatus = defaultCameraSourceRuntimeStatus();
+      const existing = current[sourceId];
+      if (!existing || cameraRuntimePatchMatches(existing, resetStatus)) {
+        return current;
+      }
+      return {
+        ...current,
+        [sourceId]: resetStatus
+      };
+    });
   }, []);
 
   useEffect(() => {
@@ -141,4 +154,8 @@ export function useCameraSourceRuntime({ cameraConfig }: UseCameraSourceRuntimeO
     setCameraStreamReloadToken,
     mainCameraReady: cameraReadyBySourceId[MAIN_CAMERA_SOURCE_ID] ?? activeCameraRuntime.loaded
   };
+}
+
+function cameraRuntimePatchMatches(status: CameraSourceRuntimeStatus, patch: Partial<CameraSourceRuntimeStatus>): boolean {
+  return (Object.keys(patch) as Array<keyof CameraSourceRuntimeStatus>).every((key) => status[key] === patch[key]);
 }

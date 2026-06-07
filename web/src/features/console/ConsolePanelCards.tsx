@@ -1,8 +1,9 @@
-import { Activity, Gamepad2, SlidersHorizontal, Square, Video, VideoOff } from "lucide-react";
+import { Activity, Compass, Crosshair, Gamepad2, RefreshCw, SlidersHorizontal, Square, Video, VideoOff } from "lucide-react";
 import type { TFunction } from "i18next";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { Fragment, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Metric } from "../../shared/ui/AppChrome";
 import type { DriveInputState } from "../../lib/drive";
+import type { ImuAttitude, ImuCalibration, ImuCalibrationStatus, ImuFeedback, ImuVector } from "../../lib/imuAttitude";
 import {
   MAIN_CAMERA_SOURCE_ID,
   type CameraConfig,
@@ -31,19 +32,38 @@ export interface ConsoleTelemetryPanelProps {
   completeMotorMappingCount: number;
   connected: boolean;
   driveCanCommand: boolean;
+  hiddenItemCount?: number;
   motorCount: number;
   servoCount: number;
   servoFeedback: Record<string, any>;
   t: TFunction;
+  visibleItemIds?: readonly string[];
 }
 
 export interface ConsoleCameraFeedPanelProps {
   cameraConfig: CameraConfig;
   cameraStreamReloadToken: number;
+  hiddenItemCount?: number;
   runtime?: CameraSourceRuntimeStatus;
   setCameraSourceRuntime: (sourceId: string, patch: Partial<CameraSourceRuntimeStatus>) => void;
   source: CameraVideoSource;
   t: TFunction;
+  visibleItemIds?: readonly string[];
+}
+
+export interface ConsoleAttitudePanelProps {
+  aBoardBridgeBusy: boolean;
+  aBoardBridgeConnected: boolean;
+  attitude: ImuAttitude | null;
+  calibration: ImuCalibration;
+  calibrationStatus: ImuCalibrationStatus;
+  error: string | null;
+  feedback: ImuFeedback | null;
+  hiddenItemCount?: number;
+  onCheckBridge: () => Promise<unknown>;
+  onStartCalibration: () => void;
+  t: TFunction;
+  visibleItemIds?: readonly string[];
 }
 
 export interface ConsoleJoystickPanelProps {
@@ -66,6 +86,45 @@ export interface ConsoleEventLogPanelProps {
 
 function metricNumber(value: number | undefined, digits = 1) {
   return value === undefined ? "--" : Number(value.toFixed(digits));
+}
+
+function formatAngle(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value) ? "--" : value.toFixed(1);
+}
+
+function formatVector(value: ImuVector | null | undefined, digits = 0) {
+  if (!value) {
+    return "--";
+  }
+  return `${value.x.toFixed(digits)} / ${value.y.toFixed(digits)} / ${value.z.toFixed(digits)}`;
+}
+
+function formatRawVector(value: ImuFeedback["magRaw"] | undefined) {
+  if (!value) {
+    return "--";
+  }
+  return `${Math.round(value.x)} / ${Math.round(value.y)} / ${Math.round(value.z)}`;
+}
+
+function formatWhoAmI(value: number | undefined) {
+  return value === undefined ? "--" : `0x${value.toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+interface ConsolePanelMetric {
+  id: string;
+  node: ReactNode;
+}
+
+function visiblePanelMetrics(metrics: ConsolePanelMetric[], visibleItemIds?: readonly string[]) {
+  if (!visibleItemIds || visibleItemIds.length === 0) {
+    return metrics;
+  }
+  const visible = new Set(visibleItemIds);
+  return metrics.filter((metric) => visible.has(metric.id));
+}
+
+function hiddenMetricNode(t: TFunction, hiddenItemCount = 0) {
+  return hiddenItemCount > 0 ? <Metric className="console-metric-overflow" label={t("dashboard.fields.hiddenMetrics")} value={`+${hiddenItemCount}`} /> : null;
 }
 
 function VirtualJoystick({ caption, kind, label, onPointerDown, onPointerMove, onReset, t, x, y }: VirtualJoystickProps) {
@@ -99,16 +158,30 @@ export function ConsoleTelemetryPanel({
   completeMotorMappingCount,
   connected,
   driveCanCommand,
+  hiddenItemCount = 0,
   motorCount,
   servoCount,
   servoFeedback,
-  t
+  t,
+  visibleItemIds
 }: ConsoleTelemetryPanelProps) {
   const servoTelemetryItems = Object.values(servoFeedback);
   const voltageValue = metricNumber(servoTelemetryItems.find((item) => item.voltageV !== undefined)?.voltageV);
   const currentValue = metricNumber(servoTelemetryItems.find((item) => item.currentMa !== undefined)?.currentMa);
   const temperatureValue = servoTelemetryItems.find((item) => item.temperatureC !== undefined)?.temperatureC ?? "--";
   const movingServoCount = servoTelemetryItems.filter((item) => item.moving).length;
+  const metrics: ConsolePanelMetric[] = [
+    { id: "voltage", node: <Metric label={t("metrics.voltage")} value={voltageValue} suffix=" V" /> },
+    { id: "current", node: <Metric label={t("metrics.current")} value={currentValue} suffix=" mA" /> },
+    { id: "temp", node: <Metric label={t("metrics.temp")} value={temperatureValue} suffix={temperatureValue === "--" ? "" : " C"} /> },
+    { id: "serial", node: <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} /> },
+    { id: "drive", node: <Metric label={t("metrics.drive")} value={driveCanCommand ? t("status.ready") : t("status.standby")} tone={driveCanCommand ? "online" : "neutral"} /> },
+    { id: "activeBase", node: <Metric label={t("metrics.activeBase")} value={activeDriveBase === "tracked" ? t("drive.tracked") : t("drive.mecanum")} /> },
+    { id: "servoCount", node: <Metric label={t("metrics.servoCount")} value={servoCount} /> },
+    { id: "motorCount", node: <Metric label={t("metrics.motorCount")} value={`${completeMotorMappingCount}/${motorCount}`} /> },
+    { id: "moving", node: <Metric label={t("metrics.moving")} value={movingServoCount} tone={movingServoCount > 0 ? "warning" : "neutral"} /> },
+    { id: "gamepad", node: <Metric label={t("metrics.gamepad")} value={activeGamepad ? `#${activeGamepad.index}` : t("mapping.noGamepad")} tone={activeGamepad ? "online" : "neutral"} /> }
+  ];
 
   return (
     <>
@@ -117,29 +190,100 @@ export function ConsoleTelemetryPanel({
         <h3>{t("console.robotTelemetry")}</h3>
       </div>
       <div className="console-metric-grid">
-        <Metric label={t("metrics.voltage")} value={voltageValue} suffix=" V" />
-        <Metric label={t("metrics.current")} value={currentValue} suffix=" mA" />
-        <Metric label={t("metrics.temp")} value={temperatureValue} suffix={temperatureValue === "--" ? "" : " C"} />
-        <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
-        <Metric label={t("metrics.drive")} value={driveCanCommand ? t("status.ready") : t("status.standby")} tone={driveCanCommand ? "online" : "neutral"} />
-        <Metric label={t("metrics.activeBase")} value={activeDriveBase === "tracked" ? t("drive.tracked") : t("drive.mecanum")} />
-        <Metric label={t("metrics.servoCount")} value={servoCount} />
-        <Metric label={t("metrics.motorCount")} value={`${completeMotorMappingCount}/${motorCount}`} />
-        <Metric label={t("metrics.moving")} value={movingServoCount} tone={movingServoCount > 0 ? "warning" : "neutral"} />
-        <Metric label={t("metrics.gamepad")} value={activeGamepad ? `#${activeGamepad.index}` : t("mapping.noGamepad")} tone={activeGamepad ? "online" : "neutral"} />
+        {visiblePanelMetrics(metrics, visibleItemIds).map((metric) => <Fragment key={metric.id}>{metric.node}</Fragment>)}
+        {hiddenMetricNode(t, hiddenItemCount)}
       </div>
-      <p className="console-note">{t("console.telemetryNote")}</p>
+      {hiddenItemCount === 0 && <p className="console-note">{t("console.telemetryNote")}</p>}
     </>
+  );
+}
+
+export function ConsoleAttitudePanel({
+  aBoardBridgeBusy,
+  aBoardBridgeConnected,
+  attitude,
+  calibration,
+  calibrationStatus,
+  error,
+  feedback,
+  hiddenItemCount = 0,
+  onCheckBridge,
+  onStartCalibration,
+  t,
+  visibleItemIds
+}: ConsoleAttitudePanelProps) {
+  const ageMs = attitude ? Date.now() - attitude.receivedAtMs : undefined;
+  const stale = ageMs !== undefined && ageMs > 1200;
+  const ready = aBoardBridgeConnected && Boolean(feedback) && !error && !stale;
+  const statusLabel = !aBoardBridgeConnected
+    ? t("status.offline")
+    : error
+      ? t("status.error")
+      : stale
+        ? t("status.stale")
+        : feedback
+          ? t("status.ready")
+          : t("status.syncing");
+  const statusTone: "neutral" | "online" | "warning" | "danger" = !aBoardBridgeConnected || error ? "danger" : stale ? "warning" : ready ? "online" : "neutral";
+  const calibrationLabel =
+    calibrationStatus === "calibrating"
+      ? t("imu.calibrating", { count: calibration.sampleCount })
+      : calibrationStatus === "calibrated"
+        ? t("imu.calibrated")
+        : t("imu.uncalibrated");
+  const horizonPitch = attitude ? Math.max(-34, Math.min(34, attitude.pitchDeg * 1.2)) : 0;
+  const horizonRoll = attitude ? attitude.rollDeg : 0;
+  const metrics: ConsolePanelMetric[] = [
+    { id: "roll", node: <Metric label={t("metrics.roll")} value={formatAngle(attitude?.rollDeg)} suffix={attitude ? " deg" : ""} tone={ready ? "online" : statusTone} /> },
+    { id: "pitch", node: <Metric label={t("metrics.pitch")} value={formatAngle(attitude?.pitchDeg)} suffix={attitude ? " deg" : ""} tone={ready ? "online" : statusTone} /> },
+    { id: "yaw", node: <Metric label={t("metrics.yaw")} value={formatAngle(attitude?.yawDeg)} suffix={attitude?.yawDeg !== null && attitude?.yawDeg !== undefined ? " deg" : ""} tone={attitude?.calibrated ? "online" : "warning"} /> },
+    { id: "imuStatus", node: <Metric label={t("metrics.imuStatus")} value={statusLabel} tone={statusTone} /> },
+    { id: "imuCalibration", node: <Metric label={t("metrics.imuCalibration")} value={calibrationLabel} tone={calibrationStatus === "calibrated" ? "online" : calibrationStatus === "calibrating" ? "warning" : "neutral"} /> },
+    { id: "lastFeedback", node: <Metric label={t("metrics.lastFeedback")} value={ageMs === undefined ? "--" : `${Math.max(0, Math.round(ageMs))} ms`} tone={stale ? "warning" : ready ? "online" : "neutral"} /> },
+    { id: "rawMag", node: <Metric className="frame-preview" code label={t("metrics.rawMag")} value={formatRawVector(feedback?.magRaw)} /> },
+    { id: "gyroDps", node: <Metric className="frame-preview" code label={t("metrics.gyroDps")} value={formatVector(attitude?.gyroDps, 1)} /> },
+    { id: "mpuWhoAmI", node: <Metric className="frame-preview" code label={t("metrics.mpuWhoAmI")} value={formatWhoAmI(feedback?.mpuWhoAmI)} /> },
+    { id: "istWhoAmI", node: <Metric className="frame-preview" code label={t("metrics.istWhoAmI")} value={formatWhoAmI(feedback?.istWhoAmI)} /> }
+  ];
+
+  return (
+    <div className="console-attitude-panel">
+      <div className="drive-section-title">
+        <Compass size={17} />
+        <h3>{t("console.attitude")}</h3>
+      </div>
+      <div className="attitude-horizon" aria-hidden="true">
+        <span className="attitude-horizon-plane" style={{ transform: `translateY(${horizonPitch}px) rotate(${horizonRoll}deg)` }} />
+        <span className="attitude-horizon-crosshair" />
+      </div>
+      <div className="console-metric-grid attitude-metric-grid">
+        {visiblePanelMetrics(metrics, visibleItemIds).map((metric) => <Fragment key={metric.id}>{metric.node}</Fragment>)}
+        {hiddenMetricNode(t, hiddenItemCount)}
+      </div>
+      <div className="console-attitude-actions">
+        <button className="icon-button" disabled={aBoardBridgeBusy} onClick={() => void onCheckBridge()} type="button">
+          <RefreshCw size={18} />
+          <span>{t("actions.checkAboardBridge")}</span>
+        </button>
+        <button className="icon-button" disabled={!aBoardBridgeConnected || calibrationStatus === "calibrating"} onClick={onStartCalibration} type="button">
+          <Crosshair size={18} />
+          <span>{t("actions.calibrateImu")}</span>
+        </button>
+      </div>
+      {error && <p className="form-error">{error}</p>}
+    </div>
   );
 }
 
 export function ConsoleCameraFeedPanel({
   cameraConfig,
   cameraStreamReloadToken,
+  hiddenItemCount = 0,
   runtime = defaultCameraSourceRuntimeStatus(),
   setCameraSourceRuntime,
   source,
-  t
+  t,
+  visibleItemIds
 }: ConsoleCameraFeedPanelProps) {
   const sourceMode: CameraStreamMode = source.id === MAIN_CAMERA_SOURCE_ID ? cameraConfig.streamMode : "mjpeg";
   const effectiveMode: CameraEffectiveMode = sourceMode === "webrtc" && runtime.webrtcFallback ? "mjpegFallback" : sourceMode;
@@ -159,8 +303,14 @@ export function ConsoleCameraFeedPanel({
         : runtime.latency.estimateMs > 800
           ? "danger"
           : runtime.latency.estimateMs > 350
-            ? "warning"
-            : "online";
+          ? "warning"
+          : "online";
+  const metrics: ConsolePanelMetric[] = [
+    { id: "videoLatency", node: <Metric label={t("metrics.videoLatency")} value={latencyLabel} tone={tone} /> },
+    { id: "networkRtt", node: <Metric label={t("metrics.networkRtt")} value={rttLabel} tone={tone} /> },
+    { id: "sourceDevicePath", node: <Metric label={t("fields.sourceDevicePath")} value={source.devicePath} /> },
+    { id: "sourcePort", node: <Metric label={t("fields.sourcePort")} value={source.port} /> }
+  ];
 
   return (
     <>
@@ -199,12 +349,10 @@ export function ConsoleCameraFeedPanel({
           </span>
         </div>
         <div className="preview-grid camera-source-metrics">
-          <Metric label={t("metrics.videoLatency")} value={latencyLabel} tone={tone} />
-          <Metric label={t("metrics.networkRtt")} value={rttLabel} tone={tone} />
-          <Metric label={t("fields.sourceDevicePath")} value={source.devicePath} />
-          <Metric label={t("fields.sourcePort")} value={source.port} />
+          {visiblePanelMetrics(metrics, visibleItemIds).map((metric) => <Fragment key={metric.id}>{metric.node}</Fragment>)}
+          {hiddenMetricNode(t, hiddenItemCount)}
         </div>
-        {runtime.webrtcError && runtime.webrtcFallback && source.id === MAIN_CAMERA_SOURCE_ID && <p className="camera-mode-note">{t("camera.webrtcFallback", { error: runtime.webrtcError })}</p>}
+        {hiddenItemCount === 0 && runtime.webrtcError && runtime.webrtcFallback && source.id === MAIN_CAMERA_SOURCE_ID && <p className="camera-mode-note">{t("camera.webrtcFallback", { error: runtime.webrtcError })}</p>}
       </div>
     </>
   );

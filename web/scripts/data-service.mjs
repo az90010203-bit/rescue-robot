@@ -84,6 +84,7 @@ async function route(store, request, response) {
       items: store.listDeviceCatalog({
         type: url.searchParams.get("type") ?? "",
         brand: url.searchParams.get("brand") ?? "",
+        model: url.searchParams.get("model") ?? "",
         query: url.searchParams.get("query") ?? ""
       })
     });

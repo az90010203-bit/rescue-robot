@@ -109,6 +109,13 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   const catalog = store.listDeviceCatalog({ type: "servo", query: "3215" });
   assert.equal(catalog.length, 1);
   assert.equal(catalog[0].brand, "Feetech");
+  const asmeCatalog = store.listDeviceCatalog({ type: "servo", brand: "ASME", model: "ASME-SE" });
+  assert.equal(asmeCatalog.length, 1);
+  assert.equal(asmeCatalog[0].id, "catalog.asme.asme-se-can-servo");
+  assert.equal(asmeCatalog[0].driverId, "driver.asme-can-servo");
+  assert.equal(asmeCatalog[0].transportId, "transport.a-board-can1");
+  const wheeltecCatalog = store.listDeviceCatalog({ type: "motor", brand: "WHEELTEC" });
+  assert.deepEqual(wheeltecCatalog.map((item) => item.model), ["G513XL", "MG540"]);
   const localCameraCatalog = store.listDeviceCatalog({ type: "camera", brand: "Browser", query: "local" });
   assert.equal(localCameraCatalog.length, 1);
   assert.equal(localCameraCatalog[0].id, "catalog.browser.local-camera");
@@ -135,6 +142,13 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
     catalogItemId: catalog[0].id,
     config: { servoId: 7 }
   });
+  const canServo = store.createPluginInstance(project.id, {
+    name: "CAN Servo",
+    catalogItemId: "catalog.asme.asme-se-can-servo",
+    config: { servoId: 7 }
+  });
+  assert.equal(canServo.driverId, "driver.asme-can-servo");
+  assert.equal(canServo.config.servoId, 7);
   const motor = store.createPluginInstance(project.id, {
     name: "Left Track",
     catalogItemId: "catalog.toshiba.tb6618-motor",
@@ -148,18 +162,25 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   const localCamera = store.createPluginInstance(project.id, {
     name: "Desk Camera",
     catalogItemId: localCameraCatalog[0].id,
-    config: { preferredDeviceId: "usb-camera-1" }
+    config: { preferredDeviceId: "usb-camera-1", detectedDeviceId: "camera:usb-camera-1", detectedAt: 1234, detectedSource: "local-camera" }
   });
 
   assert.equal(servo.config.servoId, 7);
   assert.equal(motor.config.channel, "M1");
   assert.equal(localCamera.config.preferredDeviceId, "usb-camera-1");
+  assert.equal(localCamera.config.detectedDeviceId, "camera:usb-camera-1");
+  assert.equal(localCamera.config.detectedAt, 1234);
+  assert.equal(localCamera.config.detectedSource, "local-camera");
   assert.equal(localCamera.config.width, 640);
   assert.equal(localCamera.config.height, 480);
   assert.equal(localCamera.config.fps, 30);
   assert.throws(
     () => store.createPluginInstance(project.id, { name: "Duplicate Base", catalogItemId: catalog[0].id, config: { servoId: 7 } }),
     /duplicate servo ID/
+  );
+  assert.throws(
+    () => store.createPluginInstance(project.id, { name: "Duplicate Camera Device", catalogItemId: localCameraCatalog[0].id, config: { preferredDeviceId: "usb-camera-2", detectedDeviceId: "camera:usb-camera-1" } }),
+    /duplicate detected device: camera:usb-camera-1/
   );
 
   const armComponent = store.createComponent(project.id, {
@@ -172,7 +193,7 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.equal(armComponent.config.armConfig.joints[0].servoId, 8);
   assert.throws(
     () => store.createComponent(project.id, { name: "Bad Arm", kind: "robot-arm", pluginInstanceIds: [motor.id] }),
-    /requires servo plugin instances/
+    /requires Feetech servo plugin instances/
   );
 
   const component = store.createComponent(project.id, { name: "Drive", pluginInstanceIds: [motor.id] });
@@ -180,23 +201,70 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.throws(() => store.deletePluginInstance(project.id, motor.id), /in use/);
 
   assert.deepEqual(store.savePanelLayout(project.id, `component:${component.id}`, [{ id: "panel-1", targetId: "motor:M1", capability: "motor", order: 0 }]).layout[0].scopeId, `component:${component.id}`);
-  assert.equal(
-    store.savePanelLayout(project.id, "console:main", [{ id: "console:telemetry", panelId: "console.telemetry", targetId: "dashboard:telemetry", capability: "dashboard", title: "Telemetry", x: 0, y: 0, w: 4, h: 3, order: 0 }]).layout[0].capability,
-    "dashboard"
-  );
+  const savedConsoleLayout = store.savePanelLayout(project.id, "console:main", [
+    {
+      id: "console:telemetry",
+      panelId: "console.telemetry",
+      targetId: "dashboard:telemetry",
+      capability: "dashboard",
+      title: "Telemetry",
+      visibleItemIds: ["voltage", "", 7, "serial", "voltage"],
+      x: 0,
+      y: 0,
+      w: 4,
+      h: 3,
+      order: 0
+    }
+  ]).layout[0];
+  assert.equal(savedConsoleLayout.capability, "dashboard");
+  assert.deepEqual(savedConsoleLayout.visibleItemIds, ["voltage", "serial"]);
 
   assert.throws(
     () => store.createRobot(project.id, { name: "Robot A", componentIds: [component.id], pluginInstanceIds: [motor.id] }),
     /already assigned/
   );
-  const robot = store.createRobot(project.id, { name: "Robot A", componentIds: [component.id], pluginInstanceIds: [servo.id] });
+  const robot = store.createRobot(project.id, {
+    name: "Robot A",
+    componentIds: [component.id],
+    pluginInstanceIds: [servo.id],
+    config: {
+      assembly: {
+        version: 2,
+        nodes: [{ id: "component:drive", sourceType: "component", sourceId: component.id, x: 40, y: 60, w: 180, h: 120, visualKind: "tracked-base" }],
+        ports: [{ id: "component:drive:port:motor-bus", nodeId: "component:drive", name: "MOTOR_BUS", label: "Motor bus", kind: "pwm", direction: "in", side: "right", x: 180, y: 96 }],
+        edges: [],
+        harnesses: [{ id: "harness:motor", name: "Motor bus", color: "#38bdf8", hidden: false }],
+        controlMappings: []
+      },
+      actionButtons: [{ id: "button:stop", name: "Stop Motors", color: "#ef4444", icon: "stop", confirmRequired: true, timeoutMs: 5000, steps: [{ id: "step:stop", kind: "motor.stop", label: "Stop left", pluginInstanceId: motor.id, stopMode: "brake" }] }]
+    }
+  });
   assert.deepEqual(robot.componentIds, [component.id]);
+  assert.equal(robot.config.assembly.version, 2);
+  assert.equal(robot.config.assembly.nodes[0].visualKind, "tracked-base");
+  assert.equal(robot.config.actionButtons[0].steps[0].kind, "motor.stop");
+  const updatedRobot = store.updateRobot(project.id, robot.id, {
+    config: {
+      assembly: {
+        ...robot.config.assembly,
+        edges: [{ id: "edge-1", fromNodeId: "component:drive", toNodeId: "plugin:base", fromPortId: "component:drive:port:motor-bus", toPortId: "plugin:base:port:pwm", kind: "pwm", label: "PWM", harnessId: "harness:motor", hidden: true }]
+      },
+      actionButtons: robot.config.actionButtons
+    }
+  });
+  assert.deepEqual(updatedRobot.config.assembly.edges, [{ id: "edge-1", fromNodeId: "component:drive", toNodeId: "plugin:base", fromPortId: "component:drive:port:motor-bus", toPortId: "plugin:base:port:pwm", kind: "pwm", label: "PWM", harnessId: "harness:motor", hidden: true }]);
+  assert.equal(updatedRobot.config.actionButtons[0].name, "Stop Motors");
+  const robotConsoleScope = `console:robot:${robot.id}`;
+  assert.equal(store.savePanelLayout(project.id, robotConsoleScope, [{ id: "robot-console:telemetry", targetId: "dashboard:telemetry", capability: "dashboard", order: 0 }]).layout[0].scopeId, robotConsoleScope);
+  assert.equal(store.getPanelLayout(project.id, robotConsoleScope).layout.length, 1);
+  assert.deepEqual(store.createRobot(project.id, { name: "Robot Empty Config", pluginInstanceIds: [canServo.id] }).config, {});
   assert.throws(() => store.deleteComponent(project.id, component.id), /in use/);
 
   const projectB = store.createProject("Other Project");
   assert.deepEqual(store.listPluginInstances(projectB.id), []);
 
   assert.deepEqual(store.deleteRobot(project.id, robot.id), { deleted: true });
+  assert.deepEqual(store.getPanelLayout(project.id, robotConsoleScope).layout, []);
   assert.deepEqual(store.deleteComponent(project.id, armComponent.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, armServo.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, localCamera.id), { deleted: true });

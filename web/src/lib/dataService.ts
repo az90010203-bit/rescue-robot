@@ -86,13 +86,16 @@ export async function createProject(name: string, options: RequestOptions = {}):
   );
 }
 
-export async function listDeviceCatalog(filter: { type?: string; brand?: string; query?: string } = {}, options: RequestOptions = {}): Promise<DeviceCatalogItem[]> {
+export async function listDeviceCatalog(filter: { type?: string; brand?: string; model?: string; query?: string } = {}, options: RequestOptions = {}): Promise<DeviceCatalogItem[]> {
   const params = new URLSearchParams();
   if (filter.type) {
     params.set("type", filter.type);
   }
   if (filter.brand) {
     params.set("brand", filter.brand);
+  }
+  if (filter.model) {
+    params.set("model", filter.model);
   }
   if (filter.query) {
     params.set("query", filter.query);

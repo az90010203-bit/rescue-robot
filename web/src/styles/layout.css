@@ -147,13 +147,35 @@
 .console-dashboard-head {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: space-between;
 }
 
 .console-dashboard-head > span {
+  flex: 1 1 220px;
   display: grid;
   gap: 3px;
+  min-width: 0;
+}
+
+.console-dashboard-robot-picker {
+  align-items: center;
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+}
+
+.console-dashboard-robot-picker > span {
+  align-items: center;
+  color: var(--steel);
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 750;
+  gap: 6px;
+}
+
+.console-dashboard-robot-picker select {
   min-width: 0;
 }
 
@@ -163,6 +185,7 @@
 }
 
 .console-dashboard-head small,
+.console-dashboard-robot-picker small,
 .console-dashboard-card-head small,
 .console-dashboard-empty-targets {
   color: var(--steel);
@@ -205,6 +228,7 @@
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .console-dashboard-card-head {
@@ -215,26 +239,188 @@
   min-height: 28px;
 }
 
-.console-dashboard-card-head span {
+.console-dashboard-card-title {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.console-dashboard-card-head strong,
-.console-dashboard-card-head small {
+.console-dashboard-card-title strong,
+.console-dashboard-card-title small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.console-dashboard-drag-handle {
-  cursor: grab;
+.console-dashboard-card-controls {
+  align-items: center;
+  display: flex;
+  gap: 6px;
 }
 
-.console-dashboard-drag-handle:disabled {
+.console-dashboard-card-controls .icon-only {
+  min-height: 34px;
+  width: 34px;
+}
+
+.console-dashboard-card-controls .icon-only.primary {
+  color: #ffffff;
+  border-color: transparent;
+  background: var(--primary);
+}
+
+.console-dashboard-drag-handle {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  color: var(--ink);
+  cursor: grab;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 40px;
+  touch-action: none;
+  user-select: none;
+  width: 42px;
+}
+
+.console-dashboard-grid:not(.editing) .console-dashboard-drag-handle {
   cursor: default;
   opacity: 0.45;
+}
+
+.console-dashboard-grid.editing .console-dashboard-card-head {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.console-dashboard-grid.editing .console-dashboard-card-head:active,
+.console-dashboard-grid.editing .console-dashboard-drag-handle:active {
+  cursor: grabbing;
+}
+
+.console-dashboard-grid .console-dashboard-resize-handle.react-resizable-handle {
+  align-items: end;
+  background: linear-gradient(135deg, transparent 50%, rgba(20, 86, 240, 0.82) 50%);
+  background-image: none;
+  border-bottom-right-radius: 12px;
+  bottom: 0;
+  box-sizing: border-box;
+  cursor: se-resize;
+  display: grid;
+  height: 26px;
+  justify-items: end;
+  opacity: 0;
+  position: absolute;
+  right: 0;
+  touch-action: none;
+  transition: opacity 120ms ease;
+  user-select: none;
+  width: 26px;
+  z-index: 4;
+}
+
+.console-dashboard-grid .console-dashboard-resize-handle::after {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  box-shadow:
+    -5px -5px 0 rgba(255, 255, 255, 0.95),
+    -10px -10px 0 rgba(255, 255, 255, 0.95);
+  content: "";
+  display: block;
+  height: 3px;
+  margin: 0 6px 6px 0;
+  width: 3px;
+}
+
+.console-dashboard-grid.editing .console-dashboard-resize-handle {
+  opacity: 1;
+}
+
+.console-dashboard-metric-picker {
+  position: absolute;
+  top: 58px;
+  right: 10px;
+  left: 10px;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  max-height: min(310px, calc(100% - 72px));
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 18px 36px rgba(20, 31, 45, 0.16);
+}
+
+.console-dashboard-metric-picker-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.console-dashboard-metric-picker-head strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.console-dashboard-metric-picker-head small {
+  color: var(--steel);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.console-dashboard-metric-picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.console-dashboard-metric-picker-actions .module-tab {
+  min-height: 30px;
+  flex: 1 1 96px;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+}
+
+.console-dashboard-metric-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.console-dashboard-metric-option {
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.console-dashboard-metric-option input {
+  width: 16px;
+  min-height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  box-shadow: none;
+}
+
+.console-dashboard-metric-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .console-dashboard-card-body {
@@ -242,15 +428,190 @@
   display: grid;
   gap: 12px;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+}
+
+.console-dashboard-card-body .preview-grid {
+  margin: 0;
+}
+
+.console-dashboard-card-body .metric {
+  min-height: 64px;
+}
+
+.console-dashboard-card-body .metric strong {
+  font-size: 0.98rem;
+}
+
+.console-dashboard-card-body .console-metric-overflow {
+  border-style: dashed;
+  background: var(--panel-soft);
 }
 
 .console-dashboard-card-body .camera-source-viewer {
   min-height: 220px;
 }
 
+.console-dashboard-camera-source {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.console-pi-camera-controls {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.console-pi-camera-controls[data-status-tone="online"] {
+  border-color: rgba(62, 177, 114, 0.42);
+  background: rgba(235, 255, 241, 0.72);
+}
+
+.console-pi-camera-controls[data-status-tone="danger"] {
+  border-color: rgba(220, 95, 95, 0.42);
+  background: rgba(255, 242, 242, 0.78);
+}
+
+.console-pi-camera-controls[data-status-tone="warning"] {
+  border-color: rgba(213, 153, 58, 0.42);
+  background: rgba(255, 249, 232, 0.78);
+}
+
+.console-pi-camera-summary,
+.console-pi-camera-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-pi-camera-summary {
+  justify-content: space-between;
+}
+
+.console-pi-camera-summary span {
+  display: grid;
+  min-width: 140px;
+  gap: 2px;
+}
+
+.console-pi-camera-summary small {
+  color: var(--muted);
+}
+
+.console-pi-camera-summary code {
+  min-width: 180px;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--slate);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .console-dashboard-card-body .arm-svg-preview .arm-svg {
   min-height: 220px;
+}
+
+.console-dashboard-card[data-card-size="small"] {
+  gap: 8px;
+  padding: 10px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-card-head {
+  gap: 6px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-drag-handle {
+  min-height: 34px;
+  width: 36px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-card-title strong {
+  font-size: 0.88rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-card-title small {
+  font-size: 0.68rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-card-body {
+  gap: 8px;
+}
+
+.console-dashboard-card[data-card-size="small"] .drive-section-title h3 {
+  font-size: 0.84rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-metric-grid,
+.console-dashboard-card[data-card-size="small"] .camera-source-metrics {
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.console-dashboard-card[data-card-size="small"] .metric {
+  min-height: 46px;
+  gap: 3px;
+  padding: 7px 8px;
+}
+
+.console-dashboard-card[data-card-size="small"] .metric span {
+  font-size: 0.66rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .metric strong,
+.console-dashboard-card[data-card-size="small"] .metric code {
+  font-size: 0.78rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .attitude-horizon {
+  min-height: 42px;
+}
+
+.console-dashboard-card[data-card-size="small"] .attitude-horizon-plane {
+  inset: -62px -30px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-attitude-panel {
+  gap: 7px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-attitude-actions {
+  gap: 6px;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-attitude-actions .icon-button {
+  min-height: 34px;
+  flex-basis: 120px;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .console-dashboard-card-body .camera-source-viewer {
+  min-height: 104px;
+}
+
+.console-dashboard-card[data-card-size="medium"] .console-dashboard-card-body .camera-source-viewer {
+  min-height: 160px;
+}
+
+.console-dashboard-card[data-card-size="small"] .camera-source-name,
+.console-dashboard-card[data-card-size="small"] .camera-stream-badge {
+  max-width: calc(100% - 20px);
+  font-size: 0.64rem;
+}
+
+.console-dashboard-card[data-card-size="small"] .camera-stream-badge {
+  top: auto;
+  bottom: 8px;
 }
 
 .console-grid {
@@ -320,6 +681,68 @@
 
 .console-vector-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.console-attitude-panel {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.console-attitude-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-attitude-actions .icon-button {
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
+.attitude-horizon {
+  position: relative;
+  min-height: 86px;
+  overflow: hidden;
+  border: 1px solid rgba(69, 81, 94, 0.18);
+  border-radius: 8px;
+  background: #eef3f6;
+}
+
+.attitude-horizon-plane {
+  position: absolute;
+  inset: -52px -24px;
+  background:
+    linear-gradient(180deg, rgba(91, 150, 188, 0.86) 0 49%, rgba(255, 255, 255, 0.86) 49% 51%, rgba(188, 156, 91, 0.82) 51% 100%);
+  transform-origin: center;
+  transition: transform 120ms ease;
+}
+
+.attitude-horizon-crosshair {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 54px;
+  height: 1px;
+  background: rgba(20, 31, 45, 0.72);
+  transform: translate(-50%, -50%);
+}
+
+.attitude-horizon-crosshair::after {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 1px;
+  height: 17px;
+  background: rgba(20, 31, 45, 0.54);
+  content: "";
+}
+
+.attitude-metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.attitude-raw-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .console-base-switch {

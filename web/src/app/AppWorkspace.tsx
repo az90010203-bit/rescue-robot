@@ -1,6 +1,7 @@
-import { ConsolePage } from "../features/console/ConsolePage";
+import { CanServoTestPage } from "../features/canServo/CanServoTestPage";
 import { DrivePage } from "../features/drive/DrivePage";
 import { SimplePiRemotePage } from "../features/pi/PiRemotePanels";
+import { lazy, Suspense } from "react";
 import { AppCommandPanel } from "./AppCommandPanel";
 import { AppHeaderBar } from "./AppHeaderBar";
 import { AppLibraryPanel } from "./AppLibraryPanel";
@@ -8,6 +9,16 @@ import { AppSideStack } from "./AppSideStack";
 import { ArchitectureWorkspacePage } from "./ArchitectureWorkspacePage";
 import { ContextTabs } from "./ContextTabs";
 import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+
+const ConsolePage = lazy(async () => {
+  const module = await import("../features/console/ConsolePage");
+  return { default: module.ConsolePage };
+});
+
+const ArmThreeSimulationPage = lazy(async () => {
+  const module = await import("../features/arm/ArmThreeSimulationPage");
+  return { default: module.ArmThreeSimulationPage };
+});
 
 interface AppWorkspaceProps {
   ctx: AppWorkspaceContext;
@@ -59,6 +70,15 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
     selectDriveBase,
     servos,
     servoFeedback,
+    aBoardBridgeBusy,
+    aBoardBridgeConnected,
+    aBoardImuAttitude,
+    aBoardImuCalibration,
+    aBoardImuCalibrationStatus,
+    aBoardImuError,
+    aBoardImuFeedback,
+    checkAboardSerialBridge,
+    startAboardImuCalibration,
     stopAllMotors,
     activeTest,
     selectModule,
@@ -286,6 +306,11 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
   return (
     <main className="app-shell">
       <AppHeaderBar
+        aBoardBridgeBusy={ctx.aBoardBridgeBusy}
+        aBoardBridgeConnected={ctx.aBoardBridgeConnected}
+        aBoardBridgeDetail={ctx.aBoardBridgeDetail}
+        aBoardBridgeLabel={ctx.aBoardBridgeLabel}
+        aBoardBridgeTone={ctx.aBoardBridgeTone}
         activeModule={activeModule}
         activeModuleLabel={activeModuleLabel}
         activeSection={activeSection}
@@ -301,58 +326,105 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         databaseStatusValue={databaseStatusValue}
         debugEnabled={debugEnabled}
         debugLabel={debugLabel}
+        disconnectAboardSerialBridge={ctx.disconnectAboardSerialBridge}
+        disconnectPiServoSerialBridge={ctx.disconnectPiServoSerialBridge}
         disconnectSerial={disconnectSerial}
         newProjectName={newProjectName}
+        piRemoteBusy={piRemote.piRemoteBusy}
+        piRemoteCanConnect={piRemote.canTestPiConnection}
+        piRemoteStatus={piRemote.piRemoteStatus}
+        piRemoteStatusTone={piRemote.piRemoteStatusTone}
+        piRemoteTarget={`${piRemote.piRemoteForm.username || "robot1"}@${piRemote.piRemoteForm.host || "raspberrypi.local"}`}
+        piServoBridgeBusy={ctx.piServoBridgeBusy}
+        piServoBridgeConnected={ctx.piServoBridgeConnected}
+        piServoBridgeDetail={ctx.piServoBridgeDetail}
+        piServoBridgeLabel={ctx.piServoBridgeLabel}
+        piServoBridgeTone={ctx.piServoBridgeTone}
         projectStatusValue={projectStatusValue}
         projects={projects}
         selectSection={selectSection}
         setNewProjectName={setNewProjectName}
+        startAboardSerialBridge={ctx.startAboardSerialBridge}
+        startPiServoSerialBridge={ctx.startPiServoSerialBridge}
         t={t}
+        testRaspberryPiConnection={piRemote.testRaspberryPiConnection}
         toggleDebugMode={toggleDebugMode}
         webSerialAvailable={webSerialAvailable}
       />
 
       <div className={activeSection === "console" ? "workspace console-workspace" : "workspace"}>
         {activeSection === "console" ? (
-          <ConsolePage
-          activeDriveBase={activeDriveBase}
-          activeGamepad={activeGamepad}
-          activeSectionLabel={activeSectionLabel}
-          architecturePluginInstances={architecturePluginInstances}
-          armConfig={armConfig}
-          armSegmentPoses={armSegmentPoses}
-          cameraConfig={cameraConfig}
-          cameraPreviewCommand={cameraPreviewCommand}
-          cameraSourceRuntimeById={cameraSourceRuntimeById}
-          cameraStreamReloadToken={cameraStreamReloadToken}
-          cameraVideoSources={cameraConfig.videoSources}
-          completeMotorMappingCount={completeMotorMappingCount}
-          connected={connected}
-          currentProject={currentProject}
-          dataServiceOnline={databaseStatus !== "offline"}
-          driveCanCommand={driveCanCommand}
-          driveInput={driveInput}
-          drivePreviewCommand={drivePreviewCommand}
-          handleVirtualStickDown={handleVirtualStickDown}
-          handleVirtualStickMove={handleVirtualStickMove}
-          logs={logs}
-          motorCount={motors.length}
-          resetVirtualStick={resetVirtualStick}
-          selectDriveBase={selectDriveBase}
-          servoCount={servos.length}
-          servoFeedback={servoFeedback}
-          setCameraSourceRuntime={setCameraSourceRuntime}
-          stopAllMotors={stopAllMotors}
-          t={t}
-        />
+          <Suspense fallback={<div className="empty-state">Loading console...</div>}>
+            <ConsolePage
+              aBoardBridgeBusy={aBoardBridgeBusy}
+              aBoardBridgeConnected={aBoardBridgeConnected}
+              aBoardImuAttitude={aBoardImuAttitude}
+              aBoardImuCalibration={aBoardImuCalibration}
+              aBoardImuCalibrationStatus={aBoardImuCalibrationStatus}
+              aBoardImuError={aBoardImuError}
+              aBoardImuFeedback={aBoardImuFeedback}
+              checkAboardSerialBridge={checkAboardSerialBridge}
+              activeDriveBase={activeDriveBase}
+              activeGamepad={activeGamepad}
+              activeSectionLabel={activeSectionLabel}
+              architecturePluginInstances={architecturePluginInstances}
+              armConfig={armConfig}
+              armSegmentPoses={armSegmentPoses}
+              cameraConfig={cameraConfig}
+              cameraPreviewCommand={cameraPreviewCommand}
+              cameraSourceRuntimeById={cameraSourceRuntimeById}
+              cameraStreamReloadToken={cameraStreamReloadToken}
+              cameraVideoSources={cameraConfig.videoSources}
+              completeMotorMappingCount={completeMotorMappingCount}
+              connected={connected}
+              currentProject={currentProject}
+              dataServiceOnline={databaseStatus !== "offline"}
+              driveCanCommand={driveCanCommand}
+              driveInput={driveInput}
+              drivePreviewCommand={drivePreviewCommand}
+              handleVirtualStickDown={handleVirtualStickDown}
+              handleVirtualStickMove={handleVirtualStickMove}
+              logs={logs}
+              motorCount={motors.length}
+              piRemote={piRemote}
+              resetVirtualStick={resetVirtualStick}
+              selectDriveBase={selectDriveBase}
+              servoCount={servos.length}
+              servoFeedback={servoFeedback}
+              setCameraSourceRuntime={setCameraSourceRuntime}
+              startAboardImuCalibration={startAboardImuCalibration}
+              stopAllMotors={stopAllMotors}
+              t={t}
+            />
+          </Suspense>
         ) : activeSection === "plugins" || activeSection === "components" || activeSection === "robots" ? (
           <ArchitectureWorkspacePage
+            aBoardBridge={{
+              busy: ctx.aBoardBridgeBusy,
+              connected: ctx.aBoardBridgeConnected,
+              detail: ctx.aBoardBridgeDetail,
+              error: ctx.aBoardBridgeError,
+              label: ctx.aBoardBridgeLabel,
+              tone: ctx.aBoardBridgeTone,
+              check: ctx.checkAboardSerialBridge,
+              disconnect: ctx.disconnectAboardSerialBridge,
+              start: ctx.startAboardSerialBridge
+            }}
             activeSection={activeSection}
+            canServoHost={piRemote.piRemoteForm.host}
             currentProject={currentProject}
             databaseStatus={databaseStatus}
             dispatchPlatformCommand={dispatchPlatformCommand}
+            driveTargets={driveTargets}
+            gamepads={gamepads}
+            motorFeedback={motorFeedback}
+            nextCommandSeq={ctx.nextCommandSeq}
             onPluginInstancesChange={syncArchitecturePluginInstances}
             onPrepareCommand={prepareArchitectureCommand}
+            piRemoteProfile={piRemote.piRemoteForm}
+            sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
+            servoFeedback={servoFeedback}
+            t={t}
           />
         ) : (
           <>
@@ -366,7 +438,65 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
               t={t}
             />
             {activeSection === "tests" && activeTest === "pi" ? (
-              <SimplePiRemotePage runtime={piRemote} t={t} />
+              <SimplePiRemotePage
+                aBoardBridge={{
+                  busy: ctx.aBoardBridgeBusy,
+                  connected: ctx.aBoardBridgeConnected,
+                  detail: ctx.aBoardBridgeDetail,
+                  error: ctx.aBoardBridgeError,
+                  label: ctx.aBoardBridgeLabel,
+                  tone: ctx.aBoardBridgeTone,
+                  check: ctx.checkAboardSerialBridge,
+                  disconnect: ctx.disconnectAboardSerialBridge,
+                  start: ctx.startAboardSerialBridge
+                }}
+                piServoBridge={{
+                  busy: ctx.piServoBridgeBusy,
+                  connected: ctx.piServoBridgeConnected,
+                  detail: ctx.piServoBridgeDetail,
+                  error: ctx.piServoBridgeError,
+                  label: ctx.piServoBridgeLabel,
+                  tone: ctx.piServoBridgeTone,
+                  check: ctx.checkPiServoSerialBridge,
+                  disconnect: ctx.disconnectPiServoSerialBridge,
+                  start: ctx.startPiServoSerialBridge
+                }}
+                runtime={piRemote}
+                t={t}
+              />
+            ) : activeSection === "tests" && activeTest === "canServo" ? (
+              <CanServoTestPage
+                aBoardBridge={{
+                  busy: ctx.aBoardBridgeBusy,
+                  connected: ctx.aBoardBridgeConnected,
+                  detail: ctx.aBoardBridgeDetail,
+                  error: ctx.aBoardBridgeError,
+                  label: ctx.aBoardBridgeLabel,
+                  tone: ctx.aBoardBridgeTone,
+                  check: ctx.checkAboardSerialBridge,
+                  disconnect: ctx.disconnectAboardSerialBridge,
+                  start: ctx.startAboardSerialBridge
+                }}
+                host={piRemote.piRemoteForm.host}
+                nextCommandSeq={ctx.nextCommandSeq}
+                sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
+                t={t}
+              />
+            ) : activeSection === "tests" && activeTest === "arm3d" ? (
+              <Suspense fallback={<div className="empty-state">Loading 3D arm...</div>}>
+                <ArmThreeSimulationPage
+                  armConfig={armConfig}
+                  armSegmentPoses={armSegmentPoses}
+                  armServoForJoint={armServoForJoint}
+                  pauseArm={pauseArm}
+                  sendArmPose={sendArmPose}
+                  servoBusConnected={servoBusConnected}
+                  setArmLiveDragEnabled={setArmLiveDragEnabled}
+                  t={t}
+                  updateArmJoint={updateArmJoint}
+                  updateArmJointNumber={updateArmJointNumber}
+                />
+              </Suspense>
             ) : activeSection === "tests" && activeTest === "driveCamera" ? (
               <DrivePage
                 activeDriveBase={activeDriveBase}

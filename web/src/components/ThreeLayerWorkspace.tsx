@@ -15,7 +15,8 @@ import {
   loadPanelLayout,
   savePanelLayout,
   updateComponent,
-  updatePluginInstance
+  updatePluginInstance,
+  updateRobot
 } from "../lib/dataService";
 import { createPlatformCommand, PlatformCommand, PlatformCommandResult, PlatformCommandType } from "../platform/commands";
 import {
@@ -35,10 +36,10 @@ import {
   createDeviceDescriptorFromPluginInstance,
   defaultPanelLayoutItems,
   deviceCatalogBrands,
+  deviceCatalogModels,
   deviceCodeLibraryItemsFromCatalog,
   driverLibraryItemsFromPackages,
   effectivePluginInstancesForComponent,
-  effectivePluginInstancesForRobot,
   filterDeviceCodeLibraryItems,
   mergePanelLayoutItems,
   panelTargetsForPluginInstances,
@@ -53,7 +54,11 @@ import { BUILTIN_PLUGIN_PACKAGES } from "../platform/builtinPlugins";
 import { CapabilityId, DeviceDescriptor, UiControlSchema, UiPanelSchema } from "../platform/types";
 import { findPlatformUiPanelForDevice, platformCommandForControl, platformControlDefaultsForDevice } from "../platform/ui";
 import { LocalCameraView } from "../features/platform/LocalCameraView";
+import { RobotAssemblyWorkspace } from "../features/robotAssembly/RobotAssemblyWorkspace";
+import { PluginAutoDetectPanel } from "../features/pluginAutoDetect/PluginAutoDetectPanel";
+import type { GamepadDetectionSummary, PiDetectionProfile } from "../features/pluginAutoDetect/pluginAutoDetect";
 import { DataProject } from "../lib/dataService";
+import type { AboardBridgeCommandResult } from "../lib/piAboardBridge";
 import {
   ARM_MAX_JOINT_LENGTH_PX,
   ARM_MIN_JOINT_LENGTH_PX,
@@ -74,10 +79,12 @@ import {
   clamp,
   FeetechStatusPacket,
   MotorProfile,
+  MotorTarget,
   MotorStopMode,
   normalizeMotorChannel,
   normalizeServoProfile,
   parseServoFeedback,
+  PcCommand,
   rawToAngleDeg,
   ServoProfile,
   servoLogicalSpan,
@@ -98,6 +105,7 @@ import {
   type ComponentArmTrajectorySample
 } from "../features/arm/componentArmAuto";
 import { solvePlanarIk, type ArmIkSolution } from "../lib/armKinematics";
+import type { MotorFeedbackMap, ServoFeedbackMap } from "../platform/stateStore";
 
 export type ArchitectureLayer = "plugins" | "components" | "robots";
 type SaveState = "idle" | "loading" | "saving" | "error";
@@ -129,11 +137,18 @@ interface ThreeLayerWorkspaceProps {
   layer: ArchitectureLayer;
   project: DataProject | null;
   dataServiceOnline: boolean;
+  driveTargets?: MotorTarget[];
+  gamepads?: GamepadDetectionSummary[];
   uiPanels: UiPanelSchema[];
+  motorFeedback?: MotorFeedbackMap;
   dispatchPlatformCommand: (command: PlatformCommand) => Promise<PlatformCommandResult>;
+  nextCommandSeq?: () => number;
   onPluginInstancesChange?: (instances: PluginInstance[]) => void;
   onPrepareCommand?: (capability: CapabilityId) => Promise<void> | void;
+  piRemoteProfile?: PiDetectionProfile | null;
   renderPluginDebugPanel?: (instance: PluginInstance, context: { refreshArchitecture: () => Promise<void>; replacePluginInstance: (instance: PluginInstance) => void }) => ReactNode;
+  sendAboardBridgeCanServoCommand?: (command: PcCommand, options?: { log?: boolean }) => Promise<AboardBridgeCommandResult | null>;
+  servoFeedback?: ServoFeedbackMap;
 }
 
 const deviceTypes: CapabilityId[] = ["servo", "motor", "camera", "gamepad", "sensor"];
@@ -188,11 +203,18 @@ export function ThreeLayerWorkspace({
   layer,
   project,
   dataServiceOnline,
+  driveTargets = [],
+  gamepads = [],
   uiPanels,
+  motorFeedback = {},
   dispatchPlatformCommand,
+  nextCommandSeq,
   onPluginInstancesChange,
   onPrepareCommand,
-  renderPluginDebugPanel
+  piRemoteProfile,
+  renderPluginDebugPanel,
+  sendAboardBridgeCanServoCommand,
+  servoFeedback = {}
 }: ThreeLayerWorkspaceProps) {
   const [catalog, setCatalog] = useState<DeviceCatalogItem[]>([]);
   const [pluginInstances, setPluginInstances] = useState<PluginInstance[]>([]);
@@ -203,6 +225,7 @@ export function ThreeLayerWorkspace({
   const [error, setError] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState<CapabilityId | "">("servo");
   const [brandFilter, setBrandFilter] = useState("");
+  const [modelFilter, setModelFilter] = useState("");
   const [queryFilter, setQueryFilter] = useState("");
   const [selectedCatalogId, setSelectedCatalogId] = useState("");
   const [customCatalogEnabled, setCustomCatalogEnabled] = useState(false);
@@ -248,9 +271,10 @@ export function ThreeLayerWorkspace({
   const driverLibrary = useMemo(() => driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES), []);
   const codeLibraries = useMemo(() => deviceCodeLibraryItemsFromCatalog(catalog, driverLibrary), [catalog, driverLibrary]);
   const catalogBrands = useMemo(() => deviceCatalogBrands(catalog, deviceTypeFilter), [catalog, deviceTypeFilter]);
+  const catalogModels = useMemo(() => deviceCatalogModels(catalog, deviceTypeFilter, brandFilter), [brandFilter, catalog, deviceTypeFilter]);
   const shownCodeLibraries = useMemo(
-    () => filterDeviceCodeLibraryItems(codeLibraries, { type: deviceTypeFilter, brand: brandFilter, query: queryFilter }),
-    [brandFilter, codeLibraries, deviceTypeFilter, queryFilter]
+    () => filterDeviceCodeLibraryItems(codeLibraries, { type: deviceTypeFilter, brand: brandFilter, model: modelFilter, query: queryFilter }),
+    [brandFilter, codeLibraries, deviceTypeFilter, modelFilter, queryFilter]
   );
   const selectedCodeLibrary = shownCodeLibraries.find((item) => item.catalogItemId === selectedCatalogId) ?? shownCodeLibraries[0] ?? null;
   const selectedCatalog = useMemo(
@@ -264,7 +288,7 @@ export function ThreeLayerWorkspace({
     [components, pluginInstances, robots, selectedComponentId]
   );
   const availableServoPluginsForComponents = useMemo(
-    () => availableForComponents.filter((instance) => instance.type === "servo"),
+    () => availableForComponents.filter((instance) => instance.type === "servo" && instance.driverId === "driver.feetech-servo"),
     [availableForComponents]
   );
   const componentSelectableInstances = componentKind === "robot-arm" ? availableServoPluginsForComponents : availableForComponents;
@@ -312,6 +336,7 @@ export function ThreeLayerWorkspace({
 
   useEffect(() => {
     setBrandFilter("");
+    setModelFilter("");
     setQueryFilter("");
     setSelectedCatalogId("");
     setCustomCatalogEnabled(false);
@@ -326,6 +351,19 @@ export function ThreeLayerWorkspace({
       setBrandFilter(catalogBrands[0]);
     }
   }, [brandFilter, catalogBrands]);
+
+  useEffect(() => {
+    if (!modelFilter && catalogModels[0]) {
+      setModelFilter(catalogModels[0]);
+      return;
+    }
+    if (modelFilter && catalogModels.length > 0 && !catalogModels.includes(modelFilter)) {
+      setModelFilter(catalogModels[0]);
+    }
+    if (modelFilter && catalogModels.length === 0) {
+      setModelFilter("");
+    }
+  }, [catalogModels, modelFilter]);
 
   useEffect(() => {
     if (selectedCodeLibrary && selectedCodeLibrary.catalogItemId !== selectedCatalogId) {
@@ -344,8 +382,9 @@ export function ThreeLayerWorkspace({
   useEffect(() => {
     if (selectedCodeLibrary && !customCatalogEnabled) {
       setCustomBrand(selectedCodeLibrary.brand);
+      setCustomModel(selectedCodeLibrary.model);
     }
-  }, [customCatalogEnabled, selectedCodeLibrary?.brand]);
+  }, [customCatalogEnabled, selectedCodeLibrary?.brand, selectedCodeLibrary?.model]);
 
   useEffect(() => {
     if (!activeCatalog) {
@@ -418,6 +457,15 @@ export function ThreeLayerWorkspace({
         ? current.map((component) => (component.id === updated.id ? updated : component))
         : [updated, ...current]
     ));
+  }
+
+  function replaceRobot(updated: RobotDefinition) {
+    setRobots((current) => (
+      current.some((robot) => robot.id === updated.id)
+        ? current.map((robot) => (robot.id === updated.id ? updated : robot))
+        : [updated, ...current]
+    ));
+    setSelectedRobotId(updated.id);
   }
 
   function componentServoProfiles(component: ComponentDefinition): ServoProfile[] {
@@ -1435,6 +1483,24 @@ export function ThreeLayerWorkspace({
     }
   }
 
+  async function saveRobotPatch(robotId: string, patch: Partial<RobotDefinition>) {
+    if (!project) {
+      throw new Error("project is required");
+    }
+    setStatus("saving");
+    try {
+      const updated = await updateRobot(project.id, robotId, patch);
+      replaceRobot(updated);
+      setError("");
+      setStatus("idle");
+      return updated;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "机器人保存失败");
+      setStatus("error");
+      throw nextError;
+    }
+  }
+
   async function persistPanelLayout(scopeId: string, layout: PanelLayoutItem[]) {
     if (!project) {
       setPanelLayouts((current) => ({ ...current, [scopeId]: layout }));
@@ -1706,7 +1772,10 @@ export function ThreeLayerWorkspace({
 
   function renderPluginDebug(instance: PluginInstance) {
     if (renderPluginDebugPanel) {
-      return renderPluginDebugPanel(instance, { refreshArchitecture, replacePluginInstance });
+      const customDebugPanel = renderPluginDebugPanel(instance, { refreshArchitecture, replacePluginInstance });
+      if (customDebugPanel !== null && customDebugPanel !== undefined) {
+        return customDebugPanel;
+      }
     }
     if (instance.type === "servo") {
       return renderServoPluginDebug(instance);
@@ -2648,6 +2717,17 @@ export function ThreeLayerWorkspace({
         <div className="architecture-grid architecture-plugin-grid">
           <section className="panel architecture-builder-panel architecture-plugin-create-panel">
             <PanelHeading icon={<Code2 size={18} />} meta={`${shownCodeLibraries.length} 个代码库`} title="创建插件实例" />
+            <PluginAutoDetectPanel
+              gamepads={gamepads}
+              motorFeedback={motorFeedback}
+              nextCommandSeq={nextCommandSeq}
+              onFinished={() => refreshArchitecture(project.id)}
+              piProfile={piRemoteProfile}
+              pluginInstances={pluginInstances}
+              projectId={project.id}
+              sendAboardBridgeCanServoCommand={sendAboardBridgeCanServoCommand}
+              servoFeedback={servoFeedback}
+            />
             <div className="architecture-library-filter architecture-driver-filter">
               <label>
                 <span>设备</span>
@@ -2658,8 +2738,14 @@ export function ThreeLayerWorkspace({
               </label>
               <label>
                 <span>品牌</span>
-                <select value={brandFilter} onChange={(event) => { setBrandFilter(event.target.value); setSelectedCatalogId(""); setCustomCatalogEnabled(false); }}>
+                <select value={brandFilter} onChange={(event) => { setBrandFilter(event.target.value); setModelFilter(""); setSelectedCatalogId(""); setCustomCatalogEnabled(false); }}>
                   {catalogBrands.length === 0 ? <option value="">没有品牌</option> : catalogBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>型号</span>
+                <select value={modelFilter} onChange={(event) => { setModelFilter(event.target.value); setSelectedCatalogId(""); setCustomCatalogEnabled(false); }}>
+                  {catalogModels.length === 0 ? <option value="">没有型号</option> : catalogModels.map((model) => <option key={model} value={model}>{model}</option>)}
                 </select>
               </label>
               <label className="architecture-wide-field">
@@ -2780,6 +2866,7 @@ export function ThreeLayerWorkspace({
                         </button>
                         <span className="architecture-plugin-card-footer">
                           <span className="platform-status-pill standby">{ownerName ?? "可用"}</span>
+                          {String(instance.config.detectedDeviceId ?? "").trim() && <span className="platform-status-pill online">Auto detected</span>}
                           <button
                             aria-label={`删除 ${instance.name}`}
                             className="icon-only architecture-plugin-delete"
@@ -2889,7 +2976,21 @@ export function ThreeLayerWorkspace({
               onSelect={setSelectedRobotId}
               renderMeta={(robot) => `${robot.componentIds.length} 个组件 / ${robot.pluginInstanceIds.length} 个直属插件`}
             />
-            {selectedRobot ? renderPanelGrid(`robot:${selectedRobot.id}`, effectivePluginInstancesForRobot(selectedRobot, components, pluginInstances)) : <div className="empty-state">请选择机器人</div>}
+            {selectedRobot ? (
+              <RobotAssemblyWorkspace
+                components={components}
+                driveTargets={driveTargets}
+                motorFeedback={motorFeedback}
+                onSaveRobot={saveRobotPatch}
+                onRunPluginCommand={runPluginCommand}
+                pluginInstances={pluginInstances}
+                renderPluginDebug={renderPluginDebug}
+                robot={selectedRobot}
+                robots={robots}
+                servoFeedback={servoFeedback}
+                usage={usage}
+              />
+            ) : <div className="empty-state">请选择机器人</div>}
           </section>
         </div>
       )}

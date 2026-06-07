@@ -28,7 +28,16 @@ export function CameraViewer({
 }: CameraViewerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const onErrorRef = useRef(onError);
+  const onLoadRef = useRef(onLoad);
+  const onWebrtcFallbackRef = useRef(onWebrtcFallback);
   const effectiveMode: CameraEffectiveMode = mode === "webrtc" && !forceMjpeg ? "webrtc" : mode === "webrtc" ? "mjpegFallback" : "mjpeg";
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onLoadRef.current = onLoad;
+    onWebrtcFallbackRef.current = onWebrtcFallback;
+  }, [onError, onLoad, onWebrtcFallback]);
 
   useEffect(() => {
     if (!streamUrl || effectiveMode !== "webrtc") {
@@ -50,7 +59,7 @@ export function CameraViewer({
         peerConnection.addTransceiver("video", { direction: "recvonly" });
         peerConnection.addEventListener("connectionstatechange", () => {
           if (!cancelled && peerConnection && ["failed", "closed", "disconnected"].includes(peerConnection.connectionState)) {
-            onWebrtcFallback(`WebRTC ${peerConnection.connectionState}`);
+            onWebrtcFallbackRef.current(`WebRTC ${peerConnection.connectionState}`);
           }
         });
         peerConnection.addEventListener("track", (event) => {
@@ -88,7 +97,7 @@ export function CameraViewer({
         await peerConnection.setRemoteDescription({ sdp: answer.sdp, type: answer.type as RTCSdpType });
       } catch (error) {
         if (!cancelled) {
-          onWebrtcFallback(error instanceof Error && error.message ? error.message : "WebRTC failed");
+          onWebrtcFallbackRef.current(error instanceof Error && error.message ? error.message : "WebRTC failed");
         }
       } finally {
         window.clearTimeout(timeout);
@@ -106,7 +115,7 @@ export function CameraViewer({
       }
       peerConnection?.close();
     };
-  }, [effectiveMode, offerUrl, onWebrtcFallback, streamUrl]);
+  }, [effectiveMode, offerUrl, streamUrl]);
 
   useEffect(() => {
     if (!streamUrl || effectiveMode === "webrtc") {
@@ -115,7 +124,7 @@ export function CameraViewer({
 
     const markLoadedIfReady = () => {
       if (imageRef.current?.complete && imageRef.current.naturalWidth > 0) {
-        onLoad();
+        onLoadRef.current();
         return true;
       }
       return false;
@@ -132,17 +141,17 @@ export function CameraViewer({
     }, 250);
 
     return () => window.clearInterval(timer);
-  }, [effectiveMode, onLoad, streamUrl]);
+  }, [effectiveMode, streamUrl]);
 
   if (!streamUrl) {
     return <>{placeholder}</>;
   }
 
   if (effectiveMode === "webrtc") {
-    return <video ref={videoRef} autoPlay muted playsInline aria-label={alt} onCanPlay={onLoad} onError={onError} />;
+    return <video ref={videoRef} autoPlay muted playsInline aria-label={alt} onCanPlay={() => onLoadRef.current()} onError={() => onErrorRef.current()} />;
   }
 
-  return <img ref={imageRef} alt={alt} src={streamUrl} onError={onError} onLoad={onLoad} />;
+  return <img ref={imageRef} alt={alt} src={streamUrl} onError={() => onErrorRef.current()} onLoad={() => onLoadRef.current()} />;
 }
 
 function waitForIceGatheringComplete(peerConnection: RTCPeerConnection, timeoutMs = 1200): Promise<void> {

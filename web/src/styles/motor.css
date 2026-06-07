@@ -81,6 +81,175 @@
   background: rgba(255, 255, 255, 0.62);
 }
 
+.can-servo-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.can-servo-grid {
+  display: grid;
+  grid-template-columns: minmax(380px, 1.15fr) minmax(320px, 0.85fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.can-servo-stack,
+.can-servo-output,
+.can-servo-section {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.can-servo-section,
+.can-servo-output {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.can-servo-danger {
+  border-color: rgba(212, 86, 86, 0.24);
+  background:
+    linear-gradient(135deg, rgba(255, 232, 232, 0.52), transparent 46%),
+    rgba(255, 255, 255, 0.68);
+}
+
+.can-servo-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.can-servo-form-grid label {
+  min-width: 0;
+}
+
+.can-servo-checkbox {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.can-servo-checkbox input {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.can-servo-slider-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.can-servo-slider-head,
+.can-servo-slider-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.can-servo-slider-head span {
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.can-servo-slider-head code,
+.can-servo-slider-scale {
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.can-servo-live-status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--steel);
+  background: rgba(255, 255, 255, 0.74);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.can-servo-live-status.ready,
+.can-servo-live-status.sending {
+  border-color: rgba(27, 166, 115, 0.22);
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.can-servo-live-status.configuring {
+  border-color: rgba(201, 119, 0, 0.22);
+  color: var(--orange);
+  background: var(--orange-soft);
+}
+
+.can-servo-live-status.error {
+  border-color: rgba(212, 86, 86, 0.24);
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.can-servo-slider-card input[type="range"] {
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--primary);
+}
+
+.can-servo-status-grid {
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  margin: 0;
+}
+
+.can-servo-output .can-servo-status-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.can-servo-danger-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--red);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.can-servo-output .pi-output-block {
+  max-height: 320px;
+}
+
+@media (max-width: 980px) {
+  .can-servo-grid,
+  .pi-remote-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .can-servo-form-grid,
+  .can-servo-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pi-remote-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -267,6 +436,49 @@
 
 .motor-debug-status-grid {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.encoder-diagnostic-panel {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.encoder-diagnostic-grid {
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  margin: 0;
+}
+
+.encoder-diagnostic-wide {
+  grid-column: 1 / -1;
+}
+
+.encoder-diagnostic-actions {
+  align-items: center;
+}
+
+.encoder-auto-refresh {
+  width: auto;
+}
+
+.encoder-diagnostic-note {
+  margin: 0;
+  color: var(--slate);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.encoder-diagnostic-note.online {
+  color: var(--green);
+}
+
+.encoder-diagnostic-note.warning {
+  color: var(--orange);
+}
+
+.encoder-diagnostic-note.danger {
+  color: var(--red);
 }
 
 .metric {

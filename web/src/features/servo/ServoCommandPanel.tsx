@@ -17,6 +17,7 @@ import {
 } from "../../app/appModel";
 import { ServoCommandCard } from "./ServoCommandCard";
 import { ServoLinkageRunCard } from "./ServoLinkageCards";
+import { Metric } from "../../shared/ui/AppChrome";
 
 interface ServoCommandPanelProps {
   cancelServoMotion: () => void;
@@ -41,6 +42,10 @@ interface ServoCommandPanelProps {
   linkageWheelDirectionByGroup: Record<string, ServoLinkageWheelDirection | "paused">;
   pauseServo: (servo: ServoProfile, state: ServoCommandState) => void;
   pauseServoLinkageGroup: (group: ServoLinkageGroup) => void;
+  piServoBridgeDetail: string;
+  piServoBridgeError: string | null;
+  piServoBridgeLabel: string;
+  piServoBridgeTone: "neutral" | "online" | "warning" | "danger";
   pingServo: (servo: ServoProfile) => void;
   readServo: (servo: ServoProfile) => void;
   selectedId: number | "";
@@ -87,6 +92,10 @@ export function ServoCommandPanel({
   linkageWheelDirectionByGroup,
   pauseServo,
   pauseServoLinkageGroup,
+  piServoBridgeDetail,
+  piServoBridgeError,
+  piServoBridgeLabel,
+  piServoBridgeTone,
   pingServo,
   readServo,
   selectedId,
@@ -120,6 +129,12 @@ export function ServoCommandPanel({
 }: ServoCommandPanelProps) {
   return (
     <>
+      <div className="preview-grid motor-debug-status-grid">
+        <Metric label={t("metrics.piServoBridge")} value={piServoBridgeLabel} tone={piServoBridgeTone} />
+        <Metric className="frame-preview" code label={t("metrics.piServoBridgeDetail")} value={piServoBridgeDetail || "--"} />
+        <Metric className="frame-preview" code label={t("metrics.piServoPins")} value="Pi 6/8/10 / serial0 / 115200" />
+      </div>
+      {piServoBridgeError && <p className="form-error">{piServoBridgeError}</p>}
       <div className="servo-smoothing-panel">
         <label className="checkbox-field servo-smoothing-toggle">
           <input

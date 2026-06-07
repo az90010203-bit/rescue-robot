@@ -65,7 +65,7 @@ export function createAppPlatformCommandDispatcher(options: AppPlatformCommandBr
   }
 
   function piTargetLabel() {
-    return `${options.piRemoteForm.username.trim() || "pi"}@${options.piRemoteForm.host.trim() || "raspberrypi.local"}`;
+    return `${options.piRemoteForm.username.trim() || "robot1"}@${options.piRemoteForm.host.trim() || "raspberrypi.local"}`;
   }
 
   return async function dispatchAppPlatformCommand(command: PlatformCommand): Promise<PlatformCommandResult> {

@@ -18,8 +18,6 @@ interface UseServoActionsRuntimeOptions {
   cancelServoMotionForServo: (id: number, status?: any) => void;
   cancelServoSafetyMonitor: (id?: number) => void;
   cancelWheelTurnMonitor: (key?: string) => void;
-  connected: boolean;
-  connectionMode: string | null;
   dispatchPlatformCommand: (command: any) => Promise<any>;
   lastServoWheelSpeedRef: { current: Record<number, number> };
   livePositionModeServoRef: { current: Set<number> };
@@ -35,6 +33,7 @@ interface UseServoActionsRuntimeOptions {
   startWheelTurnMonitor: (options: any) => Promise<boolean>;
   updateServoCommandField: <K extends keyof ServoCommandState>(id: number, field: K, value: ServoCommandState[K]) => void;
   sendServoFrames: (frames: number[] | number[][], waitMs?: number) => Promise<any>;
+  servoBusReady: boolean;
 }
 
 export function useServoActionsRuntime({
@@ -45,8 +44,6 @@ export function useServoActionsRuntime({
   cancelServoMotionForServo,
   cancelServoSafetyMonitor,
   cancelWheelTurnMonitor,
-  connected,
-  connectionMode,
   dispatchPlatformCommand,
   lastServoWheelSpeedRef,
   livePositionModeServoRef,
@@ -61,7 +58,8 @@ export function useServoActionsRuntime({
   setLinkageWheelDirectionByGroup,
   startWheelTurnMonitor,
   updateServoCommandField,
-  sendServoFrames
+  sendServoFrames,
+  servoBusReady
 }: UseServoActionsRuntimeOptions) {
   async function sendMoveForServo(servo: ServoProfile, state: ServoCommandState, options: { live?: boolean } = {}) {
     try {
@@ -78,7 +76,7 @@ export function useServoActionsRuntime({
       if (!sent) {
         return;
       }
-      if (connected && connectionMode === "servo-bus" && state.mode === "wheel") {
+      if (servoBusReady && state.mode === "wheel") {
         if (state.wheelTurnsEnabled && effectiveWheelSpeed !== 0) {
           await startWheelTurnMonitor({
             key: singleWheelTurnProgressKey(servo.id),

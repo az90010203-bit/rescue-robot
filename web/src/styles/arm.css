@@ -331,6 +331,130 @@
     var(--panel);
 }
 
+.arm-three-page {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+}
+
+.arm-three-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.arm-three-viewer,
+.arm-three-control-stack {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.arm-three-canvas-frame {
+  position: relative;
+  min-width: 0;
+  height: clamp(420px, 48vw, 560px);
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(247, 249, 252, 0.98), rgba(226, 232, 240, 0.84)),
+    var(--panel-tint);
+}
+
+.arm-three-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.arm-three-hint {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--steel);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.arm-three-hint svg {
+  flex: 0 0 auto;
+  color: var(--blue);
+}
+
+.arm-three-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.arm-three-joint-list {
+  display: grid;
+  gap: 10px;
+}
+
+.arm-three-joint-row {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.arm-three-joint-row.selected {
+  border-color: rgba(20, 86, 240, 0.36);
+  background:
+    linear-gradient(90deg, rgba(20, 86, 240, 0.08), transparent 62%),
+    rgba(255, 255, 255, 0.88);
+}
+
+.arm-three-joint-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.arm-three-joint-head strong,
+.arm-three-joint-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arm-three-joint-head strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.arm-three-joint-head span {
+  color: var(--steel);
+  font-size: 0.74rem;
+  font-weight: 780;
+}
+
+.arm-three-angle-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.arm-three-angle-field > span {
+  color: var(--steel);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.arm-three-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .tuning-status {
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -699,6 +823,15 @@
 }
 
 @media (max-width: 960px) {
+  .arm-three-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .arm-three-canvas-frame {
+    height: clamp(340px, 72vw, 460px);
+    min-height: 340px;
+  }
+
   .arm-kinematics-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

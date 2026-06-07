@@ -222,7 +222,7 @@ export type ValidationErrorKey =
 export const DEFAULT_SERVOS: ServoProfile[] = [normalizeServoProfile({ id: 22, name: "ID22" })];
 
 export const DEFAULT_MOTORS: MotorProfile[] = [
-  { channel: "M1", name: "Left Track", pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", enablePin: "D10" },
+  { channel: "M1", name: "RoboMaster A M1", pwmPin: "PD12", in1Pin: "PA2", in2Pin: "PA3", enablePin: "PI5", encoderAPin: "PA0", encoderBPin: "PA1" },
   { channel: "M2", name: "Right Track", pwmPin: "D6", in1Pin: "D8", in2Pin: "D9", enablePin: "D10" },
   { channel: "M3", name: "Mecanum Front Left" },
   { channel: "M4", name: "Mecanum Front Right" },
@@ -336,7 +336,9 @@ export function validateMotorMapping(motor: MotorProfile): ValidationErrorKey | 
     !isValidMotorPin(motor.in1Pin, true) ||
     !isValidMotorPin(motor.in2Pin, true) ||
     !isValidMotorPin(motor.enablePin) ||
-    !isValidMotorPin(motor.sensorPin)
+    !isValidMotorPin(motor.sensorPin) ||
+    !isValidMotorPin(motor.encoderAPin) ||
+    !isValidMotorPin(motor.encoderBPin)
   ) {
     return "validation.invalidMotorPin";
   }
@@ -1123,6 +1125,8 @@ function normalizeMotorProfile(motor: MotorProfile): MotorProfile {
     ...(normalizeMotorPin(motor.in1Pin) || legacyDirPin ? { in1Pin: normalizeMotorPin(motor.in1Pin) ?? legacyDirPin } : {}),
     ...(normalizeMotorPin(motor.in2Pin) ? { in2Pin: normalizeMotorPin(motor.in2Pin) } : {}),
     ...(normalizeMotorPin(motor.enablePin) || legacyBrakePin ? { enablePin: normalizeMotorPin(motor.enablePin) ?? legacyBrakePin } : {}),
-    ...(normalizeMotorPin(motor.sensorPin) ? { sensorPin: normalizeMotorPin(motor.sensorPin) } : {})
+    ...(normalizeMotorPin(motor.sensorPin) ? { sensorPin: normalizeMotorPin(motor.sensorPin) } : {}),
+    ...(normalizeMotorPin(motor.encoderAPin) ? { encoderAPin: normalizeMotorPin(motor.encoderAPin) } : {}),
+    ...(normalizeMotorPin(motor.encoderBPin) ? { encoderBPin: normalizeMotorPin(motor.encoderBPin) } : {})
   };
 }

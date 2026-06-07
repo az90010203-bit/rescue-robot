@@ -202,3 +202,78 @@ bool MotorDriver::apply(const char* channel, float speedPercent, const char* sto
 ```
 
 STM32 HAL、RoboMaster A 板或其他平台也保持同样的 `apply()` 语义，只把 `digitalWrite/analogWrite` 换成对应的 GPIO 和定时器 PWM API。
+
+## 6. RoboMaster Type A quadrature encoder path
+
+For the current RoboMaster Type A board single-motor test, ST-Link is used only
+for flashing and debugging. Runtime feedback goes through the Raspberry Pi GPIO
+UART and the HTTP serial bridge.
+
+Fixed Type A wiring:
+
+| Type A pin | Role | Connects to |
+| --- | --- | --- |
+| PD12 / TIM4_CH1 | PWM | TB6612 PWM |
+| PA2 | Direction | TB6612 AIN1 |
+| PA3 | Direction | TB6612 AIN2 |
+| PI5 | Standby | TB6612 STBY |
+| PA0 / TIM2_CH1 | Quadrature A | Encoder E1A |
+| PA1 / TIM2_CH2 | Quadrature B | Encoder E1B |
+| PD5 / USART2_TX | UART TX | Raspberry Pi GPIO13/RXD5, physical pin 33 |
+| PD6 / USART2_RX | UART RX | Raspberry Pi GPIO12/TXD5, physical pin 32 |
+| PGND | Ground | Raspberry Pi GND, physical pin 30 |
+
+The board-side `motor.config` command may include encoder pins alongside the
+legacy single `sensor` pin:
+
+```json
+{
+  "type": "motor.config",
+  "seq": 3,
+  "channel": "M1",
+  "driver": "tb6618",
+  "pins": {
+    "pwm": "PD12",
+    "in1": "PA2",
+    "in2": "PA3",
+    "enable": "PI5",
+    "sensor": "PA0",
+    "encoderA": "PA0",
+    "encoderB": "PA1"
+  }
+}
+```
+
+`motor.feedback` uses the existing optional fields:
+
+- `encoderTicks`: signed TIM2 quadrature counter value.
+- `pulseHz`: absolute encoder tick delta per second since the previous feedback
+  sample.
+- `encoderA` / `encoderB`: raw PA0/PA1 input levels, `0` or `1`.
+- `encoderDelta`: signed tick change since the previous feedback sample.
+- `encoderDirection`: `forward`, `reverse`, or `stopped`, derived from
+  `encoderDelta`.
+- `sampleMs`: A board millisecond uptime at the feedback sample.
+- `speedRpm`: estimated motor-shaft RPM. The current Type A firmware defaults
+  to a 13 PPR Hall encoder with TIM2 encoder mode x4, so
+  `encoderTicksPerRev = 52`. `motor.config.encoderTicksPerRev` may override
+  this calibration value.
+
+Raspberry Pi bridge:
+
+- The servo HAT owns the primary Pi UART on physical pins 6/8/10 and
+  `/dev/serial0`.
+- The Type A board therefore uses UART5 on physical pins 30/32/33:
+  `pin 30 GND`, `pin 32 GPIO12/TXD5 -> Type A PD6/RX`, and
+  `pin 33 GPIO13/RXD5 <- Type A PD5/TX`.
+- Enable Pi UART5 with `dtoverlay=uart5` in `/boot/firmware/config.txt`, then
+  reboot. The web "Install/Start Persistent A Board Bridge" action also appends
+  this line if it is missing, but the Pi still needs one reboot before
+  `/dev/ttyAMA5` appears.
+- Run `web/scripts/a-board-serial-bridge.py` on the Pi; it listens on
+  `http://0.0.0.0:17353`.
+- `GET /health` reports the UART bridge state.
+- `POST /command` writes one JSON command to `/dev/ttyAMA5 @ 115200` and
+  returns the A board JSON response messages.
+
+Pinout reference: [RoboMaster Type A board user manual, page 31](https://cdn-hz.robomaster.com/tem/RoboMaster%E5%BC%80%E5%8F%91%E7%89%88%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf#page=31).

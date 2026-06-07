@@ -7,7 +7,9 @@ interface UseServoSerialTransportOptions {
   addLog: (source: "rx" | "tx" | "system", message: string, level?: any) => void;
   connected: boolean;
   connectionMode: ConnectionMode | null;
+  piServoBridgeConnected?: boolean;
   seqRef: { current: number };
+  sendPiServoBridgeFrame?: (frame: number[], waitMs: number) => Promise<number[]>;
   serialRef: { current: WebSerialClient | null };
   servoSerialQueueRef: { current: Promise<void> };
 }
@@ -17,7 +19,9 @@ export function useServoSerialTransport({
   addLog,
   connected,
   connectionMode,
+  piServoBridgeConnected,
   seqRef,
+  sendPiServoBridgeFrame,
   serialRef,
   servoSerialQueueRef
 }: UseServoSerialTransportOptions) {
@@ -35,7 +39,24 @@ export function useServoSerialTransport({
   }
 
   async function sendServoFrameUnlocked(frame: number[], waitMs = 80, logFrame = true) {
-    if (!serialRef.current || !connected || connectionMode !== "servo-bus") {
+    const webSerialServoConnected = Boolean(serialRef.current && connected && connectionMode === "servo-bus");
+    if (!webSerialServoConnected && piServoBridgeConnected && sendPiServoBridgeFrame) {
+      try {
+        if (logFrame) {
+          addLog("tx", toHex(frame));
+        }
+        const rx = await sendPiServoBridgeFrame(frame, waitMs);
+        if (rx.length > 0 && logFrame) {
+          addLog("rx", toHex(rx));
+        }
+        return parseFeetechStatusPacket(rx);
+      } catch (error) {
+        addErrorLog(error, "logs.serialDisconnected");
+        return null;
+      }
+    }
+
+    if (!webSerialServoConnected || !serialRef.current) {
       addLog("system", "Servo bus connection required", "warn");
       return null;
     }
@@ -77,7 +98,7 @@ export function useServoSerialTransport({
   }
 
   function servoBusConnected() {
-    return Boolean(serialRef.current && connected && connectionMode === "servo-bus");
+    return Boolean(serialRef.current && connected && connectionMode === "servo-bus") || Boolean(piServoBridgeConnected && sendPiServoBridgeFrame);
   }
 
   return {

@@ -19,6 +19,7 @@ import {
 import type { MotorProfile, MotorStopMode, MotorTarget, ServoProfile } from "../lib/protocol";
 import {
   type ActiveModule,
+  type AboardBridgeStatus,
   type AppSection,
   type ArmTeachRuntime,
   type ArmTeachStatus,
@@ -27,11 +28,13 @@ import {
   type MotorDebugHandshakeStatus,
   type MotorErrorDisplay,
   type MotorFeedbackMap,
+  type MotorTestBoard,
   type PendingCommandResponse,
   type PendingDebugSet,
   type PendingLiveAngleMove,
   type PendingLiveWheelMove,
   type PendingSingleMotorMove,
+  type PiServoBridgeStatus,
   type ServoCommandStateMap,
   type ServoFeedbackMap,
   type ServoMotionStatusMap,
@@ -73,6 +76,13 @@ export function useAppStateRefs() {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState] = useState<MotorDebugHandshakeStatus>("unknown");
   const [lastMotorError, setLastMotorError] = useState<MotorErrorDisplay | null>(null);
+  const [motorTestBoard, setMotorTestBoard] = useState<MotorTestBoard>("arduino");
+  const [aBoardBridgeStatus, setABoardBridgeStatus] = useState<AboardBridgeStatus>("idle");
+  const [aBoardBridgeError, setABoardBridgeError] = useState<string | null>(null);
+  const [aBoardBridgeDetail, setABoardBridgeDetail] = useState("");
+  const [piServoBridgeStatus, setPiServoBridgeStatus] = useState<PiServoBridgeStatus>("idle");
+  const [piServoBridgeError, setPiServoBridgeError] = useState<string | null>(null);
+  const [piServoBridgeDetail, setPiServoBridgeDetail] = useState("");
   const [connected, setConnected] = useState(false);
   const [connectionMode, setConnectionMode] = useState<ConnectionMode | null>(null);
   const [selectedId, setSelectedId] = useState<number | "">("");
@@ -155,7 +165,10 @@ export function useAppStateRefs() {
     setMotorLinkageGroups, cameraConfig, setCameraConfig, servoDraft, setServoDraft, motorDraft, setMotorDraft, servoLibraryError,
     setServoLibraryError, motorLibraryError, setMotorLibraryError, motorConfigError, setMotorConfigError, cameraConfigError,
     setCameraConfigError, cameraStreamLoaded, setCameraStreamLoaded, cameraStreamFailed, setCameraStreamFailed, debugEnabled,
-    setDebugEnabled, motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState, lastMotorError, setLastMotorError, connected,
+    setDebugEnabled, motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState, lastMotorError, setLastMotorError, motorTestBoard,
+    setMotorTestBoard, aBoardBridgeStatus,
+    setABoardBridgeStatus, aBoardBridgeError, setABoardBridgeError, aBoardBridgeDetail, setABoardBridgeDetail,
+    piServoBridgeStatus, setPiServoBridgeStatus, piServoBridgeError, setPiServoBridgeError, piServoBridgeDetail, setPiServoBridgeDetail, connected,
     setConnected, connectionMode, setConnectionMode, selectedId, setSelectedId, selectedChannel, setSelectedChannel, servoCommandById,
     setServoCommandById, servoSmoothingEnabled, setServoSmoothingEnabled, servoSmoothPreset, setServoSmoothPreset, servoMotionStatusById,
     setServoMotionStatusById, servoSafetyEnabled, setServoSafetyEnabled, servoSafetyPreset, setServoSafetyPreset, servoSafetyStatusById,

@@ -38,6 +38,32 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
     tags: ["servo", "ttl", "feetech"]
   },
   {
+    id: "catalog.asme.asme-se-can-servo",
+    type: "servo",
+    brand: "ASME",
+    model: "ASME-SE",
+    displayName: "ASME ASME-SE CAN Servo",
+    driverId: "driver.asme-can-servo",
+    transportId: "transport.a-board-can1",
+    capabilities: [{ id: "servo", features: ["position_control", "feedback", "current_config", "pid_config", "id_config", "can1"] }],
+    configSchema: [
+      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
+      {
+        id: "bitrateKbps",
+        label: "CAN Bitrate",
+        kind: "select",
+        options: [
+          { label: "250 kbit/s", value: 250 },
+          { label: "500 kbit/s", value: 500 },
+          { label: "1000 kbit/s", value: 1000 }
+        ]
+      },
+      { id: "canBus", label: "CAN Bus", kind: "select", options: [{ label: "RoboMaster A CAN1", value: "CAN1" }] }
+    ],
+    defaultConfig: { servoId: 1, bitrateKbps: 250, canBus: "CAN1" },
+    tags: ["servo", "can", "asme", "asmg-md", "robomaster-a"]
+  },
+  {
     id: "catalog.toshiba.tb6618-motor",
     type: "motor",
     brand: "Toshiba",
@@ -52,10 +78,56 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
       { id: "in1Pin", label: "IN1 Pin", kind: "text" },
       { id: "in2Pin", label: "IN2 Pin", kind: "text" },
       { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" }
+      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
+      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
+      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
     ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "" },
+    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
     tags: ["motor", "pwm", "h-bridge"]
+  },
+  {
+    id: "catalog.wheeltec.g513xl",
+    type: "motor",
+    brand: "WHEELTEC",
+    model: "G513XL",
+    displayName: "WHEELTEC G513XL Motor",
+    driverId: "driver.tb6618-motor",
+    transportId: "transport.controller-json",
+    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
+    configSchema: [
+      { id: "channel", label: "Channel", kind: "select", required: true, options: Array.from({ length: 8 }, (_, index) => ({ label: `M${index + 1}`, value: `M${index + 1}` })) },
+      { id: "pwmPin", label: "PWM Pin", kind: "text" },
+      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
+      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
+      { id: "enablePin", label: "Enable Pin", kind: "text" },
+      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
+      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
+      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
+    ],
+    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
+    tags: ["motor", "wheeltec", "pwm", "encoder"]
+  },
+  {
+    id: "catalog.wheeltec.mg540",
+    type: "motor",
+    brand: "WHEELTEC",
+    model: "MG540",
+    displayName: "WHEELTEC MG540 Motor",
+    driverId: "driver.tb6618-motor",
+    transportId: "transport.controller-json",
+    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
+    configSchema: [
+      { id: "channel", label: "Channel", kind: "select", required: true, options: Array.from({ length: 8 }, (_, index) => ({ label: `M${index + 1}`, value: `M${index + 1}` })) },
+      { id: "pwmPin", label: "PWM Pin", kind: "text" },
+      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
+      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
+      { id: "enablePin", label: "Enable Pin", kind: "text" },
+      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
+      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
+      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
+    ],
+    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
+    tags: ["motor", "wheeltec", "pwm", "encoder"]
   },
   {
     id: "catalog.generic.camera-gimbal",
@@ -211,6 +283,7 @@ export function robotRow(row) {
     name: row.name,
     componentIds: normalizeStringArray(parseJson(row.componentIdsJson, [])),
     pluginInstanceIds: normalizeStringArray(parseJson(row.pluginInstanceIdsJson, [])),
+    config: normalizeJsonObject(parseJson(row.configJson, {})),
     tags: normalizeStringArray(parseJson(row.tagsJson, [])),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
@@ -271,12 +344,25 @@ export function normalizePluginInstance(value, catalogItem, existing) {
 }
 
 export function validatePluginInstanceForProject(projectId, instance, ignoreId) {
+  const detectedDeviceId = typeof instance.config.detectedDeviceId === "string" ? instance.config.detectedDeviceId.trim() : "";
+  if (detectedDeviceId) {
+    const duplicate = pluginInstancesForValidation(projectId).find((item) => item.id !== ignoreId && String(item.config.detectedDeviceId ?? "").trim() === detectedDeviceId);
+    if (duplicate) {
+      throw badRequestError(`duplicate detected device: ${detectedDeviceId}`);
+    }
+  }
   if (instance.type === "servo") {
     const servoId = Number(instance.config.servoId);
     if (!Number.isInteger(servoId) || servoId < 0 || servoId > 253) {
       throw badRequestError("servo plugin instance requires servoId from 0 to 253");
     }
-    const duplicate = pluginInstancesForValidation(projectId).find((item) => item.id !== ignoreId && item.type === "servo" && Number(item.config.servoId) === servoId);
+    const duplicate = pluginInstancesForValidation(projectId).find((item) => (
+      item.id !== ignoreId &&
+      item.type === "servo" &&
+      item.driverId === instance.driverId &&
+      item.transportId === instance.transportId &&
+      Number(item.config.servoId) === servoId
+    ));
     if (duplicate) {
       throw badRequestError(`duplicate servo ID: ${servoId}`);
     }
@@ -331,6 +417,7 @@ export function normalizeRobot(value) {
     name: cleanName(value.name, "Robot"),
     componentIds: uniqueStrings(value.componentIds),
     pluginInstanceIds: uniqueStrings(value.pluginInstanceIds),
+    config: normalizeJsonObject(value.config),
     tags: normalizeStringArray(value.tags)
   };
 }
@@ -382,12 +469,13 @@ export function assertComponentPluginTypes(projectId, component) {
     return;
   }
   const rows = currentDb()
-    .prepare("SELECT id, type FROM plugin_instances WHERE project_id = ?")
+    .prepare("SELECT id, type, driver_id AS driverId FROM plugin_instances WHERE project_id = ?")
     .all(projectId);
-  const typeById = new Map(rows.map((row) => [row.id, row.type]));
+  const pluginById = new Map(rows.map((row) => [row.id, row]));
   for (const pluginId of component.pluginInstanceIds) {
-    if (typeById.get(pluginId) !== "servo") {
-      throw badRequestError(`robot-arm component requires servo plugin instances: ${pluginId}`);
+    const plugin = pluginById.get(pluginId);
+    if (plugin?.type !== "servo" || plugin.driverId !== "driver.feetech-servo") {
+      throw badRequestError(`robot-arm component requires Feetech servo plugin instances: ${pluginId}`);
     }
   }
 }
@@ -450,19 +538,23 @@ export function normalizePanelLayout(value, scopeId) {
   }
   return value
     .filter((item) => item && typeof item === "object")
-    .map((item, index) => ({
-      id: cleanOptionalString(item.id, `${scopeId}:panel:${index + 1}`),
-      scopeId,
-      panelId: cleanOptionalString(item.panelId, "panel"),
-      targetId: cleanOptionalString(item.targetId, "target"),
-      capability: cleanOptionalString(item.capability, "servo"),
-      title: cleanOptionalString(item.title, "Panel"),
-      x: integerInRange(item.x, 0, 11, 0),
-      y: integerInRange(item.y, 0, 999, 0),
-      w: integerInRange(item.w, 1, 12, 6),
-      h: integerInRange(item.h, 2, 8, 3),
-      order: integerInRange(item.order, 0, 999, index)
-    }))
+    .map((item, index) => {
+      const visibleItemIds = uniqueStrings(item.visibleItemIds);
+      return {
+        id: cleanOptionalString(item.id, `${scopeId}:panel:${index + 1}`),
+        scopeId,
+        panelId: cleanOptionalString(item.panelId, "panel"),
+        targetId: cleanOptionalString(item.targetId, "target"),
+        capability: cleanOptionalString(item.capability, "servo"),
+        title: cleanOptionalString(item.title, "Panel"),
+        ...(visibleItemIds.length > 0 ? { visibleItemIds } : {}),
+        x: integerInRange(item.x, 0, 11, 0),
+        y: integerInRange(item.y, 0, 999, 0),
+        w: integerInRange(item.w, 1, 12, 6),
+        h: integerInRange(item.h, 2, 8, 3),
+        order: integerInRange(item.order, 0, 999, index)
+      };
+    })
     .sort((a, b) => a.order - b.order)
     .map((item, index) => ({ ...item, order: index }));
 }
@@ -516,6 +608,7 @@ export function normalizeConfigSchema(value, fallback = []) {
 
 export function normalizeConfigForSchema(schema, config) {
   const normalized = {};
+  const schemaIds = new Set(schema.map((field) => field.id));
   for (const field of schema) {
     const value = config?.[field.id];
     if (field.kind === "number") {
@@ -530,6 +623,11 @@ export function normalizeConfigForSchema(schema, config) {
       normalized[field.id] = value === null || value === undefined ? "" : String(value);
     }
   }
+  for (const [key, value] of Object.entries(config ?? {})) {
+    if (!schemaIds.has(key) && (value === null || ["string", "number", "boolean"].includes(typeof value))) {
+      normalized[key] = value;
+    }
+  }
   return normalized;
 }
 
@@ -540,6 +638,10 @@ export function normalizePlainObject(value) {
   return Object.fromEntries(
     Object.entries(value).filter(([, item]) => item === null || ["string", "number", "boolean"].includes(typeof item))
   );
+}
+
+export function normalizeJsonObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 export function cleanType(value) {

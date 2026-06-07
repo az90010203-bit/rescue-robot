@@ -1,12 +1,11 @@
 import type { ChangeEvent } from "react";
 import { isSupportedLanguage, type SupportedLanguage } from "../i18n/languages";
-import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ConnectionMode, type TestPanel } from "./appModel";
+import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ConnectionMode, type LogEntry, type LogValues, type TestPanel } from "./appModel";
 
 interface UseAppNavigationOptions {
   activeModule: ActiveModule;
   activeTest: TestPanel;
-  addLog: (direction: "rx" | "tx" | "system", text: string, level?: any, values?: any) => void;
-  addSystemLog: (messageKey: string, level?: any, values?: any) => void;
+  addSystemLog: (messageKey: string, level?: LogEntry["level"], values?: LogValues) => void;
   connected: boolean;
   connectionMode: ConnectionMode | null;
   debugEnabled: boolean;
@@ -23,7 +22,6 @@ interface UseAppNavigationOptions {
 export function useAppNavigation({
   activeModule,
   activeTest,
-  addLog,
   addSystemLog,
   connected,
   connectionMode,
@@ -53,10 +51,10 @@ export function useAppNavigation({
   }
 
   function moduleForTestPanel(panel: TestPanel): ActiveModule | null {
-    if (panel === "pi") {
+    if (panel === "pi" || panel === "canServo") {
       return null;
     }
-    if (panel === "arm") {
+    if (panel === "arm" || panel === "arm3d") {
       return "arm";
     }
     if (panel === "driveCamera") {
@@ -99,7 +97,7 @@ export function useAppNavigation({
 
   async function toggleDebugMode() {
     if (isServoBusModule(activeModule)) {
-      addLog("system", "鑸垫満妯″潡宸叉敼涓?PC 鐩磋繛椋炵壒鎬荤嚎锛屼笉闇€瑕佽皟璇曟ā寮忓紑鍏?");
+      addSystemLog("logs.directBusHint");
       return;
     }
     await setDebugMode(!debugEnabled, activeModule);

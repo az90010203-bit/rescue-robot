@@ -226,3 +226,56 @@ FF FF 01 09 03 2A 00 08 00 00 E8 03 D5
 - Feetech communication protocol manual: https://files.seeedstudio.com/wiki/robotics/Actuator/feetech/Communication_Protocol_Manual.pdf
 - Feetech FTServo Arduino register definitions: https://github.com/ftservo/FTServo_Arduino
 - Feetech URT tutorial: https://www.feetechrc.com/Data/feetechrc/upload/file/20201127/start%20%20tutorial201015.pdf
+
+## 6. Raspberry Pi Servo HAT bridge
+
+The current robot wiring reserves the Raspberry Pi primary UART for the
+Waveshare Bus Servo Driver HAT(A):
+
+| Pi physical pin | GPIO / role | Servo HAT role |
+| --- | --- | --- |
+| 6 | GND | Power ground |
+| 8 | GPIO14 / TXD0 / `/dev/serial0` TX | PI TX |
+| 10 | GPIO15 / RXD0 / `/dev/serial0` RX | PI RX |
+
+Runtime path:
+
+```text
+Web UI
+  -> Pi servo HTTP bridge http://<pi-host>:17354
+  -> /dev/serial0 @ 115200 baud
+  -> Bus Servo Driver HAT(A) in ESP32 transparent transmission mode
+  -> Feetech STS/SCS servo bus
+```
+
+The bridge script is `web/scripts/pi-servo-serial-bridge.py`. The web
+"Install/Start Pi Servo Bridge" action uploads it to the Pi and installs
+`pi-servo-serial-bridge.service` with `Restart=always`.
+
+The Waveshare HAT must be running its ESP32 transparent transmission firmware
+for raw Feetech frames to pass between the Pi UART and the servo bus. If
+`GET /health` is `ok: true` but `POST /frame` returns no bytes for servo pings,
+check the HAT mode/firmware first, then servo power, servo ID, bus connector
+orientation, and shared ground.
+
+Bridge endpoints:
+
+- `GET /health` returns `{ ok, serialPort, baudRate }`.
+- `POST /frame` accepts `{ frame: number[], waitMs?: number }`, writes the raw
+  Feetech binary frame to `/dev/serial0`, then returns received bytes and a
+  parsed status packet when available.
+
+Important chain split:
+
+- Servo HAT: Pi pins `6/8/10`, `/dev/serial0`, HTTP port `17354`, Pi UART
+  baud `115200` for the Waveshare ESP32 transparent firmware. Browser
+  WebSerial direct Feetech adapters still use `1000000`.
+- RoboMaster Type A: Pi pins `30/32/33`, `/dev/ttyAMA5`, HTTP port `17353`,
+  baud `115200`.
+
+The Pi servo bridge install command enables `enable_uart=1` and stops the Linux
+serial console on `/dev/serial0`. If an older A board service was still bound to
+`/dev/serial0`, the install command disables that legacy service so the servo
+bus owns pins 8/10 cleanly.
+
+Hardware reference: https://www.waveshare.com/wiki/Bus_Servo_Driver_HAT_%28A%29

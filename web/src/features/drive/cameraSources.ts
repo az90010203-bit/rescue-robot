@@ -6,6 +6,7 @@ import {
   type CameraConfig,
   type CameraVideoSource
 } from "../../lib/storage";
+import { buildPiCameraStreamUrl, buildPiCameraWebrtcOfferUrl } from "../../lib/piRemote";
 
 export interface CameraLatencyStatus {
   estimateMs: number | null;
@@ -67,6 +68,46 @@ export function updateCameraSource(
   patch: Partial<CameraVideoSource>
 ): CameraVideoSource[] {
   return sources.map((source) => (source.id === sourceId ? { ...source, ...patch } : source));
+}
+
+export function adaptCameraConfigToPiHost(config: CameraConfig, host: string): CameraConfig {
+  const piHost = host.trim();
+  if (!piHost) {
+    return config;
+  }
+
+  let changed = false;
+  const videoSources = config.videoSources.map((source) => {
+    if (!isPiUsbCameraSource(source)) {
+      return source;
+    }
+    const streamUrl = buildPiCameraStreamUrl(piHost, source.port);
+    if (source.streamUrl === streamUrl) {
+      return source;
+    }
+    changed = true;
+    return { ...source, streamUrl };
+  });
+  const mainSource = videoSources.find((source) => source.id === MAIN_CAMERA_SOURCE_ID);
+  const mainStreamUrl = mainSource?.streamUrl ?? config.streamUrl;
+  const mainOfferUrl = mainSource ? buildPiCameraWebrtcOfferUrl(piHost, mainSource.port) : buildCameraOfferUrl(mainStreamUrl);
+
+  if (config.streamUrl !== mainStreamUrl || config.webrtcOfferUrl !== mainOfferUrl) {
+    changed = true;
+  }
+
+  return changed
+    ? {
+        ...config,
+        streamUrl: mainStreamUrl,
+        webrtcOfferUrl: mainOfferUrl,
+        videoSources
+      }
+    : config;
+}
+
+function isPiUsbCameraSource(source: CameraVideoSource): boolean {
+  return source.devicePath.trim().startsWith("/dev/video");
 }
 
 export function buildCameraLatencyUrl(streamUrl: string): string {

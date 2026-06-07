@@ -12,14 +12,15 @@ import {
   type InboundMessage,
   type PcCommand
 } from "../lib/protocol";
-import { debugModuleFor, type ActiveModule, type MotorDebugHandshakeStatus, type PendingCommandResponse, type PendingDebugSet } from "./appModel";
+import type { PlatformEventBus } from "../platform/events";
+import { debugModuleFor, type ActiveModule, type ConnectionMode, type LogEntry, type LogValues, type MotorDebugHandshakeStatus, type MotorErrorDisplay, type PendingCommandResponse, type PendingDebugSet } from "./appModel";
 
 interface UseMotorSerialRuntimeOptions {
   addErrorLog: (error: unknown, fallbackKey: string) => void;
-  addLog: (direction: "rx" | "tx" | "system", text: string, level?: any, values?: any) => void;
-  addSystemLog: (messageKey: string, level?: any, values?: any) => void;
+  addLog: (direction: LogEntry["direction"], text: string, level?: LogEntry["level"]) => void;
+  addSystemLog: (messageKey: string, level?: LogEntry["level"], values?: LogValues) => void;
   connected: boolean;
-  connectionMode: string | null;
+  connectionMode: ConnectionMode | null;
   lastMotorSpeedByChannelRef: MutableRefObject<Record<string, number>>;
   motorDebugHandshakePromiseRef: MutableRefObject<Promise<boolean> | null>;
   motorDebugHandshakeStatusRef: MutableRefObject<MotorDebugHandshakeStatus>;
@@ -28,12 +29,16 @@ interface UseMotorSerialRuntimeOptions {
   nextSeq: () => number;
   pendingCommandResponseBySeqRef: MutableRefObject<Map<number, PendingCommandResponse>>;
   pendingDebugSetBySeqRef: MutableRefObject<Map<number, PendingDebugSet>>;
-  platformEventBusRef: MutableRefObject<any>;
+  platformEventBusRef: MutableRefObject<PlatformEventBus>;
   serialRef: MutableRefObject<WebSerialClient | null>;
   setDebugEnabled: (enabled: boolean) => void;
-  setLastMotorError: (error: any) => void;
+  setLastMotorError: (error: MotorErrorDisplay | null) => void;
   setMotorDebugHandshakeStatusState: (status: MotorDebugHandshakeStatus) => void;
 }
+
+type MotorSerialWriteOptions = { log?: boolean };
+type MotorSerialBatchOptions = MotorSerialWriteOptions & { shouldRun?: () => boolean };
+type MotorSerialCommandOptions = MotorSerialWriteOptions & { retryCount?: number };
 
 function sleepMs(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -59,18 +64,30 @@ export function useMotorSerialRuntime({
   setLastMotorError,
   setMotorDebugHandshakeStatusState
 }: UseMotorSerialRuntimeOptions) {
-  async function send(value: unknown, options: { log?: boolean } = {}) {
+  function controllerSerialClient(options: MotorSerialWriteOptions = {}): WebSerialClient | null {
     if (!serialRef.current || !connected) {
-      addSystemLog("logs.serialDisconnected", "warn");
-      return false;
+      if (options.log !== false) {
+        addSystemLog("logs.serialDisconnected", "warn");
+      }
+      return null;
     }
     if (connectionMode === "servo-bus") {
-      addLog("system", "鑸垫満鐩磋繛妯″紡浣跨敤椋炵壒浜岃繘鍒跺抚锛屼笉鍙戦€?JSON", "warn");
+      if (options.log !== false) {
+        addSystemLog("logs.servoBusRequired", "warn");
+      }
+      return null;
+    }
+    return serialRef.current;
+  }
+
+  async function send(value: unknown, options: MotorSerialWriteOptions = {}) {
+    const client = controllerSerialClient(options);
+    if (!client) {
       return false;
     }
 
     try {
-      await serialRef.current.sendJson(value);
+      await client.sendJson(value);
       if (options.log !== false) {
         addLog("tx", JSON.stringify(value));
       }
@@ -144,23 +161,15 @@ export function useMotorSerialRuntime({
     pendingCommandResponseBySeqRef.current.delete(command.seq);
   }
 
-  async function writeCommandAndWait(command: PcCommand, options: { log?: boolean } = {}) {
-    if (!serialRef.current || !connected) {
-      if (options.log !== false) {
-        addSystemLog("logs.serialDisconnected", "warn");
-      }
-      return null;
-    }
-    if (connectionMode === "servo-bus") {
-      if (options.log !== false) {
-        addSystemLog("logs.servoBusRequired", "warn");
-      }
+  async function writeCommandAndWait(command: PcCommand, options: MotorSerialWriteOptions = {}) {
+    const client = controllerSerialClient(options);
+    if (!client) {
       return null;
     }
 
     const responsePromise = waitForCommandResponse(command);
     try {
-      await serialRef.current.sendJson(command);
+      await client.sendJson(command);
       if (options.log !== false) {
         addLog("tx", JSON.stringify(command));
       }
@@ -177,24 +186,16 @@ export function useMotorSerialRuntime({
     return response;
   }
 
-  async function writeCommandsAndWait(commands: PcCommand[], options: { log?: boolean } = {}) {
-    if (!serialRef.current || !connected) {
-      if (options.log !== false) {
-        addSystemLog("logs.serialDisconnected", "warn");
-      }
-      return commands.map(() => null);
-    }
-    if (connectionMode === "servo-bus") {
-      if (options.log !== false) {
-        addSystemLog("logs.servoBusRequired", "warn");
-      }
+  async function writeCommandsAndWait(commands: PcCommand[], options: MotorSerialWriteOptions = {}) {
+    const client = controllerSerialClient(options);
+    if (!client) {
       return commands.map(() => null);
     }
 
     const responsePromises = commands.map((command) => waitForCommandResponse(command));
     try {
       for (const command of commands) {
-        await serialRef.current.sendJson(command);
+        await client.sendJson(command);
         if (options.log !== false) {
           addLog("tx", JSON.stringify(command));
         }
@@ -227,7 +228,7 @@ export function useMotorSerialRuntime({
     return run;
   }
 
-  async function writeDebugSetToClient(client: WebSerialClient, module: ActiveModule, enabled: boolean, options: { log?: boolean } = {}) {
+  async function writeDebugSetToClient(client: WebSerialClient, module: ActiveModule, enabled: boolean, options: MotorSerialWriteOptions = {}) {
     const debugModule = debugModuleFor(module);
     const command = buildDebugSetCommand(nextSeq(), debugModule, enabled);
     pendingDebugSetBySeqRef.current.set(command.seq, { module: debugModule, enabled });
@@ -263,30 +264,20 @@ export function useMotorSerialRuntime({
     return response?.type === "ack";
   }
 
-  async function sendDebugSet(module: ActiveModule, enabled: boolean, options: { log?: boolean } = {}) {
-    if (!serialRef.current || !connected) {
-      if (options.log !== false) {
-        addSystemLog("logs.serialDisconnected", "warn");
-      }
-      return false;
-    }
-    if (connectionMode === "servo-bus") {
-      if (options.log !== false) {
-        addSystemLog("logs.servoBusRequired", "warn");
-      }
+  async function sendDebugSet(module: ActiveModule, enabled: boolean, options: MotorSerialWriteOptions = {}) {
+    const client = controllerSerialClient(options);
+    if (!client) {
       return false;
     }
     if (debugModuleFor(module) === "motor") {
-      return enqueueMotorSerialTask(() => writeDebugSetToClient(serialRef.current!, module, enabled, options));
+      return enqueueMotorSerialTask(() => writeDebugSetToClient(client, module, enabled, options));
     }
-    return writeDebugSetToClient(serialRef.current, module, enabled, options);
+    return writeDebugSetToClient(client, module, enabled, options);
   }
 
-  async function ensureMotorDebugModeUnlocked(options: { log?: boolean } = {}) {
-    if (!serialRef.current || !connected || connectionMode === "servo-bus") {
-      if (options.log !== false) {
-        addSystemLog("logs.serialDisconnected", "warn");
-      }
+  async function ensureMotorDebugModeUnlocked(options: MotorSerialWriteOptions = {}) {
+    const client = controllerSerialClient(options);
+    if (!client) {
       return false;
     }
     if (motorDebugHandshakeStatusRef.current === "ready") {
@@ -297,7 +288,7 @@ export function useMotorSerialRuntime({
     }
 
     setDebugEnabled(true);
-    const promise = writeDebugSetToClient(serialRef.current, "motor", true, options).finally(() => {
+    const promise = writeDebugSetToClient(client, "motor", true, options).finally(() => {
       motorDebugHandshakePromiseRef.current = null;
     });
     motorDebugHandshakePromiseRef.current = promise;
@@ -320,7 +311,7 @@ export function useMotorSerialRuntime({
     }
   }
 
-  async function sendMotorCommandFrameUnlocked(command: PcCommand, options: { log?: boolean } = {}, retryCount = 0): Promise<boolean> {
+  async function sendMotorCommandFrameUnlocked(command: PcCommand, options: MotorSerialWriteOptions = {}, retryCount = 0): Promise<boolean> {
     const response = await writeCommandAndWait(command, options);
     if (!response) {
       return false;
@@ -350,7 +341,7 @@ export function useMotorSerialRuntime({
     return true;
   }
 
-  async function sendMotorCommandFramesUnlocked(commands: PcCommand[], options: { log?: boolean } = {}, retryCount = 0): Promise<number> {
+  async function sendMotorCommandFramesUnlocked(commands: PcCommand[], options: MotorSerialWriteOptions = {}, retryCount = 0): Promise<number> {
     if (commands.length === 0) {
       return 0;
     }
@@ -409,7 +400,7 @@ export function useMotorSerialRuntime({
       : null;
   }
 
-  async function sendMotorCommandBatchUnlocked(commands: PcCommand[], options: { log?: boolean; shouldRun?: () => boolean } = {}) {
+  async function sendMotorCommandBatchUnlocked(commands: PcCommand[], options: MotorSerialBatchOptions = {}) {
     const motorCommands = commands.filter(isMotorPcCommand);
     if (motorCommands.length === 0) {
       return false;
@@ -462,11 +453,11 @@ export function useMotorSerialRuntime({
     return sentCount > 0;
   }
 
-  async function sendMotorCommandBatch(commands: PcCommand[], options: { log?: boolean; shouldRun?: () => boolean } = {}) {
+  async function sendMotorCommandBatch(commands: PcCommand[], options: MotorSerialBatchOptions = {}) {
     return enqueueMotorSerialTask(() => sendMotorCommandBatchUnlocked(commands, options));
   }
 
-  async function sendMotorCommand(command: PcCommand, options: { log?: boolean; retryCount?: number } = {}) {
+  async function sendMotorCommand(command: PcCommand, options: MotorSerialCommandOptions = {}) {
     if (!isMotorPcCommand(command)) {
       return send(command, options);
     }

@@ -1,5 +1,5 @@
 import { Activity, Bot, Boxes, Cable, Cpu, Gauge, Languages, ListPlus, Settings, Unplug, Usb } from "lucide-react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import type { DataProject } from "../lib/dataService";
 import { supportedLanguages, type SupportedLanguage } from "../i18n/languages";
@@ -9,10 +9,18 @@ import {
   isServoBusModule,
   type ActiveModule,
   type AppSection,
-  type DatabaseSaveStatus
+  type DatabaseSaveStatus,
+  type PiRemoteStatus
 } from "./appModel";
 
+type StatusTone = "neutral" | "online" | "warning" | "danger";
+
 interface AppHeaderBarProps {
+  aBoardBridgeBusy: boolean;
+  aBoardBridgeConnected: boolean;
+  aBoardBridgeDetail: string;
+  aBoardBridgeLabel: string;
+  aBoardBridgeTone: StatusTone;
   activeModule: ActiveModule;
   activeModuleLabel: string;
   activeSection: AppSection;
@@ -29,17 +37,37 @@ interface AppHeaderBarProps {
   debugEnabled: boolean;
   debugLabel: string;
   disconnectSerial: () => void | Promise<void>;
+  disconnectAboardSerialBridge: () => void;
   newProjectName: string;
+  piRemoteBusy: boolean;
+  piRemoteCanConnect: boolean;
+  piRemoteStatus: PiRemoteStatus;
+  piRemoteStatusTone: StatusTone;
+  piRemoteTarget: string;
+  piServoBridgeBusy: boolean;
+  piServoBridgeConnected: boolean;
+  piServoBridgeDetail: string;
+  piServoBridgeLabel: string;
+  piServoBridgeTone: StatusTone;
   projectStatusValue: string;
   projects: DataProject[];
   selectSection: (section: AppSection) => void | Promise<void>;
   setNewProjectName: (value: string) => void;
+  startAboardSerialBridge: () => Promise<unknown>;
+  startPiServoSerialBridge: () => Promise<unknown>;
   t: TFunction;
+  testRaspberryPiConnection: () => Promise<void>;
   toggleDebugMode: () => void | Promise<void>;
   webSerialAvailable: boolean;
+  disconnectPiServoSerialBridge: () => void;
 }
 
 export function AppHeaderBar({
+  aBoardBridgeBusy,
+  aBoardBridgeConnected,
+  aBoardBridgeDetail,
+  aBoardBridgeLabel,
+  aBoardBridgeTone,
   activeModule,
   activeModuleLabel,
   activeSection,
@@ -56,15 +84,47 @@ export function AppHeaderBar({
   debugEnabled,
   debugLabel,
   disconnectSerial,
+  disconnectAboardSerialBridge,
   newProjectName,
+  piRemoteBusy,
+  piRemoteCanConnect,
+  piRemoteStatus,
+  piRemoteStatusTone,
+  piRemoteTarget,
+  piServoBridgeBusy,
+  piServoBridgeConnected,
+  piServoBridgeDetail,
+  piServoBridgeLabel,
+  piServoBridgeTone,
   projectStatusValue,
   projects,
   selectSection,
   setNewProjectName,
+  startAboardSerialBridge,
+  startPiServoSerialBridge,
   t,
+  testRaspberryPiConnection,
   toggleDebugMode,
-  webSerialAvailable
+  webSerialAvailable,
+  disconnectPiServoSerialBridge
 }: AppHeaderBarProps) {
+  const piRemoteConnected = piRemoteStatus === "ready" || piRemoteStatus === "complete";
+  const servoModuleLine = piServoBridgeConnected
+    ? `Pi Servo Bridge · 115200 UART · ${activeModuleLabel}`
+    : `USB Serial · 1000000 baud · ${activeModuleLabel}`;
+  const piRemoteValue = t(`piRemote.status.${piRemoteStatus}`);
+  const piRemoteButtonLabel = piRemoteBusy ? t("status.syncing") : piRemoteConnected ? t("actions.reconnectPi") : t("actions.connectPi");
+  const aBoardButtonLabel = aBoardBridgeBusy
+    ? t("status.syncing")
+    : aBoardBridgeConnected
+      ? t("actions.disconnectAboardBridge")
+      : t("actions.connectAboard");
+  const piServoButtonLabel = piServoBridgeBusy
+    ? t("status.syncing")
+    : piServoBridgeConnected
+      ? t("actions.disconnectPiServoBridge")
+      : t("actions.connectPiServo");
+
   return (
     <>
       <header className="topbar glass-surface">
@@ -74,17 +134,66 @@ export function AppHeaderBar({
             <p className="eyebrow">{t("app.eyebrow")}</p>
             <h1>{t("app.title")}</h1>
             <p className="system-line">
-              {isServoBusModule(activeModule) ? `USB Serial · 1000000 baud · ${activeModuleLabel}` : t("app.systemLine", { module: activeModuleLabel })}
+              {isServoBusModule(activeModule) ? servoModuleLine : t("app.systemLine", { module: activeModuleLabel })}
             </p>
           </div>
         </div>
-        <div className="system-strip" aria-label={t("aria.systemStatus")}>
-          <StatusCard label={t("status.serialLink")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
-          <StatusCard label={t("status.debugMode")} value={debugLabel} tone={debugEnabled ? "warning" : "neutral"} />
-          <StatusCard label={t("database.label")} value={databaseStatusValue} tone={databaseStatusTone(databaseStatus)} />
-          <StatusCard label={t("database.project")} value={projectStatusValue} tone={currentProject ? "online" : "warning"} />
-          <StatusCard label={t("database.lastSave")} value={databaseDetailValue} tone={databaseStatusTone(databaseStatus)} />
-          <StatusCard label={t("status.module")} value={sectionStatusValue(activeSection, t)} tone="neutral" />
+        <div className="topbar-status-area">
+          <div className="header-connection-strip" aria-label={t("aria.connectionControls")}>
+            <HeaderConnectionCard
+              label={t("metrics.piRemote")}
+              value={piRemoteValue}
+              detail={piRemoteTarget}
+              tone={piRemoteStatusTone}
+              buttonLabel={piRemoteButtonLabel}
+              buttonIcon={<Activity size={15} />}
+              buttonPrimary={!piRemoteConnected}
+              disabled={piRemoteBusy || !piRemoteCanConnect}
+              onClick={() => void testRaspberryPiConnection()}
+            />
+            <HeaderConnectionCard
+              label={t("metrics.piServoBridge")}
+              value={piServoBridgeLabel}
+              detail={piServoBridgeDetail || "Pi 6/8/10 serial0"}
+              tone={piServoBridgeTone}
+              buttonLabel={piServoButtonLabel}
+              buttonIcon={piServoBridgeConnected ? <Unplug size={15} /> : <Cable size={15} />}
+              buttonPrimary={!piServoBridgeConnected}
+              disabled={piServoBridgeBusy}
+              onClick={() => {
+                if (piServoBridgeConnected) {
+                  disconnectPiServoSerialBridge();
+                  return;
+                }
+                void startPiServoSerialBridge();
+              }}
+            />
+            <HeaderConnectionCard
+              label={t("metrics.aBoardBridge")}
+              value={aBoardBridgeLabel}
+              detail={aBoardBridgeDetail || "Pi 32/33 UART5"}
+              tone={aBoardBridgeTone}
+              buttonLabel={aBoardButtonLabel}
+              buttonIcon={aBoardBridgeConnected ? <Unplug size={15} /> : <Cable size={15} />}
+              buttonPrimary={!aBoardBridgeConnected}
+              disabled={aBoardBridgeBusy}
+              onClick={() => {
+                if (aBoardBridgeConnected) {
+                  disconnectAboardSerialBridge();
+                  return;
+                }
+                void startAboardSerialBridge();
+              }}
+            />
+          </div>
+          <div className="system-strip" aria-label={t("aria.systemStatus")}>
+            <StatusCard label={t("status.serialLink")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
+            <StatusCard label={t("status.debugMode")} value={debugLabel} tone={debugEnabled ? "warning" : "neutral"} />
+            <StatusCard label={t("database.label")} value={databaseStatusValue} tone={databaseStatusTone(databaseStatus)} />
+            <StatusCard label={t("database.project")} value={projectStatusValue} tone={currentProject ? "online" : "warning"} />
+            <StatusCard label={t("database.lastSave")} value={databaseDetailValue} tone={databaseStatusTone(databaseStatus)} />
+            <StatusCard label={t("status.module")} value={sectionStatusValue(activeSection, t)} tone="neutral" />
+          </div>
         </div>
       </header>
 
@@ -182,6 +291,45 @@ export function AppHeaderBar({
         </label>
       </section>
     </>
+  );
+}
+
+interface HeaderConnectionCardProps {
+  buttonIcon: ReactNode;
+  buttonLabel: string;
+  buttonPrimary: boolean;
+  detail: string;
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+  tone: StatusTone;
+  value: string;
+}
+
+function HeaderConnectionCard({
+  buttonIcon,
+  buttonLabel,
+  buttonPrimary,
+  detail,
+  disabled,
+  label,
+  onClick,
+  tone,
+  value
+}: HeaderConnectionCardProps) {
+  return (
+    <div className={`header-connection-card ${tone}`}>
+      <span className="status-led" aria-hidden="true" />
+      <div className="header-connection-copy">
+        <small>{label}</small>
+        <strong>{value}</strong>
+        <em>{detail}</em>
+      </div>
+      <button className={buttonPrimary ? "icon-button primary" : "icon-button"} disabled={disabled} onClick={onClick} type="button">
+        {buttonIcon}
+        <span>{buttonLabel}</span>
+      </button>
+    </div>
   );
 }
 

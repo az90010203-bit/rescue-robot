@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-export const DATA_SERVICE_SCHEMA_VERSION = 4;
+export const DATA_SERVICE_SCHEMA_VERSION = 5;
 export const DEFAULT_PROJECT_NAME = "Default Robot";
 
 import {
@@ -224,6 +224,7 @@ export async function createDataStore(dbPath = ":memory:") {
         name TEXT NOT NULL,
         component_ids_json TEXT NOT NULL,
         plugin_instance_ids_json TEXT NOT NULL,
+        config_json TEXT NOT NULL DEFAULT '{}',
         tags_json TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -246,6 +247,7 @@ export async function createDataStore(dbPath = ":memory:") {
 
     ensureColumn("components", "kind", "TEXT NOT NULL DEFAULT 'custom'");
     ensureColumn("components", "config_json", "TEXT NOT NULL DEFAULT '{}'");
+    ensureColumn("robots", "config_json", "TEXT NOT NULL DEFAULT '{}'");
 
     db.prepare(`
       INSERT INTO schema_meta (key, value)
@@ -334,6 +336,10 @@ export async function createDataStore(dbPath = ":memory:") {
     if (typeof filter.brand === "string" && filter.brand.trim()) {
       where.push("lower(brand) = lower(?)");
       params.push(filter.brand.trim());
+    }
+    if (typeof filter.model === "string" && filter.model.trim()) {
+      where.push("lower(model) = lower(?)");
+      params.push(filter.model.trim());
     }
     if (typeof filter.query === "string" && filter.query.trim()) {
       where.push("(lower(display_name) LIKE lower(?) OR lower(model) LIKE lower(?) OR lower(brand) LIKE lower(?) OR lower(tags_json) LIKE lower(?))");
@@ -561,7 +567,7 @@ export async function createDataStore(dbPath = ":memory:") {
     return db
       .prepare(`
         SELECT id, name, component_ids_json AS componentIdsJson, plugin_instance_ids_json AS pluginInstanceIdsJson,
-          tags_json AS tagsJson, created_at AS createdAt, updated_at AS updatedAt
+          config_json AS configJson, tags_json AS tagsJson, created_at AS createdAt, updated_at AS updatedAt
         FROM robots
         WHERE project_id = ?
         ORDER BY updated_at DESC, created_at DESC
@@ -573,7 +579,7 @@ export async function createDataStore(dbPath = ":memory:") {
   function getRobot(projectId, robotId) {
     const row = db.prepare(`
       SELECT id, name, component_ids_json AS componentIdsJson, plugin_instance_ids_json AS pluginInstanceIdsJson,
-        tags_json AS tagsJson, created_at AS createdAt, updated_at AS updatedAt
+        config_json AS configJson, tags_json AS tagsJson, created_at AS createdAt, updated_at AS updatedAt
       FROM robots
       WHERE project_id = ? AND id = ?
     `).get(projectId, robotId);
@@ -587,9 +593,9 @@ export async function createDataStore(dbPath = ":memory:") {
     assertPluginIdsAvailable(projectId, robot.pluginInstanceIds, { robotId: robot.id });
     const now = Date.now();
     db.prepare(`
-      INSERT INTO robots (id, project_id, name, component_ids_json, plugin_instance_ids_json, tags_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(robot.id, projectId, robot.name, JSON.stringify(robot.componentIds), JSON.stringify(robot.pluginInstanceIds), JSON.stringify(robot.tags), now, now);
+      INSERT INTO robots (id, project_id, name, component_ids_json, plugin_instance_ids_json, config_json, tags_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(robot.id, projectId, robot.name, JSON.stringify(robot.componentIds), JSON.stringify(robot.pluginInstanceIds), JSON.stringify(robot.config), JSON.stringify(robot.tags), now, now);
     touchProject(projectId, now);
     return getRobot(projectId, robot.id);
   }
@@ -606,9 +612,9 @@ export async function createDataStore(dbPath = ":memory:") {
     const now = Date.now();
     db.prepare(`
       UPDATE robots
-      SET name = ?, component_ids_json = ?, plugin_instance_ids_json = ?, tags_json = ?, updated_at = ?
+      SET name = ?, component_ids_json = ?, plugin_instance_ids_json = ?, config_json = ?, tags_json = ?, updated_at = ?
       WHERE project_id = ? AND id = ?
-    `).run(robot.name, JSON.stringify(robot.componentIds), JSON.stringify(robot.pluginInstanceIds), JSON.stringify(robot.tags), now, projectId, robotId);
+    `).run(robot.name, JSON.stringify(robot.componentIds), JSON.stringify(robot.pluginInstanceIds), JSON.stringify(robot.config), JSON.stringify(robot.tags), now, projectId, robotId);
     touchProject(projectId, now);
     return getRobot(projectId, robotId);
   }
@@ -617,6 +623,7 @@ export async function createDataStore(dbPath = ":memory:") {
     assertProject(projectId);
     const result = db.prepare("DELETE FROM robots WHERE project_id = ? AND id = ?").run(projectId, robotId);
     db.prepare("DELETE FROM panel_layouts WHERE project_id = ? AND scope_id = ?").run(projectId, `robot:${robotId}`);
+    db.prepare("DELETE FROM panel_layouts WHERE project_id = ? AND scope_id = ?").run(projectId, `console:robot:${robotId}`);
     touchProject(projectId);
     return { deleted: result.changes > 0 };
   }

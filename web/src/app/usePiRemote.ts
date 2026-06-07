@@ -29,7 +29,7 @@ import {
   type CameraLatencyProfile,
   type CameraVideoSource
 } from "../lib/storage";
-import { updateCameraSource } from "../features/drive/cameraSources";
+import { adaptCameraConfigToPiHost, updateCameraSource } from "../features/drive/cameraSources";
 import {
   LogEntry,
   LogValues,
@@ -75,6 +75,8 @@ export function usePiRemote({
   const [piRunPlan, setPiRunPlan] = useState<PiRunPlan | null>(null);
   const [piSetupComplete, setPiSetupComplete] = useState(false);
   const [piAdvancedOpen, setPiAdvancedOpen] = useState(false);
+  const [piRemoteConfigSaved, setPiRemoteConfigSaved] = useState(false);
+  const [piRemoteProfileLoaded, setPiRemoteProfileLoaded] = useState(false);
   const [piCameraStatus, setPiCameraStatus] = useState<PiCameraStatus>("idle");
   const [piCameraCheck, setPiCameraCheck] = useState<PiCameraCheckResult | null>(null);
   const [piCameraExecResult, setPiCameraExecResult] = useState<PiExecResult | null>(null);
@@ -106,40 +108,117 @@ export function usePiRemote({
     ? t("piRemote.exitCode") + " " + piRemoteExecResult.exitCode + " ? " + Math.max(1, Math.round(piRemoteExecResult.durationMs)) + " ms"
     : "--";
 
+  function savedString(value: unknown, fallback: string): string {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    return fallback;
+  }
+
+  function savedNonEmptyString(value: unknown, fallback: string): string {
+    const next = savedString(value, fallback);
+    return next.trim() ? next : fallback;
+  }
+
+  function normalizeSavedPiRemoteForm(value: unknown, current: PiRemoteForm): PiRemoteForm {
+    if (!value || typeof value !== "object") {
+      return current;
+    }
+    const profile = value as Partial<Record<keyof PiRemoteForm, unknown>>;
+    return {
+      ...current,
+      host: savedNonEmptyString(profile.host, current.host),
+      port: savedNonEmptyString(profile.port, current.port),
+      username: savedNonEmptyString(profile.username, current.username),
+      password: savedString(profile.password, current.password),
+      authMode: profile.authMode === "privateKey" ? "privateKey" : "password",
+      privateKeyPath: savedString(profile.privateKeyPath, current.privateKeyPath),
+      workspaceDir: savedNonEmptyString(profile.workspaceDir, current.workspaceDir),
+      remotePath: savedNonEmptyString(profile.remotePath, current.remotePath),
+      command: savedString(profile.command, current.command),
+      cwd: savedString(profile.cwd, current.cwd),
+      timeoutSeconds: savedNonEmptyString(profile.timeoutSeconds, current.timeoutSeconds)
+    };
+  }
+
+  function readSavedPiRemoteConfig(): Partial<PiRemoteForm> | null {
+    try {
+      const raw = window.localStorage.getItem(PI_SETUP_PROFILE_STORAGE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as Partial<PiRemoteForm>) : null;
+    } catch {
+      window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
+      return null;
+    }
+  }
+
+  function writeSavedPiRemoteConfig(config: Partial<PiRemoteForm>) {
+    window.localStorage.setItem(PI_SETUP_PROFILE_STORAGE_KEY, JSON.stringify(config));
+    setPiRemoteConfigSaved(true);
+  }
+
   useEffect(() => {
     void checkPiHelper(false);
   }, []);
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(PI_SETUP_PROFILE_STORAGE_KEY);
-      if (!raw) {
-        return;
+      const profile = readSavedPiRemoteConfig();
+      setPiRemoteConfigSaved(Boolean(profile));
+      if (profile) {
+        setPiRemoteForm((current) => normalizeSavedPiRemoteForm(profile, current));
       }
-      const profile = JSON.parse(raw) as Partial<PiSetupProfile>;
-      setPiRemoteForm((current) => ({
-        ...current,
-        host: typeof profile.host === "string" && profile.host ? profile.host : current.host,
-        username: typeof profile.username === "string" && profile.username ? profile.username : current.username,
-        authMode: profile.authMode === "privateKey" ? "privateKey" : "password",
-        privateKeyPath: typeof profile.privateKeyPath === "string" ? profile.privateKeyPath : current.privateKeyPath,
-        workspaceDir: typeof profile.workspaceDir === "string" && profile.workspaceDir ? profile.workspaceDir : current.workspaceDir
-      }));
     } catch {
       window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
+      setPiRemoteConfigSaved(false);
+    } finally {
+      setPiRemoteProfileLoaded(true);
     }
   }, []);
 
   useEffect(() => {
-    const profile: PiSetupProfile = {
+    if (!piRemoteProfileLoaded) {
+      return;
+    }
+    const profile: Partial<PiRemoteForm> = {
+      ...(readSavedPiRemoteConfig() ?? {}),
       host: piRemoteForm.host,
       username: piRemoteForm.username,
       authMode: piRemoteForm.authMode,
       privateKeyPath: piRemoteForm.privateKeyPath,
       workspaceDir: piRemoteForm.workspaceDir
     };
-    window.localStorage.setItem(PI_SETUP_PROFILE_STORAGE_KEY, JSON.stringify(profile));
-  }, [piRemoteForm.authMode, piRemoteForm.host, piRemoteForm.privateKeyPath, piRemoteForm.username, piRemoteForm.workspaceDir]);
+    writeSavedPiRemoteConfig(profile);
+  }, [piRemoteForm.authMode, piRemoteForm.host, piRemoteForm.privateKeyPath, piRemoteForm.username, piRemoteForm.workspaceDir, piRemoteProfileLoaded]);
+
+  useEffect(() => {
+    if (!piRemoteProfileLoaded) {
+      return;
+    }
+    const host = piRemoteForm.host.trim();
+    if (!host) {
+      return;
+    }
+    syncCameraConfigToPiHost(host);
+  }, [piRemoteForm.host, piRemoteProfileLoaded, setCameraConfig]);
+
+  function syncCameraConfigToPiHost(host = piRemoteForm.host) {
+    const nextHost = host.trim();
+    if (!nextHost) {
+      return;
+    }
+    setCameraConfig((current) => adaptCameraConfigToPiHost(current, nextHost));
+    resetCameraSourceRuntime?.(activeCameraSource.id);
+    setCameraStreamReloadToken?.((current) => current + 1);
+    setCameraStreamLoaded(false);
+    setCameraStreamFailed(false);
+  }
 
   function setPiRemoteFailure(error: unknown) {
     const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : t("piRemote.errors.requestFailed");
@@ -181,11 +260,25 @@ export function usePiRemote({
   function updatePiRemoteField(field: keyof PiRemoteForm, value: string) {
     setPiRemoteForm((current) => ({ ...current, [field]: value }));
     setPiRemoteError(null);
+    if (field === "host") {
+      syncCameraConfigToPiHost(value);
+    }
     if ((field === "workspaceDir" || field === "username") && piRemoteFile) {
       const nextWorkspaceDir = field === "workspaceDir" ? value : piRemoteForm.workspaceDir;
       const nextUsername = field === "username" ? value : piRemoteForm.username;
-      setPiRunPlan(createPiRunPlan(piRemoteFile.name, nextWorkspaceDir, nextUsername || "pi"));
+      setPiRunPlan(createPiRunPlan(piRemoteFile.name, nextWorkspaceDir, nextUsername || defaultPiRemoteForm.username));
     }
+  }
+
+  function savePiRemoteConfig() {
+    writeSavedPiRemoteConfig({ ...piRemoteForm });
+    addSystemLog("logs.piRemoteConfigSaved");
+  }
+
+  function clearPiRemoteConfig() {
+    window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
+    setPiRemoteConfigSaved(false);
+    addSystemLog("logs.piRemoteConfigCleared");
   }
 
   function updatePiRemoteFile(file: File | null) {
@@ -193,7 +286,7 @@ export function usePiRemote({
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
     setPiRemoteExecResult(null);
-    setPiRunPlan(file ? createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi") : null);
+    setPiRunPlan(file ? createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || defaultPiRemoteForm.username) : null);
   }
 
   async function checkPiHelper(log = true): Promise<PiHelperHealth | null> {
@@ -336,7 +429,7 @@ export function usePiRemote({
 
   async function uploadRaspberryPiFileWith(file: File) {
     setPiRemoteFile(file);
-    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi"));
+    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || defaultPiRemoteForm.username));
     setPiRemoteStatus("uploading");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -379,7 +472,7 @@ export function usePiRemote({
     const timeoutSeconds = Number(piRemoteForm.timeoutSeconds);
     setPiRemoteFile(file);
     setPiRemoteForm((current) => ({ ...current, command }));
-    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || "pi"));
+    setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || defaultPiRemoteForm.username));
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -558,18 +651,22 @@ export function usePiRemote({
     piRemoteExecResult,
     piRemoteFile,
     piRemoteForm,
+    piRemoteConfigSaved,
     piRemoteStatus,
     piRemoteStatusTone,
     piRemoteUploadResult,
     piRunPlan,
     piSetupComplete,
     runRaspberryPiFile,
+    savePiRemoteConfig,
     setPiAdvancedOpen,
     setPiCameraAdvancedOpen,
     setupRaspberryPiWorkspace,
     startRaspberryPiCameraStream,
     stopRaspberryPiCameraStream,
+    syncCameraConfigToPiHost,
     testRaspberryPiConnection,
+    clearPiRemoteConfig,
     updatePiRemoteField,
     updatePiRemoteFile,
     uploadAndExecRaspberryPiFile,

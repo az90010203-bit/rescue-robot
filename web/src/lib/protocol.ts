@@ -24,7 +24,15 @@ export type MotorDirection = "forward" | "reverse" | "stopped";
 export type MotorDriverType = "tb6618";
 export type MotorStopMode = "coast" | "brake";
 export type MotorCommandType = "motor.config" | "motor.set" | "motor.stop" | "motor.read";
+export type CanCommandType = "can.config" | "can.send" | "can.read" | "can.robomaster.current" | "can.robomaster.stop";
+export type ImuCommandType = "imu.read";
 export const MOTOR_DIRECTION_DEADTIME_MS = 50;
+
+export interface ImuRawVector {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export interface ServoProfile {
   id: number;
@@ -73,6 +81,8 @@ export interface MotorProfile {
   /** @deprecated Use enablePin for TB6618 EN/STBY when present. */
   brakePin?: string;
   sensorPin?: string;
+  encoderAPin?: string;
+  encoderBPin?: string;
 }
 
 export interface MotorTarget {
@@ -89,6 +99,8 @@ export interface MotorPortMapping {
   in2Pin: string;
   enablePin?: string;
   sensorPin?: string;
+  encoderAPin?: string;
+  encoderBPin?: string;
 }
 
 export interface MotorStopTarget {
@@ -109,7 +121,9 @@ export interface PcCommand {
     | "motor.config"
     | "motor.set"
     | "motor.stop"
-    | "motor.read";
+    | "motor.read"
+    | ImuCommandType
+    | CanCommandType;
   seq: number;
   [key: string]: unknown;
 }
@@ -147,6 +161,49 @@ export type InboundMessage =
       speedRpm?: number;
       pulseHz?: number;
       encoderTicks?: number;
+      encoderA?: number;
+      encoderB?: number;
+      encoderDelta?: number;
+      encoderDirection?: MotorDirection;
+      sampleMs?: number;
+    }
+  | {
+      type: "can.feedback";
+      seq: number;
+      command?: CanCommandType | "can.send";
+      ok?: boolean;
+      ready?: boolean;
+      controlId?: number;
+      slot?: number;
+      current?: number;
+      sent?: number;
+      txOk?: number;
+      txError?: number;
+      txTimeout?: number;
+      rxPending?: number;
+      esr?: number;
+    }
+  | {
+      type: "can.frame";
+      seq: number;
+      id: number;
+      extended?: boolean;
+      rtr?: boolean;
+      dlc?: number;
+      dataHex?: string;
+    }
+  | {
+      type: "imu.feedback";
+      seq: number;
+      ready?: boolean;
+      mpuWhoAmI?: number;
+      istWhoAmI?: number;
+      accelRaw?: ImuRawVector;
+      gyroRaw?: ImuRawVector;
+      magRaw?: ImuRawVector;
+      tempRaw?: number;
+      sampleMs?: number;
+      error?: string;
     }
   | { type: "log"; seq?: number; level?: "info" | "warn" | "error"; message: string };
 
@@ -646,6 +703,8 @@ export function buildMotorConfigCommand(seq: number, mapping: MotorPortMapping):
   const in2Pin = assertMotorPin(mapping.in2Pin, "in2Pin", true);
   const enablePin = assertMotorPin(mapping.enablePin, "enablePin");
   const sensorPin = assertMotorPin(mapping.sensorPin, "sensorPin");
+  const encoderAPin = assertMotorPin(mapping.encoderAPin, "encoderAPin");
+  const encoderBPin = assertMotorPin(mapping.encoderBPin, "encoderBPin");
 
   return {
     type: "motor.config",
@@ -657,7 +716,9 @@ export function buildMotorConfigCommand(seq: number, mapping: MotorPortMapping):
       in1: in1Pin,
       in2: in2Pin,
       ...(enablePin ? { enable: enablePin } : {}),
-      ...(sensorPin ? { sensor: sensorPin } : {})
+      ...(sensorPin ? { sensor: sensorPin } : {}),
+      ...(encoderAPin ? { encoderA: encoderAPin } : {}),
+      ...(encoderBPin ? { encoderB: encoderBPin } : {})
     }
   };
 }

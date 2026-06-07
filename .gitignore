@@ -4,6 +4,7 @@ dist/
 coverage/
 .platformio-venv/
 .pio/
+firmware/**/baremetal/build/
 .vscode/
 .codex-screenshots/
 *.tsbuildinfo

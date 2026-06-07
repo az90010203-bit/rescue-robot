@@ -1,4 +1,4 @@
-import { Camera, Cpu, Keyboard, Settings, SlidersHorizontal, Terminal } from "lucide-react";
+import { Box, Camera, CircuitBoard, Cpu, Keyboard, Settings, SlidersHorizontal, Terminal } from "lucide-react";
 import type { TFunction } from "i18next";
 import type { AppSection, TestPanel } from "./appModel";
 
@@ -45,9 +45,17 @@ export function ContextTabs({
             <SlidersHorizontal size={17} />
             <span>{t("testTabs.arm")}</span>
           </button>
+          <button className={activeTest === "arm3d" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("arm3d")} type="button">
+            <Box size={17} />
+            <span>{t("testTabs.arm3d")}</span>
+          </button>
           <button className={activeTest === "driveCamera" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("driveCamera")} type="button">
             <Camera size={17} />
             <span>{t("testTabs.driveCamera")}</span>
+          </button>
+          <button className={activeTest === "canServo" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("canServo")} type="button">
+            <CircuitBoard size={17} />
+            <span>{t("testTabs.canServo")}</span>
           </button>
           <button className={activeTest === "pi" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("pi")} type="button">
             <Terminal size={17} />

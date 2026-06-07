@@ -10,6 +10,7 @@ interface UsePlatformCommandsOptions {
   platformEventBusRef: MutableRefObject<PlatformEventBus>;
   rememberServoFeedback: (feedback: InboundMessage & { type: "servo.feedback" }) => void;
   sendMotorCommand: (command: PcCommand, options?: { log?: boolean; retryCount?: number }) => Promise<boolean>;
+  sendAboardBridgeMotorCommand?: (command: PcCommand, options?: { log?: boolean }) => Promise<boolean>;
   sendServoFrames: (frames: number[] | number[][], timeoutMs?: number) => Promise<ReturnType<typeof parseServoFeedback> extends never ? never : any>;
   sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean) => Promise<FeetechStatusPacket | null>;
   servos: ServoProfile[];
@@ -36,6 +37,7 @@ export function usePlatformCommands({
   nextSeq,
   platformEventBusRef,
   rememberServoFeedback,
+  sendAboardBridgeMotorCommand,
   sendMotorCommand,
   sendServoFrameUnlocked,
   sendServoFrames,
@@ -190,33 +192,36 @@ export function usePlatformCommands({
       }
 
       const channel = command.targetDeviceId.replace("motor:", "");
+      const sendSelectedMotorCommand = sendAboardBridgeMotorCommand ?? sendMotorCommand;
       if (command.type === "motor.set_speed") {
-        const response = await sendMotorCommand(buildMotorSetCommand(nextSeq(), { channel, speedPercent: Number(command.payload.speedPercent), stopMode: command.payload.stopMode as MotorStopMode | undefined }));
+        const response = await sendSelectedMotorCommand(buildMotorSetCommand(nextSeq(), { channel, speedPercent: Number(command.payload.speedPercent), stopMode: command.payload.stopMode as MotorStopMode | undefined }));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.stop") {
-        const response = await sendMotorCommand(buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined }));
+        const response = await sendSelectedMotorCommand(buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined }));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.read_feedback") {
-        const response = await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel });
+        const response = await sendSelectedMotorCommand({ type: "motor.read", seq: nextSeq(), channel });
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.configure") {
-        const response = await sendMotorCommand(buildMotorConfigCommand(nextSeq(), {
+        const response = await sendSelectedMotorCommand(buildMotorConfigCommand(nextSeq(), {
           channel,
           driver: "tb6618",
           pwmPin: String(command.payload.pwmPin),
           in1Pin: String(command.payload.in1Pin),
           in2Pin: String(command.payload.in2Pin),
           enablePin: typeof command.payload.enablePin === "string" ? command.payload.enablePin : undefined,
-          sensorPin: typeof command.payload.sensorPin === "string" ? command.payload.sensorPin : undefined
+          sensorPin: typeof command.payload.sensorPin === "string" ? command.payload.sensorPin : undefined,
+          encoderAPin: typeof command.payload.encoderAPin === "string" ? command.payload.encoderAPin : undefined,
+          encoderBPin: typeof command.payload.encoderBPin === "string" ? command.payload.encoderBPin : undefined
         }));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);

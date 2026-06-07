@@ -13,16 +13,14 @@ interface UseSingleMotorRuntimeOptions {
   cancelMotorLinkageMove: (id?: string) => void;
   cancelMotorLinkageMovesForChannels: (channels: string[]) => void;
   cancelSingleMotorMove: (channel?: string) => void;
-  connected: boolean;
-  connectionMode: string | null;
   dispatchPlatformCommand: (command: any) => Promise<{ status: string }>;
   lastDriveCommandRef: { current: string };
+  motorControllerReady: boolean;
   motorSpeed: string;
   pendingSingleMotorMoveRef: { current: PendingSingleMotorMove | null };
   selectedMotor: { channel: string } | undefined;
   sendMotorCommand: (command: PcCommand, options?: { log?: boolean; retryCount?: number }) => Promise<boolean>;
   sendMotorCommandBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<boolean>;
-  serialRef: { current: unknown };
   setMotorSpeed: (value: string) => void;
   singleMotorGenerationRef: { current: number };
   singleMotorLiveSendingRef: { current: boolean };
@@ -36,17 +34,15 @@ export function useSingleMotorRuntime({
   cancelMotorLinkageMove,
   cancelMotorLinkageMovesForChannels,
   cancelSingleMotorMove,
-  connected,
-  connectionMode,
   dispatchPlatformCommand,
   lastDriveCommandRef,
+  motorControllerReady,
   motorSpeed,
   nextSeq,
   pendingSingleMotorMoveRef,
   selectedMotor,
   sendMotorCommand,
   sendMotorCommandBatch,
-  serialRef,
   setMotorSpeed,
   singleMotorGenerationRef,
   singleMotorLiveSendingRef,
@@ -95,7 +91,7 @@ export function useSingleMotorRuntime({
 
     const pending = pendingSingleMotorMoveRef.current;
     pendingSingleMotorMoveRef.current = null;
-    if (!pending || !connected || connectionMode === "servo-bus") {
+    if (!pending || !motorControllerReady) {
       return;
     }
 
@@ -151,7 +147,7 @@ export function useSingleMotorRuntime({
     lastDriveCommandRef.current = "";
     cancelSingleMotorMove();
     cancelMotorLinkageMove();
-    if (quiet && (!serialRef.current || !connected || connectionMode === "servo-bus")) {
+    if (quiet && !motorControllerReady) {
       setMotorSpeed("0");
       return;
     }
@@ -159,8 +155,12 @@ export function useSingleMotorRuntime({
     setMotorSpeed("0");
   }
 
-  async function readMotor() {
+  async function readMotor(options: { log?: boolean } = {}) {
     if (!selectedMotor) {
+      return;
+    }
+    if (options.log === false) {
+      await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel: selectedMotor.channel }, { log: false });
       return;
     }
     await dispatchPlatformCommand(createPlatformCommand("motor.read_feedback", `motor:${selectedMotor.channel}`));

@@ -26,6 +26,11 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     armTeachStatus,
     armTeachTracks,
     armTeachUnsavedTrack,
+    aBoardBridgeConnected,
+    aBoardBridgeDetail,
+    aBoardBridgeError,
+    aBoardBridgeLabel,
+    aBoardBridgeTone,
     calculateArmMotionTargets,
     canCompileFirmware,
     canUploadFirmware,
@@ -34,7 +39,6 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     checkFirmwareHelper,
     compileArduinoFirmware,
     connected,
-    connectionMode,
     currentServoSafetyConfig,
     currentServoSmoothConfig,
     debugEnabled,
@@ -70,6 +74,8 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     motorDebugHandshakeTone,
     motorDirection,
     motorDuty,
+    motorTestBoard,
+    motorControllerReady,
     motorFeedback,
     motorPreviewCommand,
     motorSpeed,
@@ -79,6 +85,10 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     pauseArmTeachPlayback,
     pauseServo,
     pauseServoLinkageGroup,
+    piServoBridgeDetail,
+    piServoBridgeError,
+    piServoBridgeLabel,
+    piServoBridgeTone,
     pingServo,
     playArmTeachTrack,
     readMotor,
@@ -122,6 +132,7 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     setFirmwareBoard,
     setFirmwareJob,
     setFirmwareStatus,
+    setMotorTestBoard,
     setSelectedArmTeachTrackId,
     setSelectedChannel,
     setSelectedFirmwarePort,
@@ -255,6 +266,10 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                   linkageWheelDirectionByGroup={linkageWheelDirectionByGroup}
                   pauseServo={pauseServo}
                   pauseServoLinkageGroup={pauseServoLinkageGroup}
+                  piServoBridgeDetail={piServoBridgeDetail}
+                  piServoBridgeError={piServoBridgeError}
+                  piServoBridgeLabel={piServoBridgeLabel}
+                  piServoBridgeTone={piServoBridgeTone}
                   pingServo={pingServo}
                   readServo={readServo}
                   selectedId={selectedId}
@@ -290,10 +305,14 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                 <MotorCommandPanel
                   canCompileFirmware={canCompileFirmware}
                   canUploadFirmware={canUploadFirmware}
+                  aBoardBridgeConnected={aBoardBridgeConnected}
+                  aBoardBridgeDetail={aBoardBridgeDetail}
+                  aBoardBridgeError={aBoardBridgeError}
+                  aBoardBridgeLabel={aBoardBridgeLabel}
+                  aBoardBridgeTone={aBoardBridgeTone}
                   checkFirmwareHelper={checkFirmwareHelper}
                   compileArduinoFirmware={compileArduinoFirmware}
                   connected={connected}
-                  connectionMode={connectionMode}
                   debugEnabled={debugEnabled}
                   downloadArduinoFirmware={downloadArduinoFirmware}
                   enabledMotorLinkageGroups={enabledMotorLinkageGroups}
@@ -317,9 +336,11 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                   motorDebugHandshakeTone={motorDebugHandshakeTone}
                   motorDirection={motorDirection}
                   motorDuty={motorDuty}
+                  motorControllerReady={motorControllerReady}
                   motorFeedback={motorFeedback}
                   motorPreviewCommand={motorPreviewCommand}
                   motorSpeed={motorSpeed}
+                  motorTestBoard={motorTestBoard}
                   motors={motors}
                   numericMotorSpeed={numericMotorSpeed}
                   readMotor={readMotor}
@@ -334,6 +355,7 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                   setFirmwareBoard={setFirmwareBoard}
                   setFirmwareJob={setFirmwareJob}
                   setFirmwareStatus={setFirmwareStatus}
+                  setMotorTestBoard={setMotorTestBoard}
                   setSelectedChannel={setSelectedChannel}
                   setSelectedFirmwarePort={setSelectedFirmwarePort}
                   setStopMode={setStopMode}

@@ -8,6 +8,7 @@ import {
   createDeviceCatalogItem,
   createPluginInstance,
   createProject,
+  createRobot,
   deleteArmTeachTrack,
   deletePluginInstance,
   listComponents,
@@ -16,10 +17,12 @@ import {
   listPluginInstances,
   listRobots,
   loadCurrentProjectState,
+  loadPanelLayout,
   savePanelLayout,
   saveProjectState,
   saveArmTeachTrack,
-  selectProject
+  selectProject,
+  updateRobot
 } from "./dataService";
 import { createAppConfigSnapshot, createAppStateSnapshotV2 } from "./appDatabase";
 import { DEFAULT_CAMERA_CONFIG, DEFAULT_MOTORS, DEFAULT_SERVOS, createDefaultArmConfig } from "./storage";
@@ -177,6 +180,7 @@ describe("data service client", () => {
     });
 
     await expect(listDeviceCatalog({ type: "servo", query: "3215" }, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([catalogItem]);
+    await expect(listDeviceCatalog({ type: "servo", brand: "ASME", model: "ASME-SE" }, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([catalogItem]);
     await expect(createDeviceCatalogItem(catalogItem, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(catalogItem);
     await expect(listPluginInstances("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([pluginInstance]);
     await expect(createPluginInstance("project 1", pluginInstance, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(pluginInstance);
@@ -184,10 +188,17 @@ describe("data service client", () => {
     await expect(listComponents("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([component]);
     await expect(createComponent("project 1", component, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(component);
     await expect(listRobots("project 1", { fetcher, baseUrl: "http://data.test" })).resolves.toEqual([robot]);
+    await expect(createRobot("project 1", robot, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(robot);
+    await expect(updateRobot("project 1", robot.id, { config: robot.config }, { fetcher, baseUrl: "http://data.test" })).resolves.toEqual(robot);
+    await expect(loadPanelLayout("project 1", "console:robot:robot 1", { fetcher, baseUrl: "http://data.test" })).resolves.toMatchObject({ scopeId: "robot:1" });
     await expect(savePanelLayout("project 1", "robot:1", [], { fetcher, baseUrl: "http://data.test" })).resolves.toMatchObject({ scopeId: "robot:1" });
 
     expect(calls.map((call) => [call.method, call.url])).toContainEqual(["GET", "http://data.test/catalog/devices?type=servo&query=3215"]);
+    expect(calls.map((call) => [call.method, call.url])).toContainEqual(["GET", "http://data.test/catalog/devices?type=servo&brand=ASME&model=ASME-SE"]);
     expect(calls.map((call) => [call.method, call.url])).toContainEqual(["DELETE", "http://data.test/projects/project%201/plugin-instances/servo%201"]);
+    expect(calls).toContainEqual({ method: "POST", url: "http://data.test/projects/project%201/robots", body: { robot } });
+    expect(calls).toContainEqual({ method: "PATCH", url: "http://data.test/projects/project%201/robots/robot%201", body: { robot: { config: robot.config } } });
+    expect(calls.map((call) => [call.method, call.url])).toContainEqual(["GET", "http://data.test/projects/project%201/panel-layouts/console%3Arobot%3Arobot%201"]);
     expect(calls.map((call) => [call.method, call.url])).toContainEqual(["PUT", "http://data.test/projects/project%201/panel-layouts/robot%3A1"]);
   });
 
@@ -235,7 +246,7 @@ const pluginInstance = {
   driverId: catalogItem.driverId,
   transportId: catalogItem.transportId,
   capabilities: catalogItem.capabilities,
-  config: { servoId: 7 },
+  config: { servoId: 7, detectedDeviceId: "feetech:feedback:id:7", detectedAt: 1234, detectedSource: "feetech-servo" },
   tags: ["servo"],
   createdAt: 1,
   updatedAt: 1
@@ -255,6 +266,17 @@ const robot = {
   name: "Robot",
   componentIds: [component.id],
   pluginInstanceIds: [],
+  config: {
+    assembly: {
+      version: 2 as const,
+      nodes: [{ id: "component:component 1", sourceType: "component" as const, sourceId: component.id, x: 40, y: 60, w: 180, h: 120, visualKind: "robot-arm" as const }],
+      ports: [{ id: "component:component 1:port:servo-bus", nodeId: "component:component 1", name: "SERVO", label: "Servo bus", kind: "servo-bus" as const, direction: "bidirectional" as const, side: "right" as const, x: 180, y: 72 }],
+      edges: [],
+      harnesses: [{ id: "harness:servo", name: "Servo bus", color: "#38bdf8", hidden: false }],
+      controlMappings: []
+    },
+    actionButtons: [{ id: "button:ready", name: "Ready Pose", color: "#38bdf8", icon: "spark", confirmRequired: true, timeoutMs: 8000, steps: [{ id: "step:1", kind: "servo.move" as const, label: "Move servo", pluginInstanceId: pluginInstance.id, angleDeg: 90, speedRaw: 600, acc: 30 }] }]
+  },
   tags: [],
   createdAt: 1,
   updatedAt: 1

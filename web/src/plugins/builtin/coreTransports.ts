@@ -6,7 +6,7 @@ export const coreTransportsPackage: PlatformPluginPackage = {
     name: "Core Transports",
     version: "0.1.0",
     description: "Shared transport definitions for browser serial, browser input, browser media, local helpers, and SSH links.",
-    provides: ["transport.web-serial", "transport.controller-json", "transport.browser-gamepad-api", "transport.browser-media", "transport.local-helper", "transport.ssh"]
+    provides: ["transport.web-serial", "transport.controller-json", "transport.a-board-can1", "transport.browser-gamepad-api", "transport.browser-media", "transport.local-helper", "transport.ssh"]
   },
   plugins: [
     {
@@ -22,6 +22,13 @@ export const coreTransportsPackage: PlatformPluginPackage = {
       name: "Controller JSON Serial",
       version: "0.1.0",
       modes: ["json"]
+    },
+    {
+      id: "transport.a-board-can1",
+      kind: "transport",
+      name: "RoboMaster A CAN1 Bridge",
+      version: "0.1.0",
+      modes: ["http", "serial-bridge", "can1"]
     },
     {
       id: "transport.browser-gamepad-api",

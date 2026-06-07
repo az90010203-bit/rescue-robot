@@ -19,11 +19,10 @@ interface UseArmRuntimeOptions {
   armLiveTimerRef: { current: number | undefined };
   armSegmentPoses: ArmSegmentPose[];
   cancelArmLiveMove: () => void;
-  connected: boolean;
-  connectionMode: string | null;
   draggingArmJointIdRef: { current: string | null };
   pendingArmConfigRef: { current: ArmConfig | null };
   runArmPositionMotion: (config: ArmConfig, live?: boolean) => Promise<unknown>;
+  servoBusReady: boolean;
   servoSmoothingEnabled: boolean;
   servos: ServoProfile[];
   setArmConfig: (value: ArmConfig | ((current: ArmConfig) => ArmConfig)) => void;
@@ -36,11 +35,10 @@ export function useArmRuntime({
   armLiveTimerRef,
   armSegmentPoses,
   cancelArmLiveMove,
-  connected,
-  connectionMode,
   draggingArmJointIdRef,
   pendingArmConfigRef,
   runArmPositionMotion,
+  servoBusReady,
   servoSmoothingEnabled,
   servos,
   setArmConfig
@@ -188,7 +186,7 @@ export function useArmRuntime({
   }
 
   function scheduleArmLiveMove(config: ArmConfig) {
-    if (!config.liveDragEnabled || !connected || connectionMode !== "servo-bus") {
+    if (!config.liveDragEnabled || !servoBusReady) {
       return;
     }
     pendingArmConfigRef.current = config;
@@ -207,7 +205,7 @@ export function useArmRuntime({
     }
     const pending = pendingArmConfigRef.current;
     pendingArmConfigRef.current = null;
-    if (!pending || !pending.liveDragEnabled || !connected || connectionMode !== "servo-bus") {
+    if (!pending || !pending.liveDragEnabled || !servoBusReady) {
       return;
     }
 
