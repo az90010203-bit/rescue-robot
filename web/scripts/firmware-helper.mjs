@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { isLocalRequest, readJsonBody as readHelperJsonBody, sendErrorJson, sendJson } from "./local-http-helper.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.FIRMWARE_HELPER_PORT ?? 17350);
@@ -124,35 +125,8 @@ function runProcess(command, args, { cwd, timeoutMs = 30_000 } = {}) {
   });
 }
 
-function isLocalRequest(request) {
-  const address = request.socket.remoteAddress;
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Content-Type": "application/json; charset=utf-8"
-  });
-  response.end(JSON.stringify(body));
-}
-
 async function readJsonBody(request) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of request) {
-    total += chunk.length;
-    if (total > MAX_REQUEST_BYTES) {
-      throw Object.assign(new Error("request body is too large"), { statusCode: 413 });
-    }
-    chunks.push(chunk);
-  }
-  if (chunks.length === 0) {
-    return {};
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return readHelperJsonBody(request, { maxBytes: MAX_REQUEST_BYTES });
 }
 
 async function listPorts() {
@@ -326,9 +300,9 @@ async function route(request, response) {
 
 const server = createServer((request, response) => {
   route(request, response).catch((error) => {
-    sendJson(response, error.statusCode ?? 500, {
-      error: error.message || "firmware helper error",
-      logs: error.logs
+    sendErrorJson(response, error, {
+      fallbackMessage: "firmware helper error",
+      extra: { logs: error.logs }
     });
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   checkPiReadiness,
+  buildPiUsbGadgetSetupCommand,
   checkPiCamera,
   createPiRunPlan,
   execPiCommand,
@@ -11,6 +12,7 @@ import {
   requestPiHelperHealth,
   runUploadedFile,
   setupPiCameraScripts,
+  setupPiUsbGadget,
   setupPiWorkspace,
   startPiCameraStream,
   stopPiCameraStream,
@@ -451,5 +453,28 @@ describe("Raspberry Pi remote client", () => {
     ).resolves.toMatchObject({ ok: true });
     const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
     expect(body.command).toBe("sudo -n apt-get update && sudo -n apt-get install -y ffmpeg v4l-utils python3-venv python3-pip");
+  });
+
+  it("builds a USB gadget setup command for Trixie and legacy systems", () => {
+    const command = buildPiUsbGadgetSetupCommand();
+    expect(command).toContain("hostnamectl set-hostname rescue-pi");
+    expect(command).toContain("rpi-usb-gadget on");
+    expect(command).toContain("dtoverlay=dwc2");
+    expect(command).toContain("modules-load=dwc2,g_ether");
+    expect(command).toContain("10.43.0.1/24");
+    expect(command).toContain("reboot_required:1");
+  });
+
+  it("runs USB gadget setup through the Pi helper", async () => {
+    const fetcher = vi.fn(async () => jsonResponse({ stdout: "mode:rpi-usb-gadget\n", stderr: "", exitCode: 0, signal: null, durationMs: 55, timedOut: false }));
+
+    await expect(
+      setupPiUsbGadget({ host: "rescue-pi.local", port: 22, username: "robot1", password: "secret" }, { fetcher: fetcher as unknown as typeof fetch })
+    ).resolves.toMatchObject({ ok: true, exec: { exitCode: 0 } });
+
+    const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(body.host).toBe("rescue-pi.local");
+    expect(body.timeoutMs).toBe(120_000);
+    expect(body.command).toContain("usb_gadget_setup:start");
   });
 });

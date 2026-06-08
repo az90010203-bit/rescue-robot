@@ -1,40 +1,19 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { DATA_SERVICE_SCHEMA_VERSION, defaultDatabasePath, openDataStore } from "./data-store.mjs";
+import { isLocalRequest, readJsonBody as readHelperJsonBody, sendErrorJson, sendJson as sendBaseJson } from "./local-http-helper.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.DATA_SERVICE_PORT ?? 17351);
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
-
-function isLocalRequest(request) {
-  const address = request.socket.remoteAddress;
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
+const DATA_SERVICE_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS";
 
 function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "Content-Type": "application/json; charset=utf-8"
-  });
-  response.end(JSON.stringify(body));
+  sendBaseJson(response, statusCode, body, { methods: DATA_SERVICE_METHODS });
 }
 
 async function readJsonBody(request) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of request) {
-    total += chunk.length;
-    if (total > MAX_REQUEST_BYTES) {
-      throw Object.assign(new Error("request body is too large"), { statusCode: 413 });
-    }
-    chunks.push(chunk);
-  }
-  if (chunks.length === 0) {
-    return {};
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return readHelperJsonBody(request, { maxBytes: MAX_REQUEST_BYTES });
 }
 
 function projectPayload(store, project) {
@@ -246,8 +225,9 @@ async function route(store, request, response) {
 const store = await openDataStore();
 const server = createServer((request, response) => {
   route(store, request, response).catch((error) => {
-    sendJson(response, error.statusCode ?? 500, {
-      error: error.message || "data service error"
+    sendErrorJson(response, error, {
+      fallbackMessage: "data service error",
+      methods: DATA_SERVICE_METHODS
     });
   });
 });

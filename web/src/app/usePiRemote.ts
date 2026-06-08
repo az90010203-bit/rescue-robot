@@ -18,10 +18,12 @@ import {
   runUploadedFile,
   startPiCameraStream,
   stopPiCameraStream,
+  setupPiUsbGadget,
   setupPiWorkspace,
   uploadAndExecPiFile,
   uploadPiFile
 } from "../lib/piRemote";
+import { discoverRaspberryPi, recommendedPiDiscoveryResult, type PiDiscoveryProbeResult } from "../lib/piDiscovery";
 import {
   CAMERA_LATENCY_PROFILE_SETTINGS,
   MAIN_CAMERA_SOURCE_ID,
@@ -82,8 +84,13 @@ export function usePiRemote({
   const [piCameraExecResult, setPiCameraExecResult] = useState<PiExecResult | null>(null);
   const [piCameraError, setPiCameraError] = useState<string | null>(null);
   const [piCameraAdvancedOpen, setPiCameraAdvancedOpen] = useState(false);
+  const [piDiscoveryStatus, setPiDiscoveryStatus] = useState<"idle" | "scanning" | "complete" | "error">("idle");
+  const [piDiscoveryResults, setPiDiscoveryResults] = useState<PiDiscoveryProbeResult[]>([]);
+  const [piDiscoveryError, setPiDiscoveryError] = useState<string | null>(null);
 
   const piRemoteBusy = piRemoteStatus === "checking" || piRemoteStatus === "settingUp" || piRemoteStatus === "uploading" || piRemoteStatus === "running";
+  const piDiscoveryBusy = piDiscoveryStatus === "scanning";
+  const piDiscoveryRecommended = recommendedPiDiscoveryResult(piDiscoveryResults);
   const piRemoteStatusTone: "neutral" | "online" | "warning" | "danger" =
     piRemoteStatus === "error" ? "danger" : piRemoteStatus === "ready" || piRemoteStatus === "complete" ? "online" : piRemoteBusy ? "warning" : "neutral";
   const piHelperLabel =
@@ -104,6 +111,8 @@ export function usePiRemote({
   const canRunPiFile = !piRemoteBusy && piConnectionReady && piFileReady;
   const canUploadAndExecPiFile = canUploadPiFile && piCommandReady;
   const canUsePiCamera = piConnectionReady && !piCameraBusy;
+  const canDiscoverPi = !piRemoteBusy && !piDiscoveryBusy;
+  const canSetupPiUsbGadget = !piRemoteBusy && piConnectionReady;
   const piOutputLabel = piRemoteExecResult
     ? t("piRemote.exitCode") + " " + piRemoteExecResult.exitCode + " ? " + Math.max(1, Math.round(piRemoteExecResult.durationMs)) + " ms"
     : "--";
@@ -326,6 +335,68 @@ export function usePiRemote({
         setPiRemoteError(t("piRemote.errors.pythonMissing"));
       } else if (!result.workspaceReady) {
         setPiRemoteError(t("piRemote.errors.workspaceMissing"));
+      }
+    } catch (error) {
+      setPiRemoteFailure(error);
+    }
+  }
+
+  async function discoverRaspberryPiHosts() {
+    setPiDiscoveryStatus("scanning");
+    setPiDiscoveryError(null);
+    try {
+      const port = Number(piRemoteForm.port);
+      const results = await discoverRaspberryPi({
+        savedHost: piRemoteForm.host,
+        port: Number.isFinite(port) ? port : 22,
+        username: piRemoteForm.username.trim() || defaultPiRemoteForm.username,
+        password: piRemoteForm.authMode === "password" ? piRemoteForm.password || undefined : undefined,
+        privateKeyPath: piRemoteForm.authMode === "privateKey" ? piRemoteForm.privateKeyPath.trim() || undefined : undefined
+      });
+      const recommended = recommendedPiDiscoveryResult(results);
+      setPiDiscoveryResults(results);
+      setPiDiscoveryStatus("complete");
+      addSystemLog("logs.piDiscoveryComplete", recommended ? "info" : "warn", {
+        count: results.filter((result) => result.status !== "offline").length,
+        host: recommended?.candidate.host ?? "--"
+      });
+      if (!recommended) {
+        setPiDiscoveryError(t("piRemote.discovery.errors.noHost"));
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : t("piRemote.discovery.errors.scanFailed");
+      setPiDiscoveryStatus("error");
+      setPiDiscoveryError(message);
+      addLog("system", message, "error");
+    }
+  }
+
+  function applyPiDiscoveryHost(host: string) {
+    const nextHost = host.trim();
+    if (!nextHost) {
+      return;
+    }
+    setPiRemoteForm((current) => ({ ...current, host: nextHost }));
+    syncCameraConfigToPiHost(nextHost);
+    setPiRemoteError(null);
+    setPiDiscoveryError(null);
+    addSystemLog("logs.piDiscoveryHostApplied", "info", { host: nextHost });
+  }
+
+  async function setupRaspberryPiUsbGadget() {
+    if (!window.confirm(t("piRemote.usbRecovery.setupConfirm"))) {
+      return;
+    }
+    setPiRemoteStatus("running");
+    setPiRemoteError(null);
+    setPiRemoteExecResult(null);
+    try {
+      const result = await setupPiUsbGadget(piConnectionRequest());
+      setPiRemoteExecResult(result.exec);
+      setPiRemoteStatus(result.ok ? "complete" : "error");
+      addSystemLog("logs.piUsbGadgetConfigured", result.ok ? "info" : "warn", { code: result.exec.exitCode });
+      if (!result.ok) {
+        setPiRemoteError(result.exec.stderr || result.exec.stdout || t("piRemote.usbRecovery.errors.setupFailed"));
       }
     } catch (error) {
       setPiRemoteFailure(error);
@@ -619,8 +690,10 @@ export function usePiRemote({
   }
   return {
     canExecPiCommand,
+    canDiscoverPi,
     canRunPiFile,
     canSetupPiWorkspace,
+    canSetupPiUsbGadget,
     canTestPiConnection,
     canUploadAndExecPiFile,
     canUploadPiFile,
@@ -629,6 +702,8 @@ export function usePiRemote({
     checkRaspberryPiCamera,
     clearPiCameraOutput,
     clearPiOutput,
+    applyPiDiscoveryHost,
+    discoverRaspberryPiHosts,
     execRaspberryPiCommand,
     execRaspberryPiCommandWith,
     installRaspberryPiCameraTools,
@@ -641,6 +716,11 @@ export function usePiRemote({
     piCameraStatus,
     piCommandReady,
     piConnectionReady,
+    piDiscoveryBusy,
+    piDiscoveryError,
+    piDiscoveryRecommended,
+    piDiscoveryResults,
+    piDiscoveryStatus,
     piFileReady,
     piHelperHealth,
     piHelperLabel,
@@ -661,6 +741,7 @@ export function usePiRemote({
     savePiRemoteConfig,
     setPiAdvancedOpen,
     setPiCameraAdvancedOpen,
+    setupRaspberryPiUsbGadget,
     setupRaspberryPiWorkspace,
     startRaspberryPiCameraStream,
     stopRaspberryPiCameraStream,

@@ -449,7 +449,7 @@ export function CanServoTestPage({
       <PanelTitle
         icon={<CircuitBoard size={18} />}
         id="can-servo-title"
-        meta={`${host || "raspberrypi.local"} / CAN1 / ${bitrateKbps} kbit/s`}
+        meta={`${host || "rescue-pi.local"} / CAN1 / ${bitrateKbps} kbit/s`}
         title={t("panels.canServo")}
       />
 

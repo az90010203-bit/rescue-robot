@@ -120,6 +120,11 @@ export interface PiCameraInstallResult {
   exec: PiExecResult;
 }
 
+export interface PiUsbGadgetSetupResult {
+  ok: boolean;
+  exec: PiExecResult;
+}
+
 export type PiRemoteErrorCode = "helperUnavailable" | "requestFailed" | "invalidResponse" | "fileTooLarge" | "fileReadFailed";
 
 export class PiRemoteError extends Error {
@@ -403,6 +408,65 @@ export async function installPiCameraTools(
   return { ok: exec.exitCode === 0, exec };
 }
 
+export async function setupPiUsbGadget(connection: PiConnectionRequest, options: PiRemoteRequestOptions = {}): Promise<PiUsbGadgetSetupResult> {
+  const exec = await execPiCommand({ ...connection, command: buildPiUsbGadgetSetupCommand(), timeoutMs: 120_000 }, options);
+  return { ok: exec.exitCode === 0, exec };
+}
+
+export function buildPiUsbGadgetSetupCommand(): string {
+  return String.raw`set -eu
+echo "usb_gadget_setup:start"
+sudo -n hostnamectl set-hostname rescue-pi || true
+codename="$(. /etc/os-release 2>/dev/null; echo "\${VERSION_CODENAME:-}")"
+if [ "$codename" = "trixie" ]; then
+  if ! command -v rpi-usb-gadget >/dev/null 2>&1; then
+    sudo -n apt-get update
+    sudo -n apt-get install -y rpi-usb-gadget
+  fi
+  sudo -n rpi-usb-gadget on
+  echo "mode:rpi-usb-gadget"
+else
+  boot_dir="/boot/firmware"
+  if [ ! -d "$boot_dir" ]; then boot_dir="/boot"; fi
+  config_file="$boot_dir/config.txt"
+  cmdline_file="$boot_dir/cmdline.txt"
+  sudo -n touch "$config_file"
+  if ! grep -q '^dtoverlay=dwc2$' "$config_file"; then
+    printf '\ndtoverlay=dwc2\n' | sudo -n tee -a "$config_file" >/dev/null
+  fi
+  sudo -n cp "$cmdline_file" "$cmdline_file.rescue-robot.$(date +%s).bak"
+  if ! grep -qw 'modules-load=dwc2,g_ether' "$cmdline_file"; then
+    sudo -n sed -i 's/$/ modules-load=dwc2,g_ether/' "$cmdline_file"
+  fi
+  if command -v nmcli >/dev/null 2>&1; then
+    if sudo -n nmcli connection show rescue-usb-gadget >/dev/null 2>&1; then
+      sudo -n nmcli connection modify rescue-usb-gadget ifname usb0 ipv4.method manual ipv4.addresses 10.43.0.1/24 ipv6.method ignore
+    else
+      sudo -n nmcli connection add type ethernet ifname usb0 con-name rescue-usb-gadget ipv4.method manual ipv4.addresses 10.43.0.1/24 ipv6.method ignore
+    fi
+    sudo -n nmcli connection up rescue-usb-gadget || true
+  else
+    sudo -n mkdir -p /etc/systemd/network
+    cat <<'RESCUE_USB0_NETWORK' | sudo -n tee /etc/systemd/network/80-rescue-usb0.network >/dev/null
+[Match]
+Name=usb0
+
+[Network]
+Address=10.43.0.1/24
+LinkLocalAddressing=yes
+RESCUE_USB0_NETWORK
+    sudo -n systemctl enable systemd-networkd || true
+  fi
+  echo "mode:manual-g_ether"
+fi
+sudo -n systemctl enable ssh || true
+sudo -n systemctl enable avahi-daemon || true
+echo "hostname:rescue-pi"
+echo "usb_fallback:10.12.194.1"
+echo "manual_usb_fallback:10.43.0.1"
+echo "reboot_required:1"`;
+}
+
 export function createPiRunPlan(fileName: string, workspaceDir: string, username: string): PiRunPlan {
   const safeFileName = sanitizeRemoteFileName(fileName);
   const remoteWorkspaceDir = resolvePiWorkspaceDir(workspaceDir, username);
@@ -450,11 +514,11 @@ export function sanitizeRemoteFileName(fileName: string): string {
 }
 
 export function buildPiCameraStreamUrl(host: string, port = 8080): string {
-  return `http://${host.trim() || "raspberrypi.local"}:${normalizePiCameraPort(port)}/stream`;
+  return `http://${host.trim() || "rescue-pi.local"}:${normalizePiCameraPort(port)}/stream`;
 }
 
 export function buildPiCameraWebrtcOfferUrl(host: string, port = 8080): string {
-  return `http://${host.trim() || "raspberrypi.local"}:${normalizePiCameraPort(port)}/offer`;
+  return `http://${host.trim() || "rescue-pi.local"}:${normalizePiCameraPort(port)}/offer`;
 }
 
 export function parsePiCameraCheckOutput(stdout: string): Omit<PiCameraCheckResult, "streamUrl" | "webrtcOfferUrl" | "stdout" | "stderr"> {

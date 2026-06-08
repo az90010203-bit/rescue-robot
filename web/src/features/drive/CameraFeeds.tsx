@@ -1,16 +1,13 @@
-import { VideoOff } from "lucide-react";
 import type { TFunction } from "i18next";
-import { Metric } from "../../shared/ui/AppChrome";
 import {
-  MAIN_CAMERA_SOURCE_ID,
   type CameraConfig,
   type CameraLatencyProfile,
   type CameraStreamMode,
   type CameraVideoLayout,
   type CameraVideoSource
 } from "../../lib/storage";
-import { CameraViewer, type CameraEffectiveMode } from "./CameraViewer";
-import { cameraStreamOfferUrl, defaultCameraSourceRuntimeStatus, type CameraSourceRuntimeStatus } from "./cameraSources";
+import { CameraSourcePanel } from "./CameraSourcePanel";
+import { defaultCameraSourceRuntimeStatus, type CameraSourceRuntimeStatus } from "./cameraSources";
 
 interface CameraFeedsProps {
   activeCameraSource: CameraVideoSource;
@@ -54,7 +51,7 @@ export function CameraFeeds({
       />
       <div className={`camera-video-grid ${cameraConfig.videoLayout === "dual" ? "dual" : "single"} ${gridClassName}`.trim()}>
         {cameraVideoSources.map((source) => (
-          <CameraSourceViewer
+          <CameraSourcePanel
             cameraConfig={cameraConfig}
             cameraStreamReloadToken={cameraStreamReloadToken}
             key={source.id}
@@ -115,84 +112,6 @@ function CameraModeControls({
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function CameraSourceViewer({
-  cameraConfig,
-  cameraStreamReloadToken,
-  runtime,
-  setCameraSourceRuntime,
-  source,
-  t
-}: {
-  cameraConfig: CameraConfig;
-  cameraStreamReloadToken: number;
-  runtime: CameraSourceRuntimeStatus;
-  setCameraSourceRuntime: (sourceId: string, patch: Partial<CameraSourceRuntimeStatus>) => void;
-  source: CameraVideoSource;
-  t: TFunction;
-}) {
-  const sourceMode: CameraStreamMode = source.id === MAIN_CAMERA_SOURCE_ID ? cameraConfig.streamMode : "mjpeg";
-  const effectiveMode: CameraEffectiveMode = sourceMode === "webrtc" && runtime.webrtcFallback ? "mjpegFallback" : sourceMode;
-  const modeLabel =
-    effectiveMode === "webrtc"
-      ? t("camera.streamModes.webrtc")
-      : effectiveMode === "mjpegFallback"
-        ? t("camera.streamModes.mjpegFallback")
-        : t("camera.streamModes.mjpeg");
-  const latencyLabel = runtime.latency?.estimateMs === null || runtime.latency?.estimateMs === undefined ? "--" : `≈${Math.round(runtime.latency.estimateMs)} ms`;
-  const rttLabel = runtime.latency?.rttMs === null || runtime.latency?.rttMs === undefined ? "--" : `${Math.round(runtime.latency.rttMs)} ms`;
-  const tone: "neutral" | "online" | "warning" | "danger" =
-    runtime.latency?.error
-      ? "danger"
-      : runtime.latency?.estimateMs === null || runtime.latency?.estimateMs === undefined
-        ? "neutral"
-        : runtime.latency.estimateMs > 800
-          ? "danger"
-          : runtime.latency.estimateMs > 350
-            ? "warning"
-            : "online";
-
-  return (
-    <div className="camera-source-panel">
-      <div className="camera-viewer camera-source-viewer">
-        <CameraViewer
-          alt={`${source.label} ${t("camera.streamAlt")}`}
-          forceMjpeg={runtime.webrtcFallback || source.id !== MAIN_CAMERA_SOURCE_ID}
-          key={`${source.id}-${sourceMode}-${cameraConfig.latencyProfile}-${source.streamUrl}-${cameraStreamReloadToken}`}
-          mode={sourceMode}
-          offerUrl={cameraStreamOfferUrl(source, cameraConfig)}
-          onError={() => setCameraSourceRuntime(source.id, { loaded: false, failed: true })}
-          onLoad={() => setCameraSourceRuntime(source.id, { loaded: true, failed: false })}
-          onWebrtcFallback={(error) => setCameraSourceRuntime(source.id, { webrtcFallback: true, webrtcError: error, loaded: false, failed: false })}
-          placeholder={
-            <div className="camera-placeholder">
-              <VideoOff size={42} />
-              <span>{t("empty.noCameraStream")}</span>
-            </div>
-          }
-          streamUrl={source.streamUrl.trim()}
-        />
-        <span className="camera-source-name">{source.label}</span>
-        <span className={runtime.failed ? "camera-stream-badge error" : runtime.loaded ? "camera-stream-badge online" : "camera-stream-badge"}>
-          {source.streamUrl.trim()
-            ? runtime.failed
-              ? t("status.streamError")
-              : runtime.loaded
-                ? `${t("status.streamOnline")} · ${modeLabel}`
-                : t("status.streamLoading")
-            : t("status.streamMissing")}
-        </span>
-      </div>
-      <div className="preview-grid camera-source-metrics">
-        <Metric label={t("metrics.videoLatency")} value={latencyLabel} tone={tone} />
-        <Metric label={t("metrics.networkRtt")} value={rttLabel} tone={tone} />
-        <Metric label={t("fields.sourceDevicePath")} value={source.devicePath} />
-        <Metric label={t("fields.sourcePort")} value={source.port} />
-      </div>
-      {runtime.webrtcError && runtime.webrtcFallback && source.id === MAIN_CAMERA_SOURCE_ID && <p className="camera-mode-note">{t("camera.webrtcFallback", { error: runtime.webrtcError })}</p>}
     </div>
   );
 }

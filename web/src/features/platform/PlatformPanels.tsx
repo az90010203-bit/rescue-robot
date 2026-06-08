@@ -1,7 +1,8 @@
 import { Activity, Cpu, Radar, Send, SlidersHorizontal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { DeviceDescriptor, DeviceStateSnapshot, PlatformEvent, UiPanelSchema } from "../../platform/types";
-import { formatPlatformStateValue, PlatformControlDraft } from "../../platform/ui";
+import { PlatformControlDraft } from "../../platform/ui";
+import { formatScalarValue } from "../../shared/formatters";
 import { Metric, PanelTitle } from "../../shared/ui/AppChrome";
 
 type Tone = "danger" | "neutral" | "online" | "warning";
@@ -120,10 +121,7 @@ export function PlatformPanels({
   }
 
   function formatPlatformDisplayValue(value: string | number | boolean | null | undefined): string {
-    if (typeof value === "boolean") {
-      return value ? t("common.yes") : t("common.no");
-    }
-    return formatPlatformStateValue(value);
+    return formatScalarValue(value, { falseLabel: t("common.no"), trueLabel: t("common.yes") });
   }
 
   function platformControlLabel(actionId: string | undefined, fallback: string): string {

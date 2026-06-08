@@ -23,6 +23,7 @@ import {
   pluginInstancesToMotorProfiles,
   pluginInstancesToServoProfiles
 } from "../../platform/architecture";
+export type { RobotAssemblyWarning } from "../../platform/architecture";
 
 export const ROBOT_ASSEMBLY_VERSION = 2;
 export const ROBOT_ASSEMBLY_CANVAS_WIDTH = 1120;
@@ -46,13 +47,14 @@ export interface RobotAssemblySource {
 }
 
 export interface MotorFeedbackLike {
-  channel?: unknown;
-  commandedSpeedPercent?: unknown;
-  dutyPercent?: unknown;
+  channel?: string | null;
+  commandedSpeedPercent?: number | null;
+  dutyPercent?: number | null;
 }
 
 export interface ServoFeedbackLike {
-  moving?: unknown;
+  moving?: boolean | null;
+  positionRaw?: number | null;
 }
 
 export interface RobotAssemblyStatusContext {

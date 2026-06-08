@@ -25,7 +25,6 @@ import {
   getServoCommandState,
   safeFramePreview,
   safeSpeedFramePreview,
-  servoMotionStatusLabel,
   singleWheelTurnProgressKey,
   type ServoCommandState,
   type ServoCommandStateMap,
@@ -128,18 +127,18 @@ export function ServoCommandCard({
           <span className="device-name">{servo.name}</span>
         </button>
         <div className="servo-card-status-stack">
-          <span className={motionStatus === "smoothing" ? "device-signal motion" : motionStatus === "paused" ? "device-signal motion paused" : "device-signal motion muted"}>{servoMotionStatusLabel(motionStatus)}</span>
+          <span className={motionStatus === "smoothing" ? "device-signal motion" : motionStatus === "paused" ? "device-signal motion paused" : "device-signal motion muted"}>{t(`servo.motionStatus.${motionStatus}`)}</span>
           <span className={`device-signal safety ${safetyTone}`}>{servoSafetyStatusLabel(safetyStatus)}</span>
-          <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? (feedback.moving ? "运动中" : t("device.data")) : t("device.idle")}</span>
+          <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? (feedback.moving ? t("metrics.moving") : t("device.data")) : t("device.idle")}</span>
         </div>
       </div>
 
       <div className="command-grid servo-command-grid">
         <label>
-          <span>控制模式</span>
+          <span>{t("fields.controlMode")}</span>
           <select value={state.mode} onChange={(event) => handleServoModeChange(servo.id, event.target.value as ServoControlMode)}>
-            <option value="position">位置角度</option>
-            <option value="wheel">轮模式速度</option>
+            <option value="position">{t("fields.positionMode")}</option>
+            <option value="wheel">{t("fields.wheelMode")}</option>
           </select>
         </label>
         {state.mode === "wheel" ? (
@@ -159,7 +158,7 @@ export function ServoCommandCard({
               <span>{t("fields.angleDeg")}</span>
               <label className="live-drag-toggle">
                 <input checked={state.liveDragEnabled} type="checkbox" onChange={(event) => handleLiveDragToggle(servo.id, event.target.checked)} />
-                <span>实时拖动</span>
+                <span>{t("fields.liveDrag")}</span>
               </label>
             </div>
             <div className="range-number-control">
@@ -195,7 +194,7 @@ export function ServoCommandCard({
       </div>
 
       <div className="preview-grid servo-card-preview-grid">
-        <Metric label="实际角度" value={state.mode === "position" && Number.isFinite(numericAngle) ? physicalAngle.toFixed(0) : "--"} suffix={state.mode === "position" && Number.isFinite(numericAngle) ? " deg" : ""} />
+        <Metric label={t("fields.actualAngle")} value={state.mode === "position" && Number.isFinite(numericAngle) ? physicalAngle.toFixed(0) : "--"} suffix={state.mode === "position" && Number.isFinite(numericAngle) ? " deg" : ""} />
         <Metric label={t("metrics.rawPosition")} value={rawPosition} />
         {state.mode === "wheel" ? (
           <>

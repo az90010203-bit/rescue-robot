@@ -7,7 +7,16 @@ import {
   normalizeServoProfile
 } from "../lib/protocol";
 import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "./types";
+import type { PanelLayoutItem } from "./panelLayoutCore";
+import type { WorkflowDefinition } from "./workflow";
 import { findPlatformUiPanelForDevice } from "./ui";
+export {
+  defaultPanelLayoutItems,
+  mergePanelLayoutItems,
+  reorderPanelLayoutItems,
+  reflowPanelLayout
+} from "./panelLayoutCore";
+export type { PanelLayoutItem, PanelLayoutTarget } from "./panelLayoutCore";
 
 export type DeviceConfigValue = string | number | boolean | null;
 export type DeviceConfig = Record<string, DeviceConfigValue>;
@@ -181,9 +190,22 @@ export interface RobotActionButton {
   steps: RobotActionButtonStep[];
 }
 
+export type RobotProgramTarget = "pc";
+
+export interface RobotProgram {
+  id: string;
+  name: string;
+  target: RobotProgramTarget;
+  blocklyWorkspaceJson: Record<string, unknown> | null;
+  workflow: WorkflowDefinition;
+  timeoutMs: number;
+  updatedAt?: number;
+}
+
 export interface RobotConfig {
   assembly?: RobotAssemblyConfig;
   actionButtons?: RobotActionButton[];
+  programs?: RobotProgram[];
   [key: string]: unknown;
 }
 
@@ -196,21 +218,6 @@ export interface RobotDefinition {
   tags: string[];
   createdAt?: number;
   updatedAt?: number;
-}
-
-export interface PanelLayoutItem {
-  id: string;
-  scopeId: string;
-  panelId: string;
-  targetId: string;
-  capability: CapabilityId | "dashboard";
-  title: string;
-  visibleItemIds?: string[];
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  order: number;
 }
 
 export interface ArchitectureSnapshot {
@@ -916,84 +923,6 @@ export function panelTargetsForPluginInstances(instances: PluginInstance[], uiPa
   });
 }
 
-export function defaultPanelLayoutItems(
-  scopeId: string,
-  targets: Array<{ panelId: string; targetId: string; capability: CapabilityId; title: string }>
-): PanelLayoutItem[] {
-  return targets.map((target, index) => {
-    const wide = target.capability === "camera" || target.capability === "robot-arm";
-    const w = wide ? 12 : 6;
-    return {
-      id: `${scopeId}:${target.targetId}:${target.panelId}`,
-      scopeId,
-      panelId: target.panelId,
-      targetId: target.targetId,
-      capability: target.capability,
-      title: target.title,
-      x: wide ? 0 : (index % 2) * 6,
-      y: Math.floor(index / 2) * 3,
-      w,
-      h: wide ? 4 : 3,
-      order: index
-    };
-  });
-}
-
-export function mergePanelLayoutItems(scopeId: string, existing: PanelLayoutItem[], targets: Array<{ panelId: string; targetId: string; capability: CapabilityId; title: string }>): PanelLayoutItem[] {
-  const defaults = defaultPanelLayoutItems(scopeId, targets);
-  const defaultById = new Map(defaults.map((item) => [item.id, item]));
-  const merged = existing
-    .filter((item) => defaultById.has(item.id))
-    .map((item) => ({ ...defaultById.get(item.id)!, ...sanitizeLayoutItem(item, scopeId) }));
-  const existingIds = new Set(merged.map((item) => item.id));
-  for (const item of defaults) {
-    if (!existingIds.has(item.id)) {
-      merged.push(item);
-    }
-  }
-  return reflowPanelLayout(merged);
-}
-
-export function reorderPanelLayoutItems(items: PanelLayoutItem[], draggedId: string, targetId: string): PanelLayoutItem[] {
-  const sorted = [...items].sort((a, b) => a.order - b.order);
-  const from = sorted.findIndex((item) => item.id === draggedId);
-  const to = sorted.findIndex((item) => item.id === targetId);
-  if (from === -1 || to === -1 || from === to) {
-    return sorted;
-  }
-  const [dragged] = sorted.splice(from, 1);
-  sorted.splice(to, 0, dragged);
-  return reflowPanelLayout(sorted.map((item, index) => ({ ...item, order: index })));
-}
-
-export function reflowPanelLayout(items: PanelLayoutItem[]): PanelLayoutItem[] {
-  let y = 0;
-  let x = 0;
-  return [...items]
-    .sort((a, b) => a.order - b.order)
-    .map((item, index) => {
-      const w = clampInteger(item.w, 1, 12, item.capability === "camera" || item.capability === "robot-arm" ? 12 : 6);
-      if (x + w > 12) {
-        x = 0;
-        y += 3;
-      }
-      const next = {
-        ...item,
-        x,
-        y,
-        w,
-        h: clampInteger(item.h, 2, 8, 3),
-        order: index
-      };
-      x += w;
-      if (x >= 12) {
-        x = 0;
-        y += next.h;
-      }
-      return next;
-    });
-}
-
 export function normalizeConfigForSchema(schema: DeviceConfigField[], config: DeviceConfig): DeviceConfig {
   const normalized: DeviceConfig = {};
   const schemaIds = new Set(schema.map((field) => field.id));
@@ -1056,18 +985,6 @@ function duplicateHardwareTarget(instance: PluginInstance, existing: PluginInsta
   return null;
 }
 
-function sanitizeLayoutItem(item: PanelLayoutItem, scopeId: string): PanelLayoutItem {
-  return {
-    ...item,
-    scopeId,
-    x: clampInteger(item.x, 0, 11, 0),
-    y: clampInteger(item.y, 0, 999, 0),
-    w: clampInteger(item.w, 1, 12, 6),
-    h: clampInteger(item.h, 2, 8, 3),
-    order: clampInteger(item.order, 0, 999, 0)
-  };
-}
-
 function pushUsage(usage: Map<string, PluginUsage[]>, pluginId: string, owner: PluginUsage) {
   usage.set(pluginId, [...(usage.get(pluginId) ?? []), owner]);
 }
@@ -1101,10 +1018,6 @@ function numberOrUndefined(value: DeviceConfigValue): number | undefined {
 
 function stringOrUndefined(value: DeviceConfigValue): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function clampInteger(value: number, min: number, max: number, fallback: number): number {
-  return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 function clampNumber(value: number, min?: number, max?: number): number {

@@ -33,6 +33,13 @@ npm.cmd run health
 <!-- ARCHITECTURE:BEGIN -->
 ```mermaid
 flowchart LR
+  Web --> CameraSourcePanel[CameraSourcePanel shared camera viewer]
+  Web --> SharedFormatters[shared/formatters.ts]
+  Platform --> PanelLayoutCore[panelLayoutCore shared layout helpers]
+  PluginUi --> AutoDetectCore[pluginAutoDetect/detectors.ts]
+  DataService --> LocalHttpHelper[local-http-helper.mjs JSON loopback]
+  FirmwareHelper --> LocalHttpHelper
+  PiHelper --> LocalHttpHelper
   User[操作员] --> Web[React 控制台 AppShell]
 
   subgraph Browser[浏览器本地运行层]
@@ -43,12 +50,21 @@ flowchart LR
     AppRuntime --> PluginUi[插件]
     AppRuntime --> ComponentUi[组件]
     AppRuntime --> RobotUi[机器人]
+    PluginUi --> CreateWizard[折叠创建向导 / 类型配置确认]
+    ComponentUi --> CreateWizard
+    RobotUi --> CreateWizard
+    RobotUi --> AssemblyCanvas[机器人装配画布 / 可收缩素材栏]
+    AssemblyCanvas --> RobotInspector[右侧检查器 / 动作按钮]
+    AssemblyCanvas --> ProgramPanel[Blockly 图形化编程 / PC workflow 执行]
+    RobotInspector --> CopyFallback[装配页 i18n 兜底 / 结构检查降噪]
     AppRuntime --> I18n[resources.* 多语言资源]
+    CopyFallback --> I18n
     Web --> Styles[styles/* 分区样式]
     Web --> Platform[平台运行层 platform/*]
     Platform --> ArchitectureModel[DeviceCatalogItem / PluginInstance / ComponentDefinition / RobotDefinition]
     Platform --> DeviceModel[DeviceDescriptor / StateSnapshot]
     Platform --> Executor[PlatformCommand Executor]
+    Platform --> WorkflowRuntime[WorkflowDefinition / RobotProgram DSL]
     Platform --> UiSchema[UiPanelSchema 渲染器]
     Platform --> Plugins[内置插件包 plugins/builtin/*]
     Web --> BrowserMedia[Browser MediaDevices / local camera]
@@ -64,7 +80,11 @@ flowchart LR
     Robots[机器人 / 多组件装配]
     Layouts[可拖动面板布局]
     DriverLibrary --> Catalog
+    CreateWizard --> PluginInstances
+    CreateWizard --> Components
+    CreateWizard --> Robots
     Catalog --> PluginInstances --> Components --> Robots
+    Robots --> AssemblyCanvas
     Robots --> Layouts
     Components --> Layouts
   end
@@ -97,19 +117,33 @@ flowchart LR
     DataService --> ThreeLayer
     Executor --> FirmwareHelper[firmware-helper.mjs]
     FirmwareHelper --> PlatformIO[PlatformIO 编译 / 上传]
+    Executor --> PiDiscovery[Pi discovery / USB-C gadget recovery]
     Executor --> PiHelper[pi-helper.mjs]
+    PiDiscovery --> PiHelper
+    PiDiscovery --> RaspberryPi
     PiHelper --> RaspberryPi[树莓派 SSH / SFTP / 摄像头服务]
     Web --> HealthCheck[health-check.mjs / chunk 与乱码巡检]
   end
 ```
 <!-- ARCHITECTURE:END -->
 
+## Stepwise Merge Refactor Notes
+
+- Camera rendering now goes through `web/src/features/drive/CameraSourcePanel.tsx`, shared by the drive page and console dashboard camera panels.
+- Panel layout primitives live in `web/src/platform/panelLayoutCore.ts`; `architecture.ts` re-exports the same API for compatibility.
+- Plugin auto-detection hardware scanning lives in `web/src/features/pluginAutoDetect/detectors.ts`; the panel only manages phases, cancellation, rendering, and auto-add.
+- Local helper HTTP basics live in `web/scripts/local-http-helper.mjs` and are shared by `data-service.mjs`, `firmware-helper.mjs`, and `pi-helper.mjs`.
+- Display formatting helpers live in `web/src/shared/formatters.ts` for dashboard, platform state, and app metric formatting.
+- Three-layer workspace primitives and pure helpers now live in `web/src/components/ArchitectureWorkspacePrimitives.tsx` and `web/src/components/architectureWorkspaceUtils.ts`.
+- Production TypeScript builds exclude `src/**/*.test.ts(x)`; Vitest remains responsible for test files.
+
 ## 主要模块
 
 - `web/src/App.tsx`：极薄入口，直接导出 `web/src/app/AppShell.tsx`。
 - `web/src/app/*`：控制台外壳、导航、持久化、串口/平台/反馈运行时和工作区组合逻辑。
 - `web/src/features/*`：按功能拆分的舵机、机械臂、底盘、摄像头、电机、树莓派和平台面板；机械臂面板包含 2D FK/IK 与调参建议 UI。
-- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，由架构页按需加载，按入口 `layer` 分别渲染；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
+- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，由架构页按需加载，按入口 `layer` 分别渲染；创建插件、组件和机器人使用折叠创建向导，收起态变为 56px 左侧 rail，让右侧库和运行面板横向扩展；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
+- `web/src/features/robotAssembly/RobotAssemblyWorkspace.tsx`：机器人装配画布、素材栏、右侧检查器、动作按钮和 Blockly 图形化程序面板；素材栏可一键收缩为组件、插件、硬件图标栏，收起后画布优先扩展，右侧检查器保持稳定宽度；可见文案通过 `robotText` 兜底，避免 `robotAssembly.*` key 泄漏，并将结构检查里的内部 ID 和英文校验消息压缩成更适合操作员阅读的提示；图形化程序保存为 `RobotProgram`，首版固定在 PC/浏览器端编译成 `WorkflowDefinition` 后执行。
 - `web/src/platform/*`：平台模型、命令、执行器、事件、插件注册、设备拓扑、状态快照和 UI schema helper。
 - `web/src/platform/architecture.ts`：三层架构纯模型，包括驱动库派生、设备目录、插件实例、组件、机器人、面板布局、唯一占用校验和旧驱动 profile 兼容桥。
 - `web/src/plugins/builtin/*`：内置能力、驱动、传输和设备面板 schema，包括舵机、电机、摄像头、机械臂、树莓派和固件刷写。
@@ -123,6 +157,7 @@ flowchart LR
 ## 平台化约定
 
 - UI 层优先通过 `PlatformCommand` 表达设备动作，`dispatchPlatformCommand` 统一进入 `executePlatformCommand`。
+- 图形化编程首版通过 Blockly 编辑受控 DSL，保存到机器人 `config.programs`，运行时只派发 `PlatformCommand`；树莓派离线 runner 和 A 板固件下放留作后续阶段。
 - 插件实例是物理设备实例，组件和机器人装配必须通过 SQLite 数据服务保存；浏览器 IndexedDB 只作为旧配置 fallback。
 - 插件、组件、机器人和功能测试的通用平台控制区优先使用 `UiPanelSchema` 渲染，三层平级页面会按插件能力自动生成并保存可拖动面板。
 - 设备能力通过 `DeviceDescriptor`、`DeviceStateSnapshot`、`UiPanelSchema` 和内置插件描述。
@@ -139,7 +174,7 @@ flowchart LR
 - 控制器模式：Chrome/Edge WebSerial -> ESP32 JSON 控制器，默认 `115200 baud`。
 - 数据服务：`127.0.0.1:17351`，默认 SQLite 路径为 `%USERPROFILE%\.rescue-robot\rescue-robot.sqlite`。
 - 固件刷写：本机 `firmware-helper.mjs` 调用 PlatformIO 编译和上传。
-- 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令；树莓派远程面板可手动保存完整远程配置，避免每次重新输入。
+- 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令；树莓派远程面板可手动保存完整远程配置，避免每次重新输入；无屏找回优先扫描 `rescue-pi.local`、`10.12.194.1` 和 `10.43.0.1`，并可通过 SSH 配置 USB-C gadget 直连。
 
 ## Dual Camera Notes
 

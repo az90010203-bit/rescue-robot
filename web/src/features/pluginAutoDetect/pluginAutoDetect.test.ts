@@ -12,6 +12,7 @@ import {
   detectedDeviceIdFromParts,
   findMatchingPluginInstance
 } from "./pluginAutoDetect";
+import { runPluginAutoDetection } from "./detectors";
 import type { PluginInstance } from "../../platform/architecture";
 
 describe("plugin auto detection", () => {
@@ -80,6 +81,84 @@ describe("plugin auto detection", () => {
     expect(updatePluginInstance).toHaveBeenCalledWith("project", "servo-a", {
       config: expect.objectContaining({ servoId: 7, minDeg: 10, detectedAt: 2, detectedSource: "feetech-servo" })
     });
+  });
+
+  it("runs hardware detection through injectable detectors", async () => {
+    const phases: string[] = [];
+    const sendAboardBridgeCanServoCommand = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, messages: [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [{ type: "can.frame", seq: 2, id: 0x18ef0201, extended: true, dlc: 8, dataHex: "07 FD 00 00 00 00 00 00" }]
+      })
+      .mockResolvedValue({ ok: true, messages: [{ type: "motor.feedback", seq: 10, channel: "m4" }] });
+    let seq = 0;
+
+    const result = await runPluginAutoDetection({
+      enumerateLocalCameraDevices: async () => [{ deviceId: "cam-a", label: "USB Camera" }],
+      gamepads: [{ index: 0, id: "Xbox Pad", axes: 4, buttons: 12, mapping: "standard" }],
+      listFirmwarePorts: async () => [{ path: "COM7", description: "ESP32", hwid: "USB VID:PID=10C4:EA60" }],
+      motorFeedback: { M2: { type: "motor.feedback", seq: 11, channel: "m2" } },
+      nextCommandSeq: () => {
+        seq += 1;
+        return seq;
+      },
+      nowMs: 123,
+      onPhase: (phase) => phases.push(phase),
+      piProfile: { host: "raspberrypi.local", username: "robot1", workspaceDir: "~/rescue-robot" },
+      scanFeetechServoBus: async () => candidatesFromServoFeedback({ 7: { id: 7 } }, 123),
+      sendAboardBridgeCanServoCommand,
+      servoFeedback: { 8: { type: "servo.feedback", seq: 13, id: 8 } }
+    });
+
+    expect(phases).toEqual([
+      "scanningLocalCameras",
+      "scanningSerialPorts",
+      "scanningFeetechServoBus",
+      "scanningAboardCan",
+      "scanningAboardMotorChannels"
+    ]);
+    expect(sendAboardBridgeCanServoCommand).toHaveBeenCalledTimes(10);
+    expect(result.logs).toEqual(expect.arrayContaining([
+      "Camera scan found 1 video input(s).",
+      "Serial scan found 1 port(s).",
+      "Feetech bus scan found 1 servo candidate(s).",
+      "A board CAN scan found 1 servo candidate(s).",
+      "A board motor scan found 1 channel candidate(s)."
+    ]));
+    expect(result.candidates.map((candidate) => candidate.source)).toEqual(expect.arrayContaining([
+      "gamepad",
+      "feetech-servo",
+      "motor-controller",
+      "raspberry-pi",
+      "local-camera",
+      "serial-port",
+      "can-servo"
+    ]));
+    expect(result.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ config: expect.objectContaining({ preferredDeviceId: "cam-a" }) }),
+      expect.objectContaining({ config: expect.objectContaining({ portPath: "COM7" }) }),
+      expect.objectContaining({ config: expect.objectContaining({ servoId: 7 }) }),
+      expect.objectContaining({ config: expect.objectContaining({ servoId: 8 }) }),
+      expect.objectContaining({ config: expect.objectContaining({ channel: "M4" }) })
+    ]));
+  });
+
+  it("skips A board scans when detection is canceled", async () => {
+    const sendAboardBridgeCanServoCommand = vi.fn();
+    const result = await runPluginAutoDetection({
+      canceled: () => true,
+      enumerateLocalCameraDevices: async () => [],
+      listFirmwarePorts: async () => [],
+      nextCommandSeq: () => 1,
+      nowMs: 1,
+      scanFeetechServoBus: async () => [],
+      sendAboardBridgeCanServoCommand
+    });
+
+    expect(sendAboardBridgeCanServoCommand).not.toHaveBeenCalled();
+    expect(result.candidates).toEqual([]);
   });
 });
 

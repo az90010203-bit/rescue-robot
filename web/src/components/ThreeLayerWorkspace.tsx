@@ -1,5 +1,6 @@
 import { Activity, ArrowDown, ArrowLeft, ArrowUp, Bot, Boxes, Code2, Crosshair, Filter, GripVertical, Play, Plus, Radar, RotateCcw, Save, Send, Square, Trash2, Wrench } from "lucide-react";
 import { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createComponent,
   createDeviceCatalogItem,
@@ -20,14 +21,11 @@ import {
 } from "../lib/dataService";
 import { createPlatformCommand, PlatformCommand, PlatformCommandResult, PlatformCommandType } from "../platform/commands";
 import {
-  BUILTIN_DEVICE_CATALOG_ITEMS,
   ComponentKind,
   ComponentDefinition,
   DeviceCatalogItem,
-  DeviceCodeLibraryItem,
   DeviceConfig,
   DeviceConfigField,
-  DriverLibraryItem,
   PanelLayoutItem,
   PluginInstance,
   RobotDefinition,
@@ -56,6 +54,24 @@ import { findPlatformUiPanelForDevice, platformCommandForControl, platformContro
 import { LocalCameraView } from "../features/platform/LocalCameraView";
 import { RobotAssemblyWorkspace } from "../features/robotAssembly/RobotAssemblyWorkspace";
 import { PluginAutoDetectPanel } from "../features/pluginAutoDetect/PluginAutoDetectPanel";
+import { ArchitectureCreatePanel } from "./ArchitectureCreatePanel";
+import { ArchitectureMetric as Metric, ArchitecturePanelHeading as PanelHeading, EntitySelector, SelectableInstanceList } from "./ArchitectureWorkspacePrimitives";
+import {
+  customCatalogDraft,
+  driverSourceForInstance,
+  formatArmNumber,
+  normalizeArmDisplayDegrees,
+  normalizeConfigDraft,
+  nextPluginName,
+  platformActionControls,
+  servoSetIdLogLines,
+  servoSetIdResponseFromResult,
+  sleepMs,
+  toggleSet,
+  type ArchitectureDraftValues as DraftValues,
+  type ArchitectureMetricTone as MetricTone,
+  type PluginDebugDraft
+} from "./architectureWorkspaceUtils";
 import type { GamepadDetectionSummary, PiDetectionProfile } from "../features/pluginAutoDetect/pluginAutoDetect";
 import { DataProject } from "../lib/dataService";
 import type { AboardBridgeCommandResult } from "../lib/piAboardBridge";
@@ -109,29 +125,7 @@ import type { MotorFeedbackMap, ServoFeedbackMap } from "../platform/stateStore"
 
 export type ArchitectureLayer = "plugins" | "components" | "robots";
 type SaveState = "idle" | "loading" | "saving" | "error";
-type DraftValues = Record<string, string | number | boolean | null>;
-type MetricTone = "neutral" | "online" | "warning" | "danger";
 type ServoFeedbackValue = ReturnType<typeof parseServoFeedback>;
-type PluginDebugDraft = {
-  mode: "position" | "wheel";
-  angleDeg: string;
-  newServoId: string;
-  confirmSingleServo: boolean;
-  speedRaw: string;
-  acc: string;
-  liveDragEnabled: boolean;
-  reverse: boolean;
-  minDeg: string;
-  maxDeg: string;
-  resetDeg: string;
-  motorSpeedPercent: string;
-  stopMode: MotorStopMode;
-  pwmPin: string;
-  in1Pin: string;
-  in2Pin: string;
-  enablePin: string;
-  sensorPin: string;
-};
 
 interface ThreeLayerWorkspaceProps {
   layer: ArchitectureLayer;
@@ -216,6 +210,11 @@ export function ThreeLayerWorkspace({
   sendAboardBridgeCanServoCommand,
   servoFeedback = {}
 }: ThreeLayerWorkspaceProps) {
+  const { t } = useTranslation();
+  const uiText = (key: string, defaultValue: string, values: Record<string, unknown> = {}) => {
+    const value = t(key, { defaultValue, ...values });
+    return value === key ? defaultValue : value;
+  };
   const [catalog, setCatalog] = useState<DeviceCatalogItem[]>([]);
   const [pluginInstances, setPluginInstances] = useState<PluginInstance[]>([]);
   const [components, setComponents] = useState<ComponentDefinition[]>([]);
@@ -232,12 +231,14 @@ export function ThreeLayerWorkspace({
   const [customBrand, setCustomBrand] = useState("Custom");
   const [customModel, setCustomModel] = useState("Custom Device");
   const [pluginName, setPluginName] = useState("");
+  const [pluginCreateOpen, setPluginCreateOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState<DraftValues>({});
   const [selectedPluginId, setSelectedPluginId] = useState("");
   const [pluginLibraryFilter, setPluginLibraryFilter] = useState<CapabilityId | "">("");
   const [componentName, setComponentName] = useState("New Component");
   const [componentKind, setComponentKind] = useState<ComponentKind>("custom");
   const [componentPluginIds, setComponentPluginIds] = useState<Set<string>>(() => new Set());
+  const [componentCreateOpen, setComponentCreateOpen] = useState(false);
   const [selectedComponentId, setSelectedComponentId] = useState("");
   const [armDraftByComponentId, setArmDraftByComponentId] = useState<Record<string, ArmConfig>>({});
   const [armAutoDraftByComponentId, setArmAutoDraftByComponentId] = useState<Record<string, ComponentArmAutoConfig>>({});
@@ -257,6 +258,7 @@ export function ThreeLayerWorkspace({
   const [robotName, setRobotName] = useState("New Robot");
   const [robotComponentIds, setRobotComponentIds] = useState<Set<string>>(() => new Set());
   const [robotPluginIds, setRobotPluginIds] = useState<Set<string>>(() => new Set());
+  const [robotCreateOpen, setRobotCreateOpen] = useState(false);
   const [selectedRobotId, setSelectedRobotId] = useState("");
   const [controlDraftByDeviceId, setControlDraftByDeviceId] = useState<Record<string, Record<string, unknown>>>({});
   const [draggingPanelId, setDraggingPanelId] = useState<string | null>(null);
@@ -266,7 +268,9 @@ export function ThreeLayerWorkspace({
   const pendingArmLiveMoveRef = useRef<Record<string, { component: ComponentDefinition; config: ArmConfig }>>({});
   const armAutoRecordingStartRef = useRef<Record<string, number>>({});
   const armArchivePlaybackGenerationRef = useRef(0);
-  const layerTitle = layer === "plugins" ? "插件" : layer === "components" ? "组件" : "机器人";
+  const layerTitle = layer === "plugins" ? uiText("sections.plugins", "插件") : layer === "components" ? uiText("sections.components", "组件") : uiText("sections.robots", "机器人");
+  const platformTypeLabel = (type: CapabilityId) => uiText(`platform.types.${type}`, fallbackTypeLabels[type] ?? type);
+  const componentKindLabel = (kind: ComponentKind) => uiText(kind === "robot-arm" ? "architecture.components.kind.robotArm" : "architecture.components.kind.custom", kind === "robot-arm" ? "机械臂" : "普通组件");
 
   const driverLibrary = useMemo(() => driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES), []);
   const codeLibraries = useMemo(() => deviceCodeLibraryItemsFromCatalog(catalog, driverLibrary), [catalog, driverLibrary]);
@@ -1517,7 +1521,7 @@ export function ThreeLayerWorkspace({
 
   function renderConfigFields(item: DeviceCatalogItem | null) {
     if (!item) {
-      return <div className="empty-state">请选择或新建一个设备型号</div>;
+      return <div className="empty-state">{t("architecture.empty.selectOrCreateDevice")}</div>;
     }
     return (
       <div className="architecture-form-grid">
@@ -1630,7 +1634,7 @@ export function ThreeLayerWorkspace({
       const url = String(controlDraftValue(device, control) ?? "");
       return (
         <div className="architecture-camera-view" key={control.id}>
-          {url ? <img alt={control.label} src={url} /> : <div className="empty-state">未配置视频流</div>}
+          {url ? <img alt={control.label} src={url} /> : <div className="empty-state">{t("architecture.empty.noCameraStream")}</div>}
         </div>
       );
     }
@@ -1734,11 +1738,11 @@ export function ThreeLayerWorkspace({
           {layout && <GripVertical size={17} />}
           <span>
             <strong>{layout?.title ?? instance.name}</strong>
-            <small>{fallbackTypeLabels[instance.type]} · {pluginInstanceDeviceId(instance)}</small>
+            <small>{platformTypeLabel(instance.type)} · {pluginInstanceDeviceId(instance)}</small>
           </span>
         </header>
         {!panel ? (
-          <div className="empty-state">该能力还没有专用面板</div>
+          <div className="empty-state">{t("architecture.empty.noDedicatedPanel")}</div>
         ) : (
           <>
             <div className="architecture-panel-controls">{panel.controls.map((control) => renderControl(device, control, instance))}</div>
@@ -1789,7 +1793,7 @@ export function ThreeLayerWorkspace({
   function renderServoPluginDebug(instance: PluginInstance) {
     const servo = pluginInstancesToServoProfiles([instance])[0];
     if (!servo) {
-      return <div className="empty-state">这个舵机插件缺少有效 servoId，无法调试</div>;
+      return <div className="empty-state">{t("architecture.empty.invalidServoPlugin")}</div>;
     }
     const draft = pluginDebugDraft(instance);
     const feedback = pluginServoFeedbackById[instance.id];
@@ -1823,26 +1827,26 @@ export function ThreeLayerWorkspace({
               <span className="device-name">{servo.name}</span>
             </button>
             <div className="servo-card-status-stack">
-              <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? "有反馈" : "未读取"}</span>
-              <span className="device-signal motion muted">{draft.mode === "position" ? "位置模式" : "轮模式"}</span>
+              <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? t("architecture.servoDebug.feedback") : t("architecture.servoDebug.notRead")}</span>
+              <span className="device-signal motion muted">{draft.mode === "position" ? t("fields.positionMode") : t("fields.wheelMode")}</span>
             </div>
           </div>
 
           <div className="command-grid servo-command-grid">
             <label>
-              <span>控制模式</span>
+              <span>{t("fields.controlMode")}</span>
               <select disabled={servoConfigBusy} value={draft.mode} onChange={(event) => updatePluginDebugDraft(instance.id, { mode: event.target.value as PluginDebugDraft["mode"] })}>
-                <option value="position">位置角度</option>
-                <option value="wheel">轮模式速度</option>
+                <option value="position">{t("fields.positionMode")}</option>
+                <option value="wheel">{t("fields.wheelMode")}</option>
               </select>
             </label>
             {draft.mode === "position" ? (
               <div className="angle-combo-field">
                 <div className="angle-field-heading">
-                  <span>角度</span>
+                  <span>{t("fields.angleDeg")}</span>
                   <label className="live-drag-toggle">
                     <input checked={draft.liveDragEnabled} disabled={servoConfigBusy} type="checkbox" onChange={(event) => updatePluginDebugDraft(instance.id, { liveDragEnabled: event.target.checked })} />
-                    <span>实时拖动</span>
+                    <span>{t("fields.liveDrag")}</span>
                   </label>
                 </div>
                 <div className="range-number-control">
@@ -1852,18 +1856,18 @@ export function ThreeLayerWorkspace({
               </div>
             ) : (
               <label>
-                <span>轮模式速度 raw</span>
+                <span>{t("fields.wheelMaxSpeedRaw")}</span>
                 <input disabled={servoConfigBusy} type="number" min={-4095} max={4095} step={1} value={draft.speedRaw} onChange={(event) => updatePluginDebugDraft(instance.id, { speedRaw: event.target.value })} />
               </label>
             )}
             {draft.mode === "position" ? (
               <label>
-                <span>速度 raw</span>
+                <span>{t("fields.speedRaw")}</span>
                 <input disabled={servoConfigBusy} type="number" min={0} max={4095} step={1} value={draft.speedRaw} onChange={(event) => updatePluginDebugDraft(instance.id, { speedRaw: event.target.value })} />
               </label>
             ) : null}
             <label>
-              <span>加速度</span>
+              <span>{t("fields.acceleration")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={254} step={1} value={draft.acc} onChange={(event) => updatePluginDebugDraft(instance.id, { acc: event.target.value })} />
             </label>
           </div>
@@ -1871,111 +1875,111 @@ export function ThreeLayerWorkspace({
           <div className="servo-extra-grid">
             <label className="checkbox-field">
               <input type="checkbox" checked={draft.reverse} disabled={servoConfigBusy} onChange={(event) => updatePluginDebugDraft(instance.id, { reverse: event.target.checked })} />
-              <span>临时反向</span>
+              <span>{t("fields.temporaryReverse")}</span>
             </label>
-            <Metric label="逻辑范围" value={`0-${formatArmNumber(span)} deg`} />
-            <Metric label="实际限位" value={`${draft.minDeg}-${draft.maxDeg} deg`} />
+            <Metric label={t("architecture.servoDebug.logicalRange")} value={`0-${formatArmNumber(span)} deg`} />
+            <Metric label={t("architecture.servoDebug.physicalLimit")} value={`${draft.minDeg}-${draft.maxDeg} deg`} />
           </div>
 
           <div className="servo-card-telemetry">
-            <span><small>位置</small><strong>{feedback?.positionDeg === undefined ? "--" : `${feedback.positionDeg.toFixed(1)}°`}</strong></span>
-            <span><small>负载</small><strong>{feedback?.loadPercent === undefined ? "--" : `${feedback.loadPercent.toFixed(1)}%`}</strong></span>
-            <span><small>电压</small><strong>{feedback?.voltageV === undefined ? "--" : `${feedback.voltageV.toFixed(1)}V`}</strong></span>
-            <span><small>温度</small><strong>{feedback?.temperatureC === undefined ? "--" : `${feedback.temperatureC}°C`}</strong></span>
-            <span><small>电流</small><strong>{feedback?.currentMa === undefined ? "--" : `${feedback.currentMa.toFixed(1)}mA`}</strong></span>
-            <span><small>运动</small><strong>{feedback ? (feedback.moving ? "是" : "否") : "--"}</strong></span>
+            <span><small>{t("metrics.position")}</small><strong>{feedback?.positionDeg === undefined ? "--" : `${feedback.positionDeg.toFixed(1)}°`}</strong></span>
+            <span><small>{t("metrics.load")}</small><strong>{feedback?.loadPercent === undefined ? "--" : `${feedback.loadPercent.toFixed(1)}%`}</strong></span>
+            <span><small>{t("metrics.voltage")}</small><strong>{feedback?.voltageV === undefined ? "--" : `${feedback.voltageV.toFixed(1)}V`}</strong></span>
+            <span><small>{t("metrics.temp")}</small><strong>{feedback?.temperatureC === undefined ? "--" : `${feedback.temperatureC}°C`}</strong></span>
+            <span><small>{t("metrics.current")}</small><strong>{feedback?.currentMa === undefined ? "--" : `${feedback.currentMa.toFixed(1)}mA`}</strong></span>
+            <span><small>{t("metrics.moving")}</small><strong>{feedback ? (feedback.moving ? t("common.yes") : t("common.no")) : "--"}</strong></span>
           </div>
 
           <div className="action-grid servo-card-actions">
             <button className="icon-button primary" disabled={servoConfigBusy} onClick={() => (draft.mode === "wheel" ? void sendPluginServoWheel(instance) : void sendPluginServoPosition(instance))} type="button">
               <Send size={18} />
-              <span>{draft.mode === "wheel" ? "发送速度" : "发送位置"}</span>
+              <span>{draft.mode === "wheel" ? t("platform.controls.set_speed") : t("platform.controls.set_position")}</span>
             </button>
             <button className="icon-button danger" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, draft.mode === "wheel" ? "servo.set_speed" : "servo.set_position", draft.mode === "wheel" ? { speedRaw: 0, acc } : { angleDeg: logicalAngle, speedRaw: 0, acc })} type="button">
               <Square size={18} />
-              <span>暂停</span>
+              <span>{t("actions.pause")}</span>
             </button>
             <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.ping")} type="button"><Radar size={18} /><span>Ping</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void readPluginServo(instance)} type="button"><Activity size={18} /><span>读取反馈</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: true })} type="button"><Wrench size={18} /><span>力矩开</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: false })} type="button"><Wrench size={18} /><span>力矩关</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void readPluginServo(instance)} type="button"><Activity size={18} /><span>{t("actions.readFeedback")}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: true })} type="button"><Wrench size={18} /><span>{t("actions.torqueOn")}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.set_torque", { enabled: false })} type="button"><Wrench size={18} /><span>{t("actions.torqueOff")}</span></button>
           </div>
         </article>
 
         <section className="plugin-servo-limiter">
           <div className="plugin-servo-limiter-head">
             <div>
-              <strong>限位与复位</strong>
-              <span>保存到当前插件实例配置，刷新后仍保留。复位角是当前限位范围内的逻辑角度。</span>
+              <strong>{t("architecture.servoDebug.resetTitle")}</strong>
+              <span>{t("architecture.servoDebug.resetHint")}</span>
             </div>
             <div className="plugin-servo-limiter-metrics">
-              <Metric label="复位角" value={`${formatArmNumber(resetDeg)} deg`} tone="online" />
-              <Metric label="逻辑中位" value={`${formatArmNumber(neutralDeg)} deg`} />
-              <Metric label="舵机 ID" value={servo.id} />
+              <Metric label={t("architecture.servoDebug.resetAngle")} value={`${formatArmNumber(resetDeg)} deg`} tone="online" />
+              <Metric label={t("architecture.servoDebug.logicalCenter")} value={`${formatArmNumber(neutralDeg)} deg`} />
+              <Metric label={t("fields.canServoId")} value={servo.id} />
             </div>
           </div>
           <div className="command-grid plugin-servo-limit-grid">
             <label>
-              <span>最小角度</span>
+              <span>{t("fields.minAngle")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={360} step={1} value={draft.minDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { minDeg: event.target.value })} />
             </label>
             <label>
-              <span>最大角度</span>
+              <span>{t("fields.maxAngle")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={360} step={1} value={draft.maxDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { maxDeg: event.target.value })} />
             </label>
             <label>
-              <span>复位角度</span>
+              <span>{t("architecture.servoDebug.resetAngle")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={span} step={1} value={draft.resetDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { resetDeg: event.target.value })} />
             </label>
           </div>
           <div className="action-grid plugin-servo-limit-actions">
-            <button className="icon-button primary" disabled={servoConfigBusy} onClick={() => void savePluginServoSettings(instance)} type="button"><Save size={18} /><span>保存限位/复位</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => setPluginServoResetFromFeedback(instance)} type="button"><Activity size={18} /><span>设为复位点</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void setPluginServoNeutralFromFeedback(instance)} type="button"><Activity size={18} /><span>设为逻辑中位</span></button>
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void resetPluginServo(instance)} type="button"><RotateCcw size={18} /><span>复位</span></button>
+            <button className="icon-button primary" disabled={servoConfigBusy} onClick={() => void savePluginServoSettings(instance)} type="button"><Save size={18} /><span>{t("architecture.actions.saveLimits")}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => setPluginServoResetFromFeedback(instance)} type="button"><Activity size={18} /><span>{t("architecture.actions.setResetPoint")}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void setPluginServoNeutralFromFeedback(instance)} type="button"><Activity size={18} /><span>{t("architecture.actions.setLogicalCenter")}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void resetPluginServo(instance)} type="button"><RotateCcw size={18} /><span>{t("architecture.actions.reset")}</span></button>
           </div>
         </section>
 
         <section className="plugin-servo-limiter plugin-servo-advanced">
           <div className="plugin-servo-limiter-head">
             <div>
-              <strong>舵机内部配置</strong>
-              <span>会写入飞特舵机本体 EEPROM。改 ID 前请只连接这一只舵机，写入成功后会同步插件配置。</span>
+              <strong>{t("architecture.servoDebug.internalTitle")}</strong>
+              <span>{t("architecture.servoDebug.internalHint")}</span>
             </div>
             <div className="plugin-servo-limiter-metrics">
-              <Metric label="当前 ID" value={servo.id} tone="warning" />
-              <Metric label="目标 ID" value={draft.newServoId || "--"} />
+              <Metric label={t("architecture.servoDebug.currentId")} value={servo.id} tone="warning" />
+              <Metric label={t("architecture.servoDebug.targetId")} value={draft.newServoId || "--"} />
             </div>
           </div>
           <div className="command-grid plugin-servo-advanced-grid">
             <label>
-              <span>新 ID</span>
+              <span>{t("architecture.servoDebug.newId")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={253} step={1} value={draft.newServoId} onChange={(event) => updatePluginDebugDraft(instance.id, { newServoId: event.target.value })} />
             </label>
             <label className="checkbox-field plugin-servo-confirm">
               <input checked={draft.confirmSingleServo} disabled={servoConfigBusy} type="checkbox" onChange={(event) => updatePluginDebugDraft(instance.id, { confirmSingleServo: event.target.checked })} />
-              <span>我确认总线上只连接这一只舵机</span>
+              <span>{t("architecture.servoDebug.singleServoConfirm")}</span>
             </label>
           </div>
           <div className="action-grid plugin-servo-limit-actions">
-            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.ping")} type="button"><Radar size={18} /><span>Ping 当前 ID</span></button>
-            <button className="icon-button danger" disabled={servoConfigBusy || !draft.confirmSingleServo} onClick={() => void writePluginServoPhysicalId(instance)} type="button"><Wrench size={18} /><span>{servoConfigBusy ? "写入中" : "写入新 ID"}</span></button>
+            <button className="icon-button" disabled={servoConfigBusy} onClick={() => void runPluginCommand(instance, "servo.ping")} type="button"><Radar size={18} /><span>{t("architecture.actions.pingCurrentId")}</span></button>
+            <button className="icon-button danger" disabled={servoConfigBusy || !draft.confirmSingleServo} onClick={() => void writePluginServoPhysicalId(instance)} type="button"><Wrench size={18} /><span>{servoConfigBusy ? t("architecture.actions.writing") : t("architecture.actions.writeNewId")}</span></button>
           </div>
         </section>
 
         <section className="plugin-serial-monitor">
           <div className="plugin-serial-monitor-head">
             <div>
-              <strong>舵机写入收发</strong>
-              <span>显示最近一次高级写入的 TX/RX 摘要；完整串口日志仍在系统日志里。</span>
+              <strong>{t("architecture.servoDebug.serialTitle")}</strong>
+              <span>{t("architecture.servoDebug.serialHint")}</span>
             </div>
             <button className="icon-button" disabled={serialLogs.length === 0} onClick={() => setPluginSerialLogById((current) => ({ ...current, [instance.id]: [] }))} type="button">
               <Trash2 size={16} />
-              <span>清空</span>
+              <span>{t("architecture.actions.clear")}</span>
             </button>
           </div>
           <div className="plugin-serial-log-list">
-            {serialLogs.length === 0 ? <div className="empty-state">还没有高级写入记录</div> : serialLogs.map((line, index) => <code key={`${line}-${index}`}>{line}</code>)}
+            {serialLogs.length === 0 ? <div className="empty-state">{t("architecture.empty.noAdvancedWrites")}</div> : serialLogs.map((line, index) => <code key={`${line}-${index}`}>{line}</code>)}
           </div>
         </section>
 
@@ -1987,7 +1991,7 @@ export function ThreeLayerWorkspace({
   function renderMotorPluginDebug(instance: PluginInstance) {
     const motor = pluginInstancesToMotorProfiles([instance])[0];
     if (!motor) {
-      return <div className="empty-state">这个电机插件缺少有效 channel，无法调试</div>;
+      return <div className="empty-state">{t("architecture.empty.invalidMotorPlugin")}</div>;
     }
     const draft = pluginDebugDraft(instance);
     const message = pluginDebugMessageById[instance.id];
@@ -2000,49 +2004,49 @@ export function ThreeLayerWorkspace({
               <span className="device-id">{normalizeMotorChannel(motor.channel)}</span>
               <span className="device-name">{motor.name}</span>
             </button>
-            <span className="device-signal motion muted">TB6618 电机</span>
+            <span className="device-signal motion muted">TB6618 {t("platform.types.motor")}</span>
           </div>
           <div className="command-grid motor-command-grid">
             <label>
-              <span>速度百分比</span>
+              <span>{t("fields.speedPercent")}</span>
               <input type="number" min={-100} max={100} step={1} value={draft.motorSpeedPercent} onChange={(event) => updatePluginDebugDraft(instance.id, { motorSpeedPercent: event.target.value })} />
             </label>
             <label>
-              <span>停止模式</span>
+              <span>{t("fields.stopMode")}</span>
               <select value={draft.stopMode} onChange={(event) => updatePluginDebugDraft(instance.id, { stopMode: event.target.value as MotorStopMode })}>
-                <option value="coast">滑行</option>
-                <option value="brake">刹车</option>
+                <option value="coast">{t("stopMode.coast")}</option>
+                <option value="brake">{t("stopMode.brake")}</option>
               </select>
             </label>
           </div>
           <label className="speed-slider-field">
-            <span>速度滑杆</span>
+            <span>{t("fields.speedSlider")}</span>
             <input type="range" min={-100} max={100} step={1} value={speed} onChange={(event) => updatePluginDebugDraft(instance.id, { motorSpeedPercent: event.target.value })} />
           </label>
           <div className="port-config-panel plugin-motor-config-panel">
             <div className="port-config-title">
               <Wrench size={17} />
-              <span>端口映射</span>
+              <span>{t("panels.motorPortMapping")}</span>
             </div>
             <div className="port-config-grid">
               <label><span>PWM</span><input value={draft.pwmPin} onChange={(event) => updatePluginDebugDraft(instance.id, { pwmPin: event.target.value })} /></label>
               <label><span>IN1</span><input value={draft.in1Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in1Pin: event.target.value })} /></label>
               <label><span>IN2</span><input value={draft.in2Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in2Pin: event.target.value })} /></label>
               <label><span>EN/STBY</span><input value={draft.enablePin} onChange={(event) => updatePluginDebugDraft(instance.id, { enablePin: event.target.value })} /></label>
-              <label><span>传感器</span><input value={draft.sensorPin} onChange={(event) => updatePluginDebugDraft(instance.id, { sensorPin: event.target.value })} /></label>
+              <label><span>{t("fields.sensorPin")}</span><input value={draft.sensorPin} onChange={(event) => updatePluginDebugDraft(instance.id, { sensorPin: event.target.value })} /></label>
             </div>
           </div>
           <div className="preview-grid motor-preview-grid">
-            <Metric label="目标通道" value={normalizeMotorChannel(motor.channel)} />
-            <Metric label="速度" value={`${speed}%`} tone={speed === 0 ? "neutral" : "warning"} />
-            <Metric label="停止模式" value={draft.stopMode === "brake" ? "刹车" : "滑行"} />
+            <Metric label={t("fields.targetPort")} value={normalizeMotorChannel(motor.channel)} />
+            <Metric label={t("metrics.speed")} value={`${speed}%`} tone={speed === 0 ? "neutral" : "warning"} />
+            <Metric label={t("fields.stopMode")} value={draft.stopMode === "brake" ? t("stopMode.brake") : t("stopMode.coast")} />
           </div>
           <div className="action-grid">
-            <button className="icon-button primary" onClick={() => void sendPluginMotorSpeed(instance)} type="button"><Send size={18} /><span>发送速度</span></button>
-            <button className="icon-button danger" onClick={() => void runPluginCommand(instance, "motor.stop", { stopMode: draft.stopMode })} type="button"><Square size={18} /><span>停止</span></button>
-            <button className="icon-button" onClick={() => void runPluginCommand(instance, "motor.read_feedback")} type="button"><Activity size={18} /><span>读取反馈</span></button>
-            <button className="icon-button" onClick={() => void savePluginMotorMapping(instance)} type="button"><Save size={18} /><span>保存映射</span></button>
-            <button className="icon-button" onClick={() => void sendPluginMotorMapping(instance)} type="button"><Wrench size={18} /><span>下发映射</span></button>
+            <button className="icon-button primary" onClick={() => void sendPluginMotorSpeed(instance)} type="button"><Send size={18} /><span>{t("platform.controls.set_speed")}</span></button>
+            <button className="icon-button danger" onClick={() => void runPluginCommand(instance, "motor.stop", { stopMode: draft.stopMode })} type="button"><Square size={18} /><span>{t("actions.stop")}</span></button>
+            <button className="icon-button" onClick={() => void runPluginCommand(instance, "motor.read_feedback")} type="button"><Activity size={18} /><span>{t("actions.readFeedback")}</span></button>
+            <button className="icon-button" onClick={() => void savePluginMotorMapping(instance)} type="button"><Save size={18} /><span>{t("actions.savePortMapping")}</span></button>
+            <button className="icon-button" onClick={() => void sendPluginMotorMapping(instance)} type="button"><Wrench size={18} /><span>{t("actions.sendPortMapping")}</span></button>
           </div>
         </article>
         {message ? <div className={`architecture-debug-message ${message.tone}`}>{message.text}</div> : null}
@@ -2269,7 +2273,7 @@ export function ThreeLayerWorkspace({
     }
 
     if (servoProfiles.length === 0 || config.joints.length === 0) {
-      return <div className="empty-state">机械臂组件需要至少一个舵机插件</div>;
+      return <div className="empty-state">{t("architecture.armComponent.empty.noServoPlugin")}</div>;
     }
 
     return (
@@ -2279,7 +2283,7 @@ export function ThreeLayerWorkspace({
             <Bot size={18} />
             <span>
               <strong>{component.name}</strong>
-              <small>机械臂 · {config.joints.length} 个关节</small>
+              <small>{componentKindLabel("robot-arm")} · {t("architecture.armComponent.jointCount", { count: config.joints.length })}</small>
             </span>
           </header>
 
@@ -2289,7 +2293,7 @@ export function ThreeLayerWorkspace({
                 className="arm-svg"
                 viewBox="0 0 600 420"
                 role="img"
-                aria-label={`${component.name} 机械臂姿态`}
+                aria-label={t("architecture.armComponent.poseAria", { name: component.name })}
                 onPointerMove={handleArmSvgPointerMove}
                 onPointerUp={finishArmPointerInteraction}
                 onPointerCancel={finishArmPointerInteraction}
@@ -2365,9 +2369,13 @@ export function ThreeLayerWorkspace({
                 ) : null}
               </svg>
               <div className="arm-status-strip">
-                <Metric label="关节" value={config.joints.filter((joint) => joint.enabled).length} />
-                <Metric label="模式" value={isIkMode ? `自动 IK / ${autoConfig.sendMode === "live" ? "实时" : "预览"}` : config.liveDragEnabled ? "实时拖动" : "预览"} tone={isIkMode ? ikStatusTone : config.liveDragEnabled ? "warning" : "neutral"} />
-                <Metric label="已选关节" value={selectedJoint?.name ?? "--"} />
+                <Metric label={t("architecture.armComponent.metrics.joints")} value={config.joints.filter((joint) => joint.enabled).length} />
+                <Metric
+                  label={t("architecture.armComponent.metrics.mode")}
+                  value={isIkMode ? `${t("architecture.armComponent.modes.ik")} / ${autoConfig.sendMode === "live" ? t("architecture.armComponent.sendMode.live") : t("architecture.armComponent.sendMode.preview")}` : config.liveDragEnabled ? t("architecture.armComponent.modes.liveDrag") : t("architecture.armComponent.sendMode.preview")}
+                  tone={isIkMode ? ikStatusTone : config.liveDragEnabled ? "warning" : "neutral"}
+                />
+                <Metric label={t("architecture.armComponent.metrics.selectedJoint")} value={selectedJoint?.name ?? "--"} />
               </div>
             </div>
 
@@ -2375,56 +2383,56 @@ export function ThreeLayerWorkspace({
               <div className="panel-heading-row component-arm-auto-heading">
                 <div className="port-config-title">
                   <Crosshair size={17} />
-                  <span>组件自动 IK</span>
+                  <span>{t("architecture.armComponent.autoIk")}</span>
                 </div>
                 <span className={`tuning-status ${ikStatusClass}`}>
-                  {isIkMode ? (ikSolution ? (ikSolution.converged ? "已收敛" : "接近姿态") : "待拖动") : "手动关节"}
+                  {isIkMode ? (ikSolution ? (ikSolution.converged ? t("architecture.armComponent.ikStatus.converged") : t("architecture.armComponent.ikStatus.nearPose")) : t("architecture.armComponent.ikStatus.awaitingDrag")) : t("architecture.armComponent.modes.manual")}
                 </span>
               </div>
 
-              <div className="component-arm-mode-switch" role="group" aria-label="机械臂组件模式">
-                <button className={autoConfig.mode === "manual" ? "active" : ""} onClick={() => setArmAutoMode("manual")} type="button">手动关节</button>
-                <button className={autoConfig.mode === "ik" ? "active" : ""} onClick={() => setArmAutoMode("ik")} type="button">自动 IK</button>
+              <div className="component-arm-mode-switch" role="group" aria-label={t("architecture.armComponent.modeAria")}>
+                <button className={autoConfig.mode === "manual" ? "active" : ""} onClick={() => setArmAutoMode("manual")} type="button">{t("architecture.armComponent.modes.manual")}</button>
+                <button className={autoConfig.mode === "ik" ? "active" : ""} onClick={() => setArmAutoMode("ik")} type="button">{t("architecture.armComponent.modes.ik")}</button>
               </div>
 
               {isIkMode ? (
                 <>
-                  <div className="component-arm-mode-switch compact" role="group" aria-label="自动 IK 下发模式">
-                    <button className={autoConfig.sendMode === "preview" ? "active" : ""} onClick={() => setArmIkSendMode("preview")} type="button">预览</button>
-                    <button className={autoConfig.sendMode === "live" ? "active" : ""} onClick={() => setArmIkSendMode("live")} type="button">实时</button>
+                  <div className="component-arm-mode-switch compact" role="group" aria-label={t("architecture.armComponent.sendModeAria")}>
+                    <button className={autoConfig.sendMode === "preview" ? "active" : ""} onClick={() => setArmIkSendMode("preview")} type="button">{t("architecture.armComponent.sendMode.preview")}</button>
+                    <button className={autoConfig.sendMode === "live" ? "active" : ""} onClick={() => setArmIkSendMode("live")} type="button">{t("architecture.armComponent.sendMode.live")}</button>
                   </div>
 
                   <div className="arm-ik-result-list component-arm-ik-result-list">
-                    <span><strong>目标 X</strong><code>{formatArmNumber(targetPoint.x)}</code></span>
-                    <span><strong>目标 Y</strong><code>{formatArmNumber(targetPoint.y)}</code></span>
-                    <span><strong>误差</strong><code>{ikSolution ? `${formatArmNumber(ikSolution.errorPx)} px` : "--"}</code></span>
-                    <span><strong>步数</strong><code>{ikSolution?.iterations ?? "--"}</code></span>
-                    <span><strong>可达</strong><code>{ikSolution ? (ikSolution.reachable ? "是" : "否") : "--"}</code></span>
-                    <span><strong>移动关节</strong><code>{ikSolution?.movedJointIds.length ?? 0}</code></span>
-                    <span><strong>下发</strong><code>{autoConfig.sendMode === "live" ? (config.liveDragEnabled ? "实时" : "需开启实时拖动") : "预览"}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.targetX")}</strong><code>{formatArmNumber(targetPoint.x)}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.targetY")}</strong><code>{formatArmNumber(targetPoint.y)}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.error")}</strong><code>{ikSolution ? `${formatArmNumber(ikSolution.errorPx)} px` : "--"}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.steps")}</strong><code>{ikSolution?.iterations ?? "--"}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.reachable")}</strong><code>{ikSolution ? (ikSolution.reachable ? t("common.yes") : t("common.no")) : "--"}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.movedJoints")}</strong><code>{ikSolution?.movedJointIds.length ?? 0}</code></span>
+                    <span><strong>{t("architecture.armComponent.ik.send")}</strong><code>{autoConfig.sendMode === "live" ? (config.liveDragEnabled ? t("architecture.armComponent.sendMode.live") : t("architecture.armComponent.sendMode.needsLiveDrag")) : t("architecture.armComponent.sendMode.preview")}</code></span>
                   </div>
 
                   <label className="checkbox-field component-arm-correction-row">
                     <input type="checkbox" checked={autoConfig.correctionEnabled} disabled readOnly />
-                    <span>反馈修正：关闭 / 模板预留</span>
+                    <span>{t("architecture.armComponent.feedbackCorrection")}</span>
                   </label>
 
                   <div className="component-arm-archive-grid">
                     <label>
-                      <span>轨迹名称</span>
+                      <span>{t("architecture.armComponent.archive.trackName")}</span>
                       <input value={archiveDraft.name} onChange={(event) => updateComponentArmArchiveDraft(component.id, { name: event.target.value })} />
                     </label>
                     <label>
-                      <span>备注</span>
+                      <span>{t("architecture.armComponent.archive.notes")}</span>
                       <input value={archiveDraft.notes} onChange={(event) => updateComponentArmArchiveDraft(component.id, { notes: event.target.value })} />
                     </label>
                     <label>
-                      <span>存档</span>
+                      <span>{t("architecture.armComponent.archive.archive")}</span>
                       <select
                         value={selectedArchive?.id ?? ""}
                         onChange={(event) => selectComponentArmArchive(component, autoConfig.archives.find((archive) => archive.id === event.target.value) ?? null)}
                       >
-                        <option value="">未选择</option>
+                        <option value="">{t("architecture.armComponent.archive.noneSelected")}</option>
                         {autoConfig.archives.map((archive) => (
                           <option key={archive.id} value={archive.id}>{archive.name}</option>
                         ))}
@@ -2435,7 +2443,7 @@ export function ThreeLayerWorkspace({
                   <div className="action-grid component-arm-archive-actions">
                     <button className="icon-button primary" onClick={() => void saveCurrentComponentArmArchive(component)} type="button">
                       <Save size={18} />
-                      <span>保存当前轨迹</span>
+                      <span>{t("architecture.armComponent.archive.saveCurrent")}</span>
                     </button>
                     <button
                       className={archivePlaying ? "icon-button danger" : "icon-button"}
@@ -2453,24 +2461,24 @@ export function ThreeLayerWorkspace({
                       type="button"
                     >
                       {archivePlaying ? <Square size={18} /> : <Play size={18} />}
-                      <span>{archivePlaying ? "停止播放" : "播放存档"}</span>
+                      <span>{archivePlaying ? t("architecture.armComponent.archive.stopPlayback") : t("architecture.armComponent.archive.playArchive")}</span>
                     </button>
                     <button className="icon-button" disabled={!selectedArchive} onClick={() => selectedArchive ? void saveComponentArmArchiveMetadata(component, selectedArchive) : undefined} type="button">
                       <Save size={18} />
-                      <span>保存备注</span>
+                      <span>{t("architecture.armComponent.archive.saveNotes")}</span>
                     </button>
                     <button className="icon-button danger" disabled={!selectedArchive} onClick={() => selectedArchive ? void deleteComponentArmArchive(component, selectedArchive.id) : undefined} type="button">
                       <Trash2 size={18} />
-                      <span>删除存档</span>
+                      <span>{t("architecture.armComponent.archive.deleteArchive")}</span>
                     </button>
                   </div>
 
                   <div className="arm-ik-result-list component-arm-archive-summary">
-                    <span><strong>本次样本</strong><code>{recordedSamples.length}</code></span>
-                    <span><strong>本次时长</strong><code>{recordedSamples.length ? `${recordedSamples[recordedSamples.length - 1].tMs} ms` : "--"}</code></span>
-                    <span><strong>存档数</strong><code>{autoConfig.archives.length}</code></span>
-                    <span><strong>选中样本</strong><code>{selectedArchive?.samples.length ?? 0}</code></span>
-                    <span><strong>选中时长</strong><code>{selectedArchive ? `${selectedArchive.durationMs} ms` : "--"}</code></span>
+                    <span><strong>{t("architecture.armComponent.archive.currentSamples")}</strong><code>{recordedSamples.length}</code></span>
+                    <span><strong>{t("architecture.armComponent.archive.currentDuration")}</strong><code>{recordedSamples.length ? `${recordedSamples[recordedSamples.length - 1].tMs} ms` : "--"}</code></span>
+                    <span><strong>{t("architecture.armComponent.archive.archiveCount")}</strong><code>{autoConfig.archives.length}</code></span>
+                    <span><strong>{t("architecture.armComponent.archive.selectedSamples")}</strong><code>{selectedArchive?.samples.length ?? 0}</code></span>
+                    <span><strong>{t("architecture.armComponent.archive.selectedDuration")}</strong><code>{selectedArchive ? `${selectedArchive.durationMs} ms` : "--"}</code></span>
                   </div>
                 </>
               ) : null}
@@ -2480,18 +2488,18 @@ export function ThreeLayerWorkspace({
               {config.joints.map((joint, index) => (
                 <div className={selectedJoint?.id === joint.id ? "device-row arm-joint-row selected" : "device-row arm-joint-row"} key={joint.id}>
                   <button className="device-select" onClick={() => updateArm((current) => ({ ...current, selectedJointId: joint.id }))} type="button">
-                    <span className="device-id">ID {joint.servoId}</span>
-                    <span className="device-info">
-                      <span className="device-name">{joint.name}</span>
-                      <span className="device-meta">Joint {index + 1} · {formatArmNumber(joint.angleDeg)} deg · {joint.lengthPx}px</span>
-                    </span>
-                    <span className={joint.enabled ? "device-signal" : "device-signal muted"}>{joint.enabled ? "启用" : "停用"}</span>
+                      <span className="device-id">ID {joint.servoId}</span>
+                      <span className="device-info">
+                        <span className="device-name">{joint.name}</span>
+                        <span className="device-meta">{t("architecture.armComponent.jointOrdinal", { index: index + 1 })} · {formatArmNumber(joint.angleDeg)} deg · {joint.lengthPx}px</span>
+                      </span>
+                    <span className={joint.enabled ? "device-signal" : "device-signal muted"}>{joint.enabled ? t("fields.enabled") : t("fields.disabled")}</span>
                   </button>
                   <div className="arm-joint-actions">
-                    <button className="icon-only" disabled={index === 0} onClick={() => moveJoint(joint.id, -1)} title="上移" type="button" aria-label={`上移 ${joint.name}`}>
+                    <button className="icon-only" disabled={index === 0} onClick={() => moveJoint(joint.id, -1)} title={t("actions.moveUp")} type="button" aria-label={t("architecture.armComponent.moveUpNamed", { name: joint.name })}>
                       <ArrowUp size={16} />
                     </button>
-                    <button className="icon-only" disabled={index === config.joints.length - 1} onClick={() => moveJoint(joint.id, 1)} title="下移" type="button" aria-label={`下移 ${joint.name}`}>
+                    <button className="icon-only" disabled={index === config.joints.length - 1} onClick={() => moveJoint(joint.id, 1)} title={t("actions.moveDown")} type="button" aria-label={t("architecture.armComponent.moveDownNamed", { name: joint.name })}>
                       <ArrowDown size={16} />
                     </button>
                   </div>
@@ -2503,21 +2511,21 @@ export function ThreeLayerWorkspace({
               <>
               <div className="command-grid arm-editor-grid">
                 <label>
-                  <span>名称</span>
+                  <span>{t("fields.name")}</span>
                   <input value={selectedJoint.name} onChange={(event) => updateJoint(selectedJoint.id, (joint) => ({ ...joint, name: event.target.value }))} />
                 </label>
                 <label>
-                  <span>关节序号</span>
+                  <span>{t("architecture.armComponent.fields.jointIndex")}</span>
                   <select value={selectedJointIndex} onChange={(event) => setJointIndex(selectedJoint.id, Number(event.target.value))}>
                     {config.joints.map((joint, index) => (
                       <option key={joint.id} value={index}>
-                        第 {index + 1} 关节
+                        {t("architecture.armComponent.jointOrdinal", { index: index + 1 })}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
-                  <span>目标舵机</span>
+                  <span>{t("fields.targetServo")}</span>
                   <select value={selectedJoint.servoId} onChange={(event) => updateJoint(selectedJoint.id, (joint) => ({ ...joint, servoId: Number(event.target.value) }))}>
                     {servoProfiles.map((servo) => (
                       <option key={servo.id} value={servo.id} disabled={usedServoIds.has(servo.id)}>
@@ -2528,50 +2536,50 @@ export function ThreeLayerWorkspace({
                 </label>
                 <label className="checkbox-field">
                   <input type="checkbox" checked={selectedJoint.enabled} onChange={(event) => updateJoint(selectedJoint.id, (joint) => ({ ...joint, enabled: event.target.checked }))} />
-                  <span>启用</span>
+                  <span>{t("fields.enabled")}</span>
                 </label>
                 <label className="checkbox-field">
                   <input type="checkbox" checked={selectedJoint.reverse} onChange={(event) => updateJoint(selectedJoint.id, (joint) => ({ ...joint, reverse: event.target.checked }))} />
-                  <span>反向</span>
+                  <span>{t("fields.invertAxis")}</span>
                 </label>
                 <label>
-                  <span>杆长 px</span>
+                  <span>{t("architecture.armComponent.fields.lengthPx")}</span>
                   <input type="number" min={ARM_MIN_JOINT_LENGTH_PX} max={ARM_MAX_JOINT_LENGTH_PX} step={1} value={selectedJoint.lengthPx} onChange={(event) => updateJointNumber(selectedJoint.id, "lengthPx", event.target.value)} />
                 </label>
                 <label>
-                  <span>角度</span>
+                  <span>{t("fields.angleDeg")}</span>
                   <input type="number" min={0} max={selectedSpan} step={1} value={formatArmNumber(selectedJoint.angleDeg)} onChange={(event) => updateJointNumber(selectedJoint.id, "angleDeg", event.target.value, true)} />
                 </label>
                 <label>
-                  <span>中位</span>
+                  <span>{t("architecture.armComponent.fields.neutralDeg")}</span>
                   <input type="number" min={0} max={selectedSpan} step={1} value={formatArmNumber(selectedJoint.neutralDeg)} onChange={(event) => updateJointNumber(selectedJoint.id, "neutralDeg", event.target.value)} />
                 </label>
                 <label>
-                  <span>速度 raw</span>
+                  <span>{t("fields.speedRaw")}</span>
                   <input type="number" min={0} max={4095} step={1} value={selectedJoint.speedRaw} onChange={(event) => updateJointNumber(selectedJoint.id, "speedRaw", event.target.value)} />
                 </label>
                 <label>
-                  <span>加速度</span>
+                  <span>{t("fields.acceleration")}</span>
                   <input type="number" min={0} max={254} step={1} value={selectedJoint.acc} onChange={(event) => updateJointNumber(selectedJoint.id, "acc", event.target.value)} />
                 </label>
                 <label className="checkbox-field">
                   <input type="checkbox" checked={config.liveDragEnabled} onChange={(event) => updateArm((current) => ({ ...current, liveDragEnabled: event.target.checked }))} />
-                  <span>实时拖动</span>
+                  <span>{t("architecture.armComponent.modes.liveDrag")}</span>
                 </label>
               </div>
               <section className="component-arm-shape-panel">
                 <div className="panel-heading-row component-arm-shape-heading">
                   <div>
-                    <strong>几何形状</strong>
-                    <span>配置中位姿态下的折线段，可表达 L 型、折返和重叠结构</span>
+                    <strong>{t("architecture.armComponent.shape.title")}</strong>
+                    <span>{t("architecture.armComponent.shape.hint")}</span>
                   </div>
                   <button className="icon-button" onClick={() => addJointShapeSegment(selectedJoint.id)} type="button">
                     <Plus size={16} />
-                    <span>新增段</span>
+                    <span>{t("architecture.armComponent.shape.addSegment")}</span>
                   </button>
                 </div>
                 <label className="component-arm-frame-offset">
-                  <span>下一关节安装偏移</span>
+                  <span>{t("architecture.armComponent.shape.childFrameOffset")}</span>
                   <input
                     type="number"
                     min={-180}
@@ -2585,11 +2593,11 @@ export function ThreeLayerWorkspace({
                   {armJointShapeSegments(selectedJoint).map((segment, index) => (
                     <div className="component-arm-shape-row" key={segment.id}>
                       <label>
-                        <span>段名称</span>
+                        <span>{t("architecture.armComponent.shape.segmentName")}</span>
                         <input value={segment.name} onChange={(event) => updateJointShapeSegment(selectedJoint.id, segment.id, (item) => ({ ...item, name: event.target.value }))} />
                       </label>
                       <label>
-                        <span>长度 px</span>
+                        <span>{t("architecture.armComponent.fields.lengthPx")}</span>
                         <input
                           type="number"
                           min={ARM_MIN_JOINT_LENGTH_PX}
@@ -2600,7 +2608,7 @@ export function ThreeLayerWorkspace({
                         />
                       </label>
                       <label>
-                        <span>初始方向</span>
+                        <span>{t("architecture.armComponent.shape.initialDirection")}</span>
                         <input
                           type="number"
                           min={0}
@@ -2610,13 +2618,13 @@ export function ThreeLayerWorkspace({
                           onChange={(event) => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, event.target.value)}
                         />
                       </label>
-                      <div className="component-arm-direction-presets" role="group" aria-label={`${segment.name} 初始方向`}>
+                      <div className="component-arm-direction-presets" role="group" aria-label={t("architecture.armComponent.shape.initialDirectionFor", { name: segment.name })}>
                         <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "0")}>+X</button>
                         <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "90")}>+Y</button>
                         <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "180")}>-X</button>
                         <button type="button" onClick={() => updateJointShapeSegmentCanvasDirection(selectedJoint.id, segment.id, "270")}>-Y</button>
                       </div>
-                      <button className="icon-only danger" disabled={index === 0 && armJointShapeSegments(selectedJoint).length === 1} onClick={() => removeJointShapeSegment(selectedJoint.id, segment.id)} title="删除形状段" type="button" aria-label={`删除 ${segment.name}`}>
+                      <button className="icon-only danger" disabled={index === 0 && armJointShapeSegments(selectedJoint).length === 1} onClick={() => removeJointShapeSegment(selectedJoint.id, segment.id)} title={t("architecture.armComponent.shape.deleteSegment")} type="button" aria-label={t("architecture.armComponent.shape.deleteSegmentNamed", { name: segment.name })}>
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -2627,21 +2635,21 @@ export function ThreeLayerWorkspace({
                 <section className="plugin-servo-limiter">
                   <div className="plugin-servo-limiter-head">
                     <div>
-                      <strong>舵机限位</strong>
-                      <span>组件里的关节会按这个范围夹紧，保存后同步到插件实例</span>
+                      <strong>{t("architecture.armComponent.limits.title")}</strong>
+                      <span>{t("architecture.armComponent.limits.hint")}</span>
                     </div>
                     <div className="plugin-servo-limiter-metrics">
-                      <Metric label="运行范围" value={`${formatArmNumber((selectedServo.maxDeg ?? 360) - (selectedServo.minDeg ?? 0))} deg`} />
-                      <Metric label="当前舵机" value={`ID ${selectedServo.id}`} />
+                      <Metric label={t("architecture.armComponent.limits.range")} value={`${formatArmNumber((selectedServo.maxDeg ?? 360) - (selectedServo.minDeg ?? 0))} deg`} />
+                      <Metric label={t("architecture.armComponent.limits.currentServo")} value={`ID ${selectedServo.id}`} />
                     </div>
                   </div>
                   <div className="command-grid plugin-servo-limit-grid">
                     <label>
-                      <span>最小角度</span>
+                      <span>{t("fields.minAngle")}</span>
                       <input type="number" min={0} max={360} step={1} value={selectedLimitDraft.minDeg} onChange={(event) => updateComponentServoLimitDraft(selectedServoInstance, selectedServo, "minDeg", event.target.value)} />
                     </label>
                     <label>
-                      <span>最大角度</span>
+                      <span>{t("fields.maxAngle")}</span>
                       <input type="number" min={0} max={360} step={1} value={selectedLimitDraft.maxDeg} onChange={(event) => updateComponentServoLimitDraft(selectedServoInstance, selectedServo, "maxDeg", event.target.value)} />
                     </label>
                   </div>
@@ -2649,7 +2657,7 @@ export function ThreeLayerWorkspace({
                   <div className="action-grid plugin-servo-limit-actions">
                     <button className="icon-button primary" onClick={() => void saveComponentServoLimits(component, selectedServoInstance, selectedServo)} type="button">
                       <Save size={18} />
-                      <span>保存限位</span>
+                      <span>{t("architecture.actions.saveLimits")}</span>
                     </button>
                   </div>
                 </section>
@@ -2660,19 +2668,19 @@ export function ThreeLayerWorkspace({
             <div className="action-grid">
               <button className="icon-button" onClick={() => void syncComponentArmPoseFromHardware(component, config)} type="button">
                 <Radar size={18} />
-                <span>同步实际姿态</span>
+                <span>{t("architecture.armComponent.actions.syncActualPose")}</span>
               </button>
               <button className="icon-button primary" onClick={() => void sendComponentArmPose(component, config)} type="button">
                 <Send size={18} />
-                <span>发送姿态</span>
+                <span>{t("actions.sendArmPose")}</span>
               </button>
               <button className="icon-button danger" onClick={() => void pauseComponentArm(component, config)} type="button">
                 <Square size={18} />
-                <span>暂停</span>
+                <span>{t("actions.pause")}</span>
               </button>
               <button className="icon-button" onClick={() => void saveComponentArmConfigNow(component, config)} type="button">
                 <Save size={18} />
-                <span>保存姿态</span>
+                <span>{t("architecture.armComponent.actions.savePose")}</span>
               </button>
             </div>
           </div>
@@ -2686,27 +2694,27 @@ export function ThreeLayerWorkspace({
       <section className="architecture-workspace">
         <div className="panel architecture-empty">
           <Boxes size={22} />
-          <strong>三层架构需要 SQLite 数据服务</strong>
-          <p>请先启动 data-service，然后在项目里创建插件实例、组件和机器人。</p>
+          <strong>{t("architecture.dataServiceRequired")}</strong>
+          <p>{t("architecture.dataServiceHint")}</p>
         </div>
       </section>
     );
   }
 
   return (
-    <section className="architecture-workspace" aria-label="three layer architecture">
+    <section className="architecture-workspace" aria-label={t("architecture.aria")}>
       <div className="architecture-shell-head">
         <div>
-          <span className="section-kicker">SQLite 项目 · {project.name}</span>
+          <span className="section-kicker">{t("architecture.sqliteProject")} · {project.name}</span>
           <h2>{layerTitle}</h2>
         </div>
         <div className="architecture-status">
           <span className={status === "error" ? "platform-status-pill error" : status === "saving" || status === "loading" ? "platform-status-pill standby" : "platform-status-pill online"}>
-            {status === "loading" ? "加载中" : status === "saving" ? "保存中" : status === "error" ? "错误" : "已同步"}
+            {status === "loading" ? t("architecture.status.loading") : status === "saving" ? t("architecture.status.saving") : status === "error" ? t("architecture.status.error") : t("architecture.status.synced")}
           </span>
           <button className="icon-button" onClick={() => void refreshArchitecture()} type="button">
             <Activity size={17} />
-            <span>刷新</span>
+            <span>{t("architecture.actions.refresh")}</span>
           </button>
         </div>
       </div>
@@ -2714,9 +2722,27 @@ export function ThreeLayerWorkspace({
       {error && <p className="form-error architecture-error">{error}</p>}
 
       {layer === "plugins" && (
-        <div className="architecture-grid architecture-plugin-grid">
-          <section className="panel architecture-builder-panel architecture-plugin-create-panel">
-            <PanelHeading icon={<Code2 size={18} />} meta={`${shownCodeLibraries.length} 个代码库`} title="创建插件实例" />
+        <div className={pluginCreateOpen ? "architecture-grid architecture-plugin-grid" : "architecture-grid architecture-plugin-grid architecture-grid-create-collapsed"}>
+          <ArchitectureCreatePanel
+            className="architecture-plugin-create-panel"
+            icon={<Code2 size={18} />}
+            meta={uiText("architecture.create.codeLibraryCount", `${shownCodeLibraries.length} 个代码库`, { count: shownCodeLibraries.length })}
+            onToggle={() => setPluginCreateOpen((value) => !value)}
+            open={pluginCreateOpen}
+            steps={[
+              { label: uiText("architecture.create.selectType", "选择类型"), tone: selectedCodeLibrary ? "done" : "active" },
+              { label: uiText("architecture.create.configure", "配置参数"), tone: activeCatalog ? "active" : "muted" },
+              { label: uiText("architecture.create.confirm", "创建确认"), tone: activeCatalog && pluginName.trim() ? "done" : "muted" }
+            ]}
+            summary={
+              <>
+                <span className="platform-status-pill standby">{deviceTypeFilter ? platformTypeLabel(deviceTypeFilter) : uiText("architecture.create.allDevices", "全部设备")}</span>
+                <span className="architecture-summary-text">{selectedCodeLibrary ? `${selectedCodeLibrary.brand} / ${selectedCodeLibrary.model}` : uiText("architecture.create.noCodeLibrarySelected", "未选择代码库")}</span>
+                <span className="architecture-summary-text">{pluginName.trim() || uiText("architecture.create.waitingName", "等待命名")}</span>
+              </>
+            }
+            title={uiText("architecture.create.plugins", "创建插件实例")}
+          >
             <PluginAutoDetectPanel
               gamepads={gamepads}
               motorFeedback={motorFeedback}
@@ -2730,27 +2756,27 @@ export function ThreeLayerWorkspace({
             />
             <div className="architecture-library-filter architecture-driver-filter">
               <label>
-                <span>设备</span>
+                <span>{uiText("architecture.create.device", "设备")}</span>
                 <select value={deviceTypeFilter} onChange={(event) => setDeviceTypeFilter(event.target.value as CapabilityId | "")}>
-                  <option value="">全部设备</option>
-                  {deviceTypes.map((type) => <option key={type} value={type}>{fallbackTypeLabels[type]}</option>)}
+                  <option value="">{uiText("architecture.create.allDevices", "全部设备")}</option>
+                  {deviceTypes.map((type) => <option key={type} value={type}>{platformTypeLabel(type)}</option>)}
                 </select>
               </label>
               <label>
-                <span>品牌</span>
+                <span>{uiText("architecture.create.brand", "品牌")}</span>
                 <select value={brandFilter} onChange={(event) => { setBrandFilter(event.target.value); setModelFilter(""); setSelectedCatalogId(""); setCustomCatalogEnabled(false); }}>
-                  {catalogBrands.length === 0 ? <option value="">没有品牌</option> : catalogBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
+                  {catalogBrands.length === 0 ? <option value="">{uiText("architecture.create.noBrands", "没有品牌")}</option> : catalogBrands.map((brand) => <option key={brand} value={brand}>{brand}</option>)}
                 </select>
               </label>
               <label>
-                <span>型号</span>
+                <span>{uiText("architecture.create.model", "型号")}</span>
                 <select value={modelFilter} onChange={(event) => { setModelFilter(event.target.value); setSelectedCatalogId(""); setCustomCatalogEnabled(false); }}>
-                  {catalogModels.length === 0 ? <option value="">没有型号</option> : catalogModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                  {catalogModels.length === 0 ? <option value="">{uiText("architecture.create.noModels", "没有型号")}</option> : catalogModels.map((model) => <option key={model} value={model}>{model}</option>)}
                 </select>
               </label>
               <label className="architecture-wide-field">
-                <span>代码库</span>
-                <input value={queryFilter} onChange={(event) => setQueryFilter(event.target.value)} placeholder="搜索型号、代码文件、驱动" />
+                <span>{uiText("architecture.create.codeLibrary", "代码库")}</span>
+                <input value={queryFilter} onChange={(event) => setQueryFilter(event.target.value)} placeholder={uiText("architecture.create.searchPlaceholder", "搜索型号、代码文件、驱动")} />
               </label>
             </div>
             <div className="architecture-driver-list">
@@ -2767,12 +2793,12 @@ export function ThreeLayerWorkspace({
                     <span className="device-meta">{library.driverId} · {library.protocol ?? "no protocol"}</span>
                   </span>
                   <span className="architecture-driver-tags">
-                    <span className="platform-status-pill standby">{fallbackTypeLabels[library.type]}</span>
+                    <span className="platform-status-pill standby">{platformTypeLabel(library.type)}</span>
                     <span className="platform-status-pill online">{library.transportId}</span>
                   </span>
                 </button>
               ))}
-              {shownCodeLibraries.length === 0 && <div className="empty-state">这个设备和品牌下还没有代码库</div>}
+              {shownCodeLibraries.length === 0 && <div className="empty-state">{uiText("architecture.create.noCodeLibraries", "这个设备和品牌下还没有代码库")}</div>}
             </div>
 
             {selectedCodeLibrary && selectedCatalog ? (
@@ -2785,48 +2811,48 @@ export function ThreeLayerWorkspace({
                 <div className="architecture-form-grid">
                   <label className="checkbox-field architecture-wide-field">
                     <input type="checkbox" checked={customCatalogEnabled} onChange={(event) => setCustomCatalogEnabled(event.target.checked)} />
-                    <span>数据库没有这个型号，基于当前代码库创建自定义型号</span>
+                    <span>{uiText("architecture.create.customCatalog", "数据库没有这个型号，基于当前代码库创建自定义型号")}</span>
                   </label>
                   {customCatalogEnabled && (
                     <>
                       <label>
-                        <span>自定义品牌</span>
+                        <span>{uiText("architecture.create.customBrand", "自定义品牌")}</span>
                         <input value={customBrand} onChange={(event) => setCustomBrand(event.target.value)} />
                       </label>
                       <label>
-                        <span>自定义型号</span>
+                        <span>{uiText("architecture.create.customModel", "自定义型号")}</span>
                         <input value={customModel} onChange={(event) => setCustomModel(event.target.value)} />
                       </label>
                     </>
                   )}
                   <label className="architecture-wide-field">
-                    <span>名称</span>
-                    <input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder="例如 Base joint / Left track" />
+                    <span>{t("fields.name")}</span>
+                    <input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder={uiText("architecture.create.instanceNamePlaceholder", "例如 Base joint / Left track")} />
                   </label>
                 </div>
                 {renderConfigFields(activeCatalog)}
               </>
             ) : (
-              <div className="empty-state">请先选择设备、品牌和代码库</div>
+              <div className="empty-state">{uiText("architecture.create.selectDeviceBrandCode", "请先选择设备、品牌和代码库")}</div>
             )}
             <button className="icon-button primary architecture-wide-button" disabled={!activeCatalog || status === "saving"} onClick={() => void handleCreatePluginInstance()} type="button">
               <Plus size={17} />
-              <span>生成插件实例</span>
+              <span>{uiText("architecture.actions.createPluginInstance", "生成插件实例")}</span>
             </button>
-          </section>
+          </ArchitectureCreatePanel>
 
           <section className="panel architecture-library-panel">
             {selectedPlugin ? (
               <>
-                <PanelHeading icon={<Send size={18} />} meta={pluginInstanceDeviceId(selectedPlugin)} title="插件调试" />
+                <PanelHeading icon={<Send size={18} />} meta={pluginInstanceDeviceId(selectedPlugin)} title={t("architecture.library.pluginDebug")} />
                 <div className="architecture-debug-head">
                   <button className="icon-button" onClick={() => setSelectedPluginId("")} type="button">
                     <ArrowLeft size={16} />
-                    <span>返回插件库</span>
+                    <span>{t("architecture.actions.backToPluginLibrary")}</span>
                   </button>
                   <button className="icon-button danger" onClick={() => void handleDeletePlugin(selectedPlugin.id)} type="button">
                     <Trash2 size={16} />
-                    <span>删除</span>
+                    <span>{t("common.delete")}</span>
                   </button>
                 </div>
                 <div className="architecture-driver-summary">
@@ -2838,11 +2864,11 @@ export function ThreeLayerWorkspace({
               </>
             ) : (
               <>
-                <PanelHeading icon={<Filter size={18} />} meta={`${shownPluginInstances.length} / ${pluginInstances.length} 个实例`} title="插件库" />
+                <PanelHeading icon={<Filter size={18} />} meta={t("architecture.library.instanceCount", { shown: shownPluginInstances.length, total: pluginInstances.length })} title={t("architecture.library.pluginLibrary")} />
                 <div className="architecture-library-filter">
                   <select value={pluginLibraryFilter} onChange={(event) => setPluginLibraryFilter(event.target.value as CapabilityId | "")}>
-                    <option value="">全部类型</option>
-                    {deviceTypes.map((type) => <option key={type} value={type}>{fallbackTypeLabels[type]}</option>)}
+                    <option value="">{t("architecture.library.allTypes")}</option>
+                    {deviceTypes.map((type) => <option key={type} value={type}>{platformTypeLabel(type)}</option>)}
                   </select>
                 </div>
                 <div className="architecture-device-list architecture-plugin-library-grid">
@@ -2865,14 +2891,14 @@ export function ThreeLayerWorkspace({
                           </span>
                         </button>
                         <span className="architecture-plugin-card-footer">
-                          <span className="platform-status-pill standby">{ownerName ?? "可用"}</span>
-                          {String(instance.config.detectedDeviceId ?? "").trim() && <span className="platform-status-pill online">Auto detected</span>}
+                          <span className="platform-status-pill standby">{ownerName ?? t("architecture.library.available")}</span>
+                          {String(instance.config.detectedDeviceId ?? "").trim() && <span className="platform-status-pill online">{t("architecture.library.autoDetected")}</span>}
                           <button
-                            aria-label={`删除 ${instance.name}`}
+                            aria-label={t("architecture.library.deleteNamed", { name: instance.name })}
                             className="icon-only architecture-plugin-delete"
                             disabled={Boolean(ownerName) || status === "saving"}
                             onClick={() => void handleDeletePlugin(instance.id)}
-                            title={ownerName ? `请先从 ${ownerName} 移除后再删除` : "删除插件实例"}
+                            title={ownerName ? t("architecture.library.removeBeforeDelete", { owner: ownerName }) : t("architecture.actions.deletePluginInstance")}
                             type="button"
                           >
                             <Trash2 size={16} />
@@ -2881,7 +2907,7 @@ export function ThreeLayerWorkspace({
                       </article>
                     );
                   })}
-                  {shownPluginInstances.length === 0 && <div className="empty-state">{pluginInstances.length === 0 ? "还没有插件实例" : "没有匹配的插件实例"}</div>}
+                  {shownPluginInstances.length === 0 && <div className="empty-state">{pluginInstances.length === 0 ? t("architecture.library.noPlugins") : t("architecture.library.noMatchingPlugins")}</div>}
                 </div>
               </>
             )}
@@ -2890,95 +2916,134 @@ export function ThreeLayerWorkspace({
       )}
 
       {layer === "components" && (
-        <div className="architecture-grid">
-          <section className="panel architecture-builder-panel">
-            <PanelHeading icon={<Wrench size={18} />} meta={`${componentSelectableInstances.length} 个可用插件`} title="创建组件" />
+        <div className={componentCreateOpen ? "architecture-grid" : "architecture-grid architecture-grid-create-collapsed"}>
+          <ArchitectureCreatePanel
+            icon={<Wrench size={18} />}
+            meta={uiText("architecture.components.availablePluginCount", `${componentSelectableInstances.length} 个可用插件`, { count: componentSelectableInstances.length })}
+            onToggle={() => setComponentCreateOpen((value) => !value)}
+            open={componentCreateOpen}
+            steps={[
+              { label: uiText("architecture.components.steps.type", "组件类型"), tone: "done" },
+              { label: uiText("architecture.components.steps.bindPlugins", "绑定插件"), tone: componentPluginIds.size > 0 ? "done" : "active" },
+              { label: uiText("architecture.create.confirm", "创建确认"), tone: componentPluginIds.size > 0 ? "active" : "muted" }
+            ]}
+            summary={
+              <>
+                <span className="platform-status-pill standby">{componentKindLabel(componentKind)}</span>
+                <span className="architecture-summary-text">{componentName.trim() || uiText("architecture.create.waitingName", "等待命名")}</span>
+                <span className="architecture-summary-text">{uiText("architecture.components.selectedPluginCount", `${componentPluginIds.size} 个插件已选`, { count: componentPluginIds.size })}</span>
+              </>
+            }
+            title={uiText("architecture.components.createTitle", "创建组件")}
+          >
             <label>
-              <span>组件类型</span>
+              <span>{uiText("architecture.components.type", "组件类型")}</span>
               <select value={componentKind} onChange={(event) => setComponentKind(event.target.value as ComponentKind)}>
-                <option value="custom">普通组件</option>
-                <option value="robot-arm">机械臂</option>
+                <option value="custom">{componentKindLabel("custom")}</option>
+                <option value="robot-arm">{componentKindLabel("robot-arm")}</option>
               </select>
             </label>
             <label>
-              <span>组件名称</span>
+              <span>{uiText("architecture.components.name", "组件名称")}</span>
               <input value={componentName} onChange={(event) => setComponentName(event.target.value)} />
             </label>
             <SelectableInstanceList
+              emptyLabel={uiText("architecture.components.noAvailablePluginInstances", "没有可用插件实例")}
               instances={componentSelectableInstances}
               selectedIds={componentPluginIds}
+              typeLabel={platformTypeLabel}
               usage={usage}
               onToggle={(id) => setComponentPluginIds(toggleSet(componentPluginIds, id))}
             />
             <button className="icon-button primary architecture-wide-button" disabled={componentPluginIds.size === 0} onClick={() => void handleCreateComponent()} type="button">
               <Save size={17} />
-              <span>{componentKind === "robot-arm" ? "生成机械臂" : "生成组件"}</span>
+              <span>{componentKind === "robot-arm" ? uiText("architecture.components.createRobotArm", "生成机械臂") : uiText("architecture.components.createComponent", "生成组件")}</span>
             </button>
-          </section>
+          </ArchitectureCreatePanel>
           <section className="panel architecture-library-panel">
-            <PanelHeading icon={<Boxes size={18} />} meta={`${components.length} 个组件`} title="组件面板" />
+            <PanelHeading icon={<Boxes size={18} />} meta={uiText("architecture.components.count", `${components.length} 个组件`, { count: components.length })} title={uiText("architecture.components.panelTitle", "组件面板")} />
             <EntitySelector
-              empty="还没有组件"
+              empty={uiText("architecture.components.empty", "还没有组件")}
               items={components}
               selectedId={selectedComponent?.id ?? ""}
               onDelete={handleDeleteComponent}
               onSelect={setSelectedComponentId}
-              renderMeta={(component) => `${component.kind === "robot-arm" ? "机械臂" : "普通组件"} · ${component.pluginInstanceIds.length} 个插件`}
+              renderMeta={(component) => `${componentKindLabel(component.kind)} · ${uiText("architecture.components.pluginCount", `${component.pluginInstanceIds.length} 个插件`, { count: component.pluginInstanceIds.length })}`}
             />
             {selectedComponent
               ? selectedComponent.kind === "robot-arm"
                 ? renderRobotArmComponentPanel(selectedComponent)
                 : renderPanelGrid(`component:${selectedComponent.id}`, effectivePluginInstancesForComponent(selectedComponent, pluginInstances))
-              : <div className="empty-state">请选择组件</div>}
+              : <div className="empty-state">{uiText("architecture.components.selectComponent", "请选择组件")}</div>}
           </section>
         </div>
       )}
 
       {layer === "robots" && (
-        <div className="architecture-grid">
-          <section className="panel architecture-builder-panel">
-            <PanelHeading icon={<Bot size={18} />} meta={`${components.length} 个组件`} title="创建机器人" />
+        <div className={robotCreateOpen ? "architecture-grid" : "architecture-grid architecture-grid-create-collapsed"}>
+          <ArchitectureCreatePanel
+            icon={<Bot size={18} />}
+            meta={uiText("architecture.components.count", `${components.length} 个组件`, { count: components.length })}
+            onToggle={() => setRobotCreateOpen((value) => !value)}
+            open={robotCreateOpen}
+            steps={[
+              { label: uiText("architecture.robots.steps.name", "命名"), tone: robotName.trim() ? "done" : "active" },
+              { label: uiText("architecture.robots.steps.assets", "选择资产"), tone: robotComponentIds.size > 0 || robotPluginIds.size > 0 ? "done" : "active" },
+              { label: uiText("architecture.create.confirm", "创建确认"), tone: robotComponentIds.size > 0 || robotPluginIds.size > 0 ? "active" : "muted" }
+            ]}
+            summary={
+              <>
+                <span className="platform-status-pill standby">{robotName.trim() || uiText("architecture.create.waitingName", "等待命名")}</span>
+                <span className="architecture-summary-text">{uiText("architecture.components.count", `${robotComponentIds.size} 个组件`, { count: robotComponentIds.size })}</span>
+                <span className="architecture-summary-text">{uiText("architecture.robots.directPluginCount", `${robotPluginIds.size} 个直属插件`, { count: robotPluginIds.size })}</span>
+              </>
+            }
+            title={uiText("architecture.robots.createTitle", "创建机器人")}
+          >
             <label>
-              <span>机器人名称</span>
+              <span>{uiText("architecture.robots.name", "机器人名称")}</span>
               <input value={robotName} onChange={(event) => setRobotName(event.target.value)} />
             </label>
             <div className="architecture-select-block">
-              <strong>组件</strong>
+              <strong>{uiText("sections.components", "组件")}</strong>
               {components.map((component) => (
                 <label className="checkbox-field" key={component.id}>
                   <input type="checkbox" checked={robotComponentIds.has(component.id)} onChange={() => setRobotComponentIds(toggleSet(robotComponentIds, component.id))} />
                   <span>{component.name}</span>
                 </label>
               ))}
-              {components.length === 0 && <div className="empty-state">先创建组件</div>}
+              {components.length === 0 && <div className="empty-state">{uiText("architecture.robots.createComponentFirst", "先创建组件")}</div>}
             </div>
             <div className="architecture-select-block">
-              <strong>直属插件</strong>
+              <strong>{uiText("architecture.robots.directPlugins", "直属插件")}</strong>
               <SelectableInstanceList
+                emptyLabel={uiText("architecture.components.noAvailablePluginInstances", "没有可用插件实例")}
                 instances={availablePluginInstancesForComponent(pluginInstances, components, robots)}
                 selectedIds={robotPluginIds}
+                typeLabel={platformTypeLabel}
                 usage={usage}
                 onToggle={(id) => setRobotPluginIds(toggleSet(robotPluginIds, id))}
               />
             </div>
             <button className="icon-button primary architecture-wide-button" disabled={robotComponentIds.size === 0 && robotPluginIds.size === 0} onClick={() => void handleCreateRobot()} type="button">
               <Save size={17} />
-              <span>生成机器人</span>
+              <span>{uiText("architecture.robots.createRobot", "生成机器人")}</span>
             </button>
-          </section>
+          </ArchitectureCreatePanel>
           <section className="panel architecture-library-panel">
-            <PanelHeading icon={<Radar size={18} />} meta={`${robots.length} 个机器人`} title="机器人运行面板" />
+            <PanelHeading icon={<Radar size={18} />} meta={uiText("architecture.robots.count", `${robots.length} 个机器人`, { count: robots.length })} title={uiText("architecture.robots.panelTitle", "机器人运行面板")} />
             <EntitySelector
-              empty="还没有机器人"
+              empty={uiText("architecture.robots.empty", "还没有机器人")}
               items={robots}
               selectedId={selectedRobot?.id ?? ""}
               onDelete={handleDeleteRobot}
               onSelect={setSelectedRobotId}
-              renderMeta={(robot) => `${robot.componentIds.length} 个组件 / ${robot.pluginInstanceIds.length} 个直属插件`}
+              renderMeta={(robot) => `${uiText("architecture.components.count", `${robot.componentIds.length} 个组件`, { count: robot.componentIds.length })} / ${uiText("architecture.robots.directPluginCount", `${robot.pluginInstanceIds.length} 个直属插件`, { count: robot.pluginInstanceIds.length })}`}
             />
             {selectedRobot ? (
               <RobotAssemblyWorkspace
                 components={components}
+                dispatchPlatformCommand={dispatchPlatformCommand}
                 driveTargets={driveTargets}
                 motorFeedback={motorFeedback}
                 onSaveRobot={saveRobotPatch}
@@ -2990,222 +3055,10 @@ export function ThreeLayerWorkspace({
                 servoFeedback={servoFeedback}
                 usage={usage}
               />
-            ) : <div className="empty-state">请选择机器人</div>}
+            ) : <div className="empty-state">{uiText("architecture.robots.selectRobot", "请选择机器人")}</div>}
           </section>
         </div>
       )}
     </section>
   );
-}
-
-function PanelHeading({ icon, meta, title }: { icon: ReactNode; meta: string; title: string }) {
-  return (
-    <div className="panel-title architecture-panel-title">
-      <div className="panel-title-main">
-        {icon}
-        <h3>{title}</h3>
-      </div>
-      <span className="panel-meta">{meta}</span>
-    </div>
-  );
-}
-
-function EntitySelector<T extends { id: string; name: string }>({
-  empty,
-  items,
-  onDelete,
-  onSelect,
-  renderMeta,
-  selectedId
-}: {
-  empty: string;
-  items: T[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onDelete: (id: string) => void | Promise<void>;
-  renderMeta: (item: T) => string;
-}) {
-  if (items.length === 0) {
-    return <div className="empty-state">{empty}</div>;
-  }
-  return (
-    <div className="architecture-entity-list">
-      {items.map((item) => (
-        <div className={selectedId === item.id ? "device-row selected" : "device-row"} key={item.id}>
-          <button className="device-select" onClick={() => onSelect(item.id)} type="button">
-            <span className="device-info">
-              <span className="device-name">{item.name}</span>
-              <span className="device-meta">{renderMeta(item)}</span>
-            </span>
-          </button>
-          <button className="delete-hit" onClick={() => void onDelete(item.id)} type="button">
-            <Trash2 size={16} />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SelectableInstanceList({
-  instances,
-  onToggle,
-  selectedIds,
-  usage
-}: {
-  instances: PluginInstance[];
-  selectedIds: Set<string>;
-  usage: Map<string, Array<{ ownerName: string }>>;
-  onToggle: (id: string) => void;
-}) {
-  if (instances.length === 0) {
-    return <div className="empty-state">没有可用插件实例</div>;
-  }
-  return (
-    <div className="architecture-selectable-list">
-      {instances.map((instance) => (
-        <label className="checkbox-field architecture-selectable-row" key={instance.id}>
-          <input type="checkbox" checked={selectedIds.has(instance.id)} disabled={Boolean(usage.get(instance.id)?.length)} onChange={() => onToggle(instance.id)} />
-          <span>
-            <strong>{instance.name}</strong>
-            <small>{fallbackTypeLabels[instance.type]} · {pluginInstanceDeviceId(instance)}</small>
-          </span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function customCatalogDraft(library: DeviceCodeLibraryItem, brand: string, model: string, template: DeviceCatalogItem | null): DeviceCatalogItem {
-  const fallback = template ?? BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === library.catalogItemId) ?? BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.driverId === library.driverId) ?? BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.type === library.type) ?? BUILTIN_DEVICE_CATALOG_ITEMS[0];
-  return {
-    ...fallback,
-    id: `custom.${library.type}.${brand}.${model}`,
-    type: library.type,
-    brand: brand.trim() || library.brand || "Custom",
-    model: model.trim() || "Custom Device",
-    displayName: `${brand.trim() || library.brand || "Custom"} ${model.trim() || "Custom Device"}`,
-    driverId: library.driverId,
-    transportId: fallback.transportId || library.transportId,
-    capabilities: fallback.capabilities.length > 0 ? fallback.capabilities : [{ id: library.type, features: [] }],
-    tags: Array.from(new Set([...fallback.tags, library.driverId, library.sourceFile])),
-    userDefined: true
-  };
-}
-
-function driverSourceForInstance(instance: PluginInstance, drivers: DriverLibraryItem[]): string {
-  return drivers.find((driver) => driver.driverId === instance.driverId)?.sourceFile ?? instance.driverId;
-}
-
-function normalizeConfigDraft(schema: DeviceConfigField[], draft: DraftValues): DeviceConfig {
-  const config: DeviceConfig = {};
-  for (const field of schema) {
-    const value = draft[field.id];
-    if (field.kind === "number") {
-      const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : null;
-      config[field.id] = Number.isFinite(number) ? number : null;
-    } else if (field.kind === "toggle") {
-      config[field.id] = value === true;
-    } else if (field.kind === "select") {
-      config[field.id] = field.options?.find((option) => String(option.value) === String(value))?.value ?? field.options?.[0]?.value ?? null;
-    } else {
-      config[field.id] = value === null || value === undefined ? "" : String(value);
-    }
-  }
-  return config;
-}
-
-function nextPluginName(catalogItem: DeviceCatalogItem, instances: PluginInstance[]) {
-  const base = catalogItem.type === "servo" ? `ID${catalogItem.defaultConfig.servoId ?? instances.length + 1}` : catalogItem.model;
-  let name = String(base);
-  for (let index = 2; instances.some((item) => item.name === name); index += 1) {
-    name = `${base} ${index}`;
-  }
-  return name;
-}
-
-type ServoSetIdStepLog = {
-  label: string;
-  tx: string;
-  rx: string | null;
-  status: number | null;
-};
-
-type ServoSetIdCommandResponse = {
-  ok: boolean;
-  oldId: number;
-  newId: number;
-  stage: string;
-  steps: ServoSetIdStepLog[];
-};
-
-function servoSetIdResponseFromResult(response: unknown): ServoSetIdCommandResponse | null {
-  if (!response || typeof response !== "object") {
-    return null;
-  }
-  const draft = response as Partial<ServoSetIdCommandResponse>;
-  if (typeof draft.oldId !== "number" || typeof draft.newId !== "number" || !Array.isArray(draft.steps)) {
-    return null;
-  }
-  return {
-    ok: draft.ok === true,
-    oldId: draft.oldId,
-    newId: draft.newId,
-    stage: typeof draft.stage === "string" ? draft.stage : "unknown",
-    steps: draft.steps
-      .filter((step): step is ServoSetIdStepLog => (
-        step &&
-        typeof step.label === "string" &&
-        typeof step.tx === "string" &&
-        (typeof step.rx === "string" || step.rx === null) &&
-        (typeof step.status === "number" || step.status === null)
-      ))
-  };
-}
-
-function servoSetIdLogLines(response: ServoSetIdCommandResponse): string[] {
-  const lines = [`ID ${response.oldId} -> ${response.newId} ${response.ok ? "OK" : `FAILED ${response.stage}`}`];
-  for (const step of response.steps) {
-    lines.push(`${step.label} TX ${step.tx}`);
-    lines.push(`${step.label} RX ${step.rx ?? "--"}${step.status === null ? "" : ` status=${step.status}`}`);
-  }
-  return lines;
-}
-
-function platformActionControls(controls: UiControlSchema[]): UiControlSchema[] {
-  return controls.flatMap((control) => {
-    const children = control.kind === "group" ? platformActionControls(control.controls ?? []) : [];
-    return control.actionId ? [control, ...children] : children;
-  });
-}
-
-function formatArmNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-}
-
-function normalizeArmDisplayDegrees(value: number): number {
-  return ((value % 360) + 360) % 360;
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function Metric({ label, value, tone = "neutral" }: { label: string; value: ReactNode; tone?: MetricTone }) {
-  return (
-    <div className={`architecture-metric ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function toggleSet(values: Set<string>, id: string): Set<string> {
-  const next = new Set(values);
-  if (next.has(id)) {
-    next.delete(id);
-  } else {
-    next.add(id);
-  }
-  return next;
 }

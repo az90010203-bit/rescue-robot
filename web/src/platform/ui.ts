@@ -1,5 +1,6 @@
 import { createPlatformCommand, PlatformCommand } from "./commands";
 import { DeviceDescriptor, PlatformEvent, UiPanelSchema } from "./types";
+import { formatScalarValue } from "../shared/formatters";
 
 export type PlatformControlDraft = Record<string, unknown>;
 
@@ -14,13 +15,7 @@ export function resolveSelectedPlatformDeviceId(devices: DeviceDescriptor[], sel
 }
 
 export function formatPlatformStateValue(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined || value === "") {
-    return "--";
-  }
-  if (typeof value === "boolean") {
-    return value ? "yes" : "no";
-  }
-  return String(value);
+  return formatScalarValue(value);
 }
 
 export function limitPlatformEvents(events: PlatformEvent[], limit = 10): PlatformEvent[] {

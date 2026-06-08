@@ -395,6 +395,157 @@
   margin-bottom: 0;
 }
 
+.architecture-create-panel {
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.architecture-create-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.architecture-create-toggle {
+  min-height: 36px;
+  padding-inline: 10px;
+}
+
+.architecture-create-panel.collapsed {
+  justify-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+}
+
+.architecture-create-panel.collapsed .architecture-create-head {
+  width: 100%;
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.architecture-create-panel.collapsed .architecture-panel-title {
+  width: 100%;
+  justify-items: center;
+}
+
+.architecture-create-panel.collapsed .panel-title-main {
+  justify-content: center;
+}
+
+.architecture-create-panel.collapsed .panel-title-main h3,
+.architecture-create-panel.collapsed .panel-meta {
+  display: none;
+}
+
+.architecture-create-panel.collapsed .architecture-create-toggle {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  justify-content: center;
+}
+
+.architecture-create-panel.collapsed .architecture-create-toggle span {
+  display: none;
+}
+
+.architecture-create-summary {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(66, 84, 112, 0.12);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.architecture-summary-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--steel);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.architecture-create-steps {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.architecture-create-step {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 8px 5px 6px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 0.7rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.architecture-create-step span {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  color: var(--panel);
+  background: rgba(66, 84, 112, 0.42);
+  font-size: 0.66rem;
+}
+
+.architecture-create-step.active {
+  border-color: rgba(20, 86, 240, 0.22);
+  color: var(--primary);
+  background: rgba(20, 86, 240, 0.06);
+}
+
+.architecture-create-step.active span {
+  background: var(--primary);
+}
+
+.architecture-create-step.done {
+  border-color: rgba(27, 166, 115, 0.22);
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.architecture-create-step.done span {
+  background: var(--green);
+}
+
+.architecture-create-body {
+  display: grid;
+  gap: 12px;
+}
+
+.architecture-create-body[hidden] {
+  display: none;
+}
+
+.architecture-grid-create-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.architecture-plugin-grid.architecture-grid-create-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
 .architecture-form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -875,11 +1026,54 @@
   margin: 0;
 }
 
+@media (max-width: 900px) {
+  .architecture-grid,
+  .architecture-plugin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .architecture-grid-create-collapsed,
+  .architecture-plugin-grid.architecture-grid-create-collapsed {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .architecture-create-head {
+    grid-template-columns: 1fr;
+  }
+
+  .architecture-create-toggle {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 560px) {
+  .architecture-create-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .architecture-create-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .architecture-summary-text {
+    white-space: normal;
+  }
+
+  .architecture-create-step {
+    width: 100%;
+  }
+}
+
 .robot-assembly-workspace {
   display: grid;
   grid-template-columns: minmax(190px, 230px) minmax(420px, 1fr) minmax(280px, 340px);
   gap: 12px;
   align-items: start;
+}
+
+.robot-assembly-workspace.palette-collapsed {
+  grid-template-columns: 56px minmax(420px, 1fr) minmax(280px, 340px);
 }
 
 .robot-assembly-palette,
@@ -888,6 +1082,67 @@
   min-width: 0;
   display: grid;
   gap: 12px;
+}
+
+.robot-assembly-palette-top {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.robot-assembly-palette-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 760;
+}
+
+.robot-assembly-sidebar-toggle {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.robot-assembly-workspace.palette-collapsed .robot-assembly-palette {
+  justify-items: center;
+  gap: 8px;
+}
+
+.robot-assembly-workspace.palette-collapsed .robot-assembly-palette-title {
+  display: none;
+}
+
+.robot-assembly-palette-rail-button {
+  width: 38px;
+  min-width: 38px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #fff;
+  cursor: pointer;
+}
+
+.robot-assembly-palette-rail-button:hover {
+  border-color: rgba(20, 86, 240, 0.3);
+  color: var(--primary);
+  background: rgba(20, 86, 240, 0.05);
+}
+
+.robot-assembly-palette-rail-button small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .robot-assembly-panel-head,
@@ -1228,6 +1483,10 @@
     grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   }
 
+  .robot-assembly-workspace.palette-collapsed {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
   .robot-assembly-inspector {
     grid-column: 1 / -1;
   }
@@ -1236,6 +1495,20 @@
 @media (max-width: 760px) {
   .robot-assembly-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .robot-assembly-workspace.palette-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .robot-assembly-workspace.palette-collapsed .robot-assembly-palette {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    justify-items: stretch;
+  }
+
+  .robot-assembly-workspace.palette-collapsed .robot-assembly-palette-top,
+  .robot-assembly-workspace.palette-collapsed .robot-assembly-palette-rail-button {
+    width: 100%;
   }
 
   .robot-assembly-canvas {
@@ -1250,7 +1523,11 @@
 }
 
 .robot-assembly-backend .robot-assembly-workspace {
-  grid-template-columns: minmax(210px, 250px) minmax(520px, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) minmax(300px, 360px);
+}
+
+.robot-assembly-backend .robot-assembly-workspace.palette-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr) minmax(300px, 360px);
 }
 
 .robot-assembly-backend .robot-assembly-palette,
@@ -1267,7 +1544,8 @@
 }
 
 .robot-assembly-backend .robot-assembly-panel-head span,
-.robot-assembly-backend .robot-assembly-toolbar-hint {
+.robot-assembly-backend .robot-assembly-toolbar-hint,
+.robot-assembly-backend .robot-assembly-palette-title {
   color: #e0f2fe;
   letter-spacing: 0;
 }
@@ -1282,6 +1560,24 @@
 .robot-assembly-palette-group {
   display: grid;
   gap: 8px;
+}
+
+.robot-assembly-backend .robot-assembly-palette-rail-button,
+.robot-assembly-backend .robot-assembly-sidebar-toggle {
+  border-color: rgba(125, 211, 252, 0.2);
+  color: #e0f2fe;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.robot-assembly-backend .robot-assembly-palette-rail-button:hover,
+.robot-assembly-backend .robot-assembly-sidebar-toggle:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+  color: #f8fafc;
+  background: rgba(14, 116, 144, 0.2);
+}
+
+.robot-assembly-backend .robot-assembly-palette-rail-button small {
+  color: #93c5fd;
 }
 
 .robot-assembly-backend .robot-assembly-source {
@@ -1570,6 +1866,110 @@
   gap: 10px;
 }
 
+.robot-program-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #e0f2fe;
+}
+
+.robot-program-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.robot-program-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(160px, 210px) minmax(420px, 1fr) minmax(260px, 320px);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.robot-program-list,
+.robot-program-editor,
+.robot-program-side {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.robot-program-list button {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  padding: 9px;
+  color: #e0f2fe;
+  background: rgba(2, 6, 23, 0.54);
+  text-align: left;
+}
+
+.robot-program-list button.selected {
+  border-color: rgba(56, 189, 248, 0.72);
+  background: rgba(14, 116, 144, 0.22);
+}
+
+.robot-program-list strong,
+.robot-program-list small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.robot-program-list small {
+  color: #93c5fd;
+  font-size: 0.68rem;
+}
+
+.robot-program-fields {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(110px, 150px) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.robot-program-blockly {
+  width: 100%;
+  min-height: 430px;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.robot-program-side {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.robot-program-preview,
+.robot-program-issues {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(2, 6, 23, 0.52);
+}
+
+.robot-program-preview ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 20px;
+  color: #dbeafe;
+  font-size: 0.74rem;
+}
+
 .robot-assembly-action-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -1672,12 +2072,44 @@
   .robot-assembly-backend .robot-assembly-workspace {
     grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
   }
+
+  .robot-assembly-backend .robot-assembly-workspace.palette-collapsed {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .robot-program-grid {
+    grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  }
+
+  .robot-program-side {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
   .robot-assembly-backend .robot-assembly-workspace,
-  .robot-assembly-action-grid {
+  .robot-assembly-action-grid,
+  .robot-program-grid,
+  .robot-program-side,
+  .robot-program-fields {
     grid-template-columns: 1fr;
+  }
+
+  .robot-assembly-backend .robot-assembly-workspace.palette-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .robot-program-actions {
+    justify-content: stretch;
+  }
+
+  .robot-program-actions .icon-button {
+    justify-content: center;
+  }
+
+  .robot-program-blockly {
+    min-height: 360px;
   }
 
   .robot-assembly-canvas.schematic {

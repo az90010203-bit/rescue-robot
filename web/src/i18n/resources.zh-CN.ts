@@ -3,7 +3,11 @@ export const zhCNResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "救援机器人控制台",
-      "systemLine": "USB Serial · 115200 baud · {{module}}"
+      "systemLine": "USB Serial · 115200 baud · {{module}}",
+      "servoBridgeSystemLine": "Pi 舵机桥 · 115200 UART · {{module}}",
+      "servoBusSystemLine": "USB 串口 · 1000000 baud · {{module}}",
+      "piServoDefaultDetail": "Pi 6/8/10 serial0",
+      "aBoardDefaultDetail": "Pi 32/33 UART5"
     },
     "aria": {
       "systemStatus": "系统状态",
@@ -30,6 +34,11 @@ export const zhCNResource = {
     "language": {
       "label": "语言",
       "select": "选择语言"
+    },
+    "loading": {
+      "console": "正在加载主控台...",
+      "arm3d": "正在加载 3D 机械臂...",
+      "architecture": "正在加载三层架构工作区..."
     },
     "sections": {
       "console": "主控台",
@@ -218,6 +227,9 @@ export const zhCNResource = {
       "uploadFirmware": "上传固件",
       "checkPiHelper": "检查 Pi 助手",
       "testPiConnection": "测试 Pi 连接",
+      "discoverPi": "发现 Pi",
+      "applyDiscoveredPi": "应用地址",
+      "setupPiUsbGadget": "配置 USB 直连",
       "connectPi": "连接树莓派",
       "reconnectPi": "重连树莓派",
       "uploadPiFile": "上传文件",
@@ -227,6 +239,7 @@ export const zhCNResource = {
       "checkPiCamera": "检测摄像头",
       "startPiCamera": "一键开启视频",
       "stopPiCamera": "停止视频",
+      "syncPiCameraUrl": "同步摄像头地址",
       "installPiCameraTools": "安装摄像头服务",
       "clearPiOutput": "清空输出",
       "execPiCommand": "执行命令",
@@ -269,6 +282,7 @@ export const zhCNResource = {
     },
     "webSerial": {
       "ready": "Web Serial 就绪",
+      "feetechBusReady": "Feetech 总线 · 1000000 baud",
       "unavailable": "Web Serial 不可用"
     },
     "panels": {
@@ -335,6 +349,7 @@ export const zhCNResource = {
         "robot-arm": "机械臂",
         "raspberry-pi": "树莓派",
         "firmware": "固件",
+        "gamepad": "手柄",
         "gpio": "GPIO",
         "sensor": "传感器"
       },
@@ -479,6 +494,221 @@ export const zhCNResource = {
         "upload": "上传"
       }
     },
+    "architecture": {
+      "aria": "三层架构",
+      "sqliteProject": "SQLite 项目",
+      "dataServiceRequired": "三层架构需要 SQLite 数据服务",
+      "dataServiceHint": "请先启动 data-service，然后在项目里创建插件实例、组件和机器人。",
+      "status": {
+        "loading": "加载中",
+        "saving": "保存中",
+        "error": "错误",
+        "synced": "已同步"
+      },
+      "actions": {
+        "refresh": "刷新",
+        "backToPluginLibrary": "返回插件库",
+        "createPluginInstance": "生成插件实例",
+        "deletePluginInstance": "删除插件实例",
+        "saveLimits": "保存限位/复位",
+        "setResetPoint": "设为复位点",
+        "setLogicalCenter": "设为逻辑中位",
+        "reset": "复位",
+        "pingCurrentId": "Ping 当前 ID",
+        "writeNewId": "写入新 ID",
+        "writing": "写入中",
+        "clear": "清空"
+      },
+      "create": {
+        "plugins": "创建插件实例",
+        "selectType": "选择类型",
+        "configure": "配置参数",
+        "confirm": "创建确认",
+        "allDevices": "全部设备",
+        "noCodeLibrarySelected": "未选择代码库",
+        "waitingName": "等待命名",
+        "device": "设备",
+        "brand": "品牌",
+        "noBrands": "没有品牌",
+        "model": "型号",
+        "noModels": "没有型号",
+        "codeLibrary": "代码库",
+        "searchPlaceholder": "搜索型号、代码文件、驱动",
+        "noCodeLibraries": "这个设备和品牌下还没有代码库",
+        "customCatalog": "数据库没有这个型号，基于当前代码库创建自定义型号",
+        "customBrand": "自定义品牌",
+        "customModel": "自定义型号",
+        "instanceNamePlaceholder": "例如 Base joint / Left track",
+        "selectDeviceBrandCode": "请先选择设备、品牌和代码库",
+        "codeLibraryCount": "{{count}} 个代码库",
+        "collapse": "收起",
+        "collapseLeft": "向左收起",
+        "expandConfig": "展开配置",
+        "stepsAria": "{{title}} 步骤"
+      },
+      "library": {
+        "pluginDebug": "插件调试",
+        "pluginLibrary": "插件库",
+        "allTypes": "全部类型",
+        "available": "可用",
+        "autoDetected": "自动检测",
+        "noPlugins": "还没有插件实例",
+        "noMatchingPlugins": "没有匹配的插件实例",
+        "instanceCount": "{{shown}} / {{total}} 个实例",
+        "deleteNamed": "删除 {{name}}",
+        "removeBeforeDelete": "请先从 {{owner}} 移除后再删除"
+      },
+      "empty": {
+        "selectOrCreateDevice": "请选择或新建一个设备型号",
+        "noCameraStream": "未配置视频流",
+        "noDedicatedPanel": "该能力还没有专用面板",
+        "invalidServoPlugin": "这个舵机插件缺少有效 servoId，无法调试",
+        "invalidMotorPlugin": "这个电机插件缺少有效 channel，无法调试",
+        "noAdvancedWrites": "还没有高级写入记录"
+      },
+      "servoDebug": {
+        "feedback": "有反馈",
+        "notRead": "未读取",
+        "logicalRange": "逻辑范围",
+        "physicalLimit": "实际限位",
+        "resetTitle": "限位与复位",
+        "resetHint": "保存到当前插件实例配置，刷新后仍保留。复位角是当前限位范围内的逻辑角度。",
+        "resetAngle": "复位角",
+        "logicalCenter": "逻辑中位",
+        "internalTitle": "舵机内部配置",
+        "internalHint": "会写入飞特舵机本体 EEPROM。改 ID 前请只连接这一只舵机，写入成功后会同步插件配置。",
+        "currentId": "当前 ID",
+        "targetId": "目标 ID",
+        "newId": "新 ID",
+        "singleServoConfirm": "我确认总线上只连接这一只舵机",
+        "serialTitle": "舵机写入收发",
+        "serialHint": "显示最近一次高级写入的 TX/RX 摘要；完整串口日志仍在系统日志里。"
+      },
+      "components": {
+        "availablePluginCount": "{{count}} 个可用插件",
+        "steps": {
+          "type": "组件类型",
+          "bindPlugins": "绑定插件"
+        },
+        "selectedPluginCount": "{{count}} 个插件已选",
+        "createTitle": "创建组件",
+        "type": "组件类型",
+        "name": "组件名称",
+        "kind": {
+          "custom": "普通组件",
+          "robotArm": "机械臂"
+        },
+        "noAvailablePluginInstances": "没有可用插件实例",
+        "createRobotArm": "生成机械臂",
+        "createComponent": "生成组件",
+        "count": "{{count}} 个组件",
+        "panelTitle": "组件面板",
+        "empty": "还没有组件",
+        "pluginCount": "{{count}} 个插件",
+        "selectComponent": "请选择组件"
+      },
+      "robots": {
+        "steps": {
+          "name": "命名",
+          "assets": "选择资产"
+        },
+        "directPluginCount": "{{count}} 个直属插件",
+        "createTitle": "创建机器人",
+        "name": "机器人名称",
+        "createComponentFirst": "先创建组件",
+        "directPlugins": "直属插件",
+        "createRobot": "生成机器人",
+        "count": "{{count}} 个机器人",
+        "panelTitle": "机器人运行面板",
+        "empty": "还没有机器人",
+        "selectRobot": "请选择机器人"
+      },
+      "armComponent": {
+        "empty": {
+          "noServoPlugin": "机械臂组件需要至少一个舵机插件"
+        },
+        "jointCount": "{{count}} 个关节",
+        "poseAria": "{{name}} 机械臂姿态",
+        "metrics": {
+          "joints": "关节",
+          "mode": "模式",
+          "selectedJoint": "已选关节"
+        },
+        "modes": {
+          "manual": "手动关节",
+          "ik": "自动 IK",
+          "liveDrag": "实时拖动"
+        },
+        "sendMode": {
+          "preview": "预览",
+          "live": "实时",
+          "needsLiveDrag": "需开启实时拖动"
+        },
+        "autoIk": "组件自动 IK",
+        "ikStatus": {
+          "converged": "已收敛",
+          "nearPose": "接近姿态",
+          "awaitingDrag": "待拖动"
+        },
+        "modeAria": "机械臂组件模式",
+        "sendModeAria": "自动 IK 下发模式",
+        "ik": {
+          "targetX": "目标 X",
+          "targetY": "目标 Y",
+          "error": "误差",
+          "steps": "步数",
+          "reachable": "可达",
+          "movedJoints": "移动关节",
+          "send": "下发"
+        },
+        "feedbackCorrection": "反馈修正：关闭 / 模板预留",
+        "archive": {
+          "trackName": "轨迹名称",
+          "notes": "备注",
+          "archive": "存档",
+          "noneSelected": "未选择",
+          "saveCurrent": "保存当前轨迹",
+          "stopPlayback": "停止播放",
+          "playArchive": "播放存档",
+          "saveNotes": "保存备注",
+          "deleteArchive": "删除存档",
+          "currentSamples": "本次样本",
+          "currentDuration": "本次时长",
+          "archiveCount": "存档数",
+          "selectedSamples": "选中样本",
+          "selectedDuration": "选中时长"
+        },
+        "jointOrdinal": "第 {{index}} 关节",
+        "moveUpNamed": "上移 {{name}}",
+        "moveDownNamed": "下移 {{name}}",
+        "fields": {
+          "jointIndex": "关节序号",
+          "lengthPx": "长度 px",
+          "neutralDeg": "中位"
+        },
+        "shape": {
+          "title": "几何形状",
+          "hint": "配置中位姿态下的折线段，可表达 L 型、折返和重叠结构",
+          "addSegment": "新增段",
+          "childFrameOffset": "下一关节安装偏移",
+          "segmentName": "段名称",
+          "initialDirection": "初始方向",
+          "initialDirectionFor": "{{name}} 初始方向",
+          "deleteSegment": "删除形状段",
+          "deleteSegmentNamed": "删除 {{name}}"
+        },
+        "limits": {
+          "title": "舵机限位",
+          "hint": "组件里的关节会按这个范围夹紧，保存后同步到插件实例",
+          "range": "运行范围",
+          "currentServo": "当前舵机"
+        },
+        "actions": {
+          "syncActualPose": "同步实际姿态",
+          "savePose": "保存姿态"
+        }
+      }
+    },
     "meta": {
       "servoCount": "{{count}} 个舵机",
       "motorCount": "{{count}} 个端口",
@@ -501,6 +731,8 @@ export const zhCNResource = {
       "wheelSliderDeg": "轮模式拖动条",
       "wheelMaxSpeedRaw": "最大速度 raw",
       "acceleration": "加速度",
+      "controlMode": "控制模式",
+      "actualAngle": "实际角度",
       "speedPercent": "速度 %",
       "stopMode": "停止方式",
       "speedSlider": "速度滑杆",
@@ -535,6 +767,7 @@ export const zhCNResource = {
       "encoderAPin": "编码器 A",
       "encoderBPin": "编码器 B",
       "enabled": "启用",
+      "disabled": "停用",
       "linkageName": "联动组名称",
       "linkageMode": "联动模式",
       "positionMode": "位置模式",
@@ -555,6 +788,8 @@ export const zhCNResource = {
       "safetySensitive": "灵敏",
       "clockwiseTurns": "顺时针圈数",
       "counterclockwiseTurns": "逆时针圈数",
+      "minAngle": "最小角",
+      "maxAngle": "最大角",
       "neutralDeg": "归零角 deg",
       "segmentLength": "棍段长度 px",
       "liveDrag": "实时拖动",
@@ -604,7 +839,7 @@ export const zhCNResource = {
       "optionalPin": "可选",
       "addServoToGroup": "添加舵机到编组",
       "addMotorToGroup": "添加电机到组合",
-      "piHost": "raspberrypi.local 或 192.168.1.20",
+      "piHost": "rescue-pi.local 或 192.168.1.20",
       "piPrivateKeyPath": "如 C:\\Users\\YU\\.ssh\\id_rsa"
     },
     "empty": {
@@ -630,6 +865,21 @@ export const zhCNResource = {
       "data": "有数据",
       "idle": "空闲",
       "deleteNamed": "删除 {{name}}"
+    },
+    "servo": {
+      "smoothingControl": "平滑控制",
+      "smoothingPreset": "平滑档位",
+      "directMode": "直发模式",
+      "motionStatus": {
+        "idle": "空闲",
+        "smoothing": "平滑中",
+        "paused": "急停后空闲"
+      },
+      "smoothPresets": {
+        "soft": "柔和",
+        "standard": "标准",
+        "fast": "快速"
+      }
     },
     "metrics": {
       "rawPosition": "原始位置",
@@ -848,6 +1098,9 @@ export const zhCNResource = {
       "piCameraStartFailed": "摄像头视频启动失败",
       "piCameraStopped": "摄像头视频已停止",
       "piCameraToolsInstalled": "摄像头服务安装命令已执行",
+      "piDiscoveryComplete": "Pi 发现完成：{{count}} 个候选，推荐 {{host}}",
+      "piDiscoveryHostApplied": "Pi 地址已更新为 {{host}}",
+      "piUsbGadgetConfigured": "USB 直连配置命令已执行，退出码 {{code}}",
       "motorLinkageNoTargets": "电机组合没有可发送的电机",
       "motorLinkageCommandSent": "电机组合指令已发送",
       "motorLinkageStopped": "电机组合已停止",
@@ -897,6 +1150,39 @@ export const zhCNResource = {
         "temperatureHigh": "温度偏高"
       }
     },
+    "armTeach": {
+      "eyebrow": "机械臂示教",
+      "title": "示教录制",
+      "track": "轨迹",
+      "noTracks": "暂无轨迹",
+      "name": "名称",
+      "notes": "备注",
+      "namePlaceholder": "Teach route",
+      "notesPlaceholder": "任务备注",
+      "metrics": {
+        "duration": "时长",
+        "samples": "采样点",
+        "frequency": "频率",
+        "joints": "关节",
+        "latestSample": "最近采样"
+      },
+      "actions": {
+        "start": "开始示教",
+        "stopRecording": "停止录制",
+        "playback": "回放",
+        "pausePlayback": "暂停回放",
+        "save": "保存",
+        "delete": "删除"
+      },
+      "status": {
+        "idle": "待机",
+        "preparing": "准备中",
+        "recording": "录制中",
+        "stopped": "已停止",
+        "playing": "回放中",
+        "error": "错误"
+      }
+    },
     "arm3d": {
       "meta": "Three.js",
       "orbitHint": "拖动旋转视角，滚轮缩放。下方关节滑条复用同一套机械臂姿态。",
@@ -937,6 +1223,43 @@ export const zhCNResource = {
       "checkHint": "检测 SSH、Python 和工作目录",
       "setupHint": "创建工作目录和运行脚本",
       "advancedSettings": "高级设置",
+      "discovery": {
+        "title": "发现树莓派",
+        "statusLabel": "扫描",
+        "recommended": "推荐",
+        "usbHosts": "USB 直连",
+        "available": "可用",
+        "noResults": "尚无扫描结果",
+        "status": {
+          "idle": "待机",
+          "scanning": "扫描中",
+          "complete": "完成",
+          "error": "错误"
+        },
+        "probe": {
+          "online": "可用",
+          "offline": "离线",
+          "skipped": "跳过"
+        },
+        "source": {
+          "saved": "已保存地址",
+          "usb-gadget-hostname": "USB 主机名",
+          "mdns": "mDNS 主机名",
+          "usb-gadget-fallback": "USB gadget 兜底",
+          "manual-usb-fallback": "手动 USB 兜底"
+        },
+        "errors": {
+          "noHost": "没有找到可连接的树莓派候选地址。",
+          "scanFailed": "树莓派发现失败。"
+        }
+      },
+      "usbRecovery": {
+        "setupConfirm": "这会修改树莓派 USB 网络配置，可能需要重启。继续吗？",
+        "powerHint": "如果 USB 候选地址忽隐忽现，请确认 USB-C 线支持数据传输，并给树莓派稳定供电。",
+        "errors": {
+          "setupFailed": "USB 直连配置失败，请检查 sudo 权限和命令输出。"
+        }
+      },
       "auth": {
         "password": "密码",
         "privateKey": "私钥"
@@ -973,6 +1296,7 @@ export const zhCNResource = {
         "tool": "视频服务",
         "webrtc": "WebRTC",
         "webrtcUnavailable": "不可用",
+        "adaptiveStream": "当前 Pi 地址",
         "toolMissing": "未安装",
         "advanced": "高级摄像头设置",
         "installConfirm": "将通过 SSH 在树莓派上运行 apt-get 安装 ffmpeg、v4l-utils、python3-venv 和 pip。继续吗？",
@@ -1053,12 +1377,238 @@ export const zhCNResource = {
       "enableDebug": "开启调试后可发送云台指令",
       "connectSerial": "连接串口后可控制云台"
     },
+    "localCamera": {
+      "previewStopped": "摄像头预览已停止",
+      "unsupported": "本地摄像头不可用",
+      "deviceLabel": "摄像头设备",
+      "systemDefault": "系统默认",
+      "refreshDevices": "刷新设备",
+      "enableCamera": "开启摄像头",
+      "stopPreview": "停止预览",
+      "status": {
+        "online": "预览中",
+        "loading": "加载中",
+        "error": "错误",
+        "idle": "待机"
+      },
+      "metrics": {
+        "status": "状态",
+        "device": "设备",
+        "resolution": "分辨率",
+        "frameRate": "帧率"
+      },
+      "errors": {
+        "unsupported": "当前浏览器不支持本地摄像头访问。",
+        "noneDetected": "没有检测到本地摄像头。",
+        "savedUnavailable": "保存的摄像头不可用，将使用默认摄像头。",
+        "savedUnavailableActive": "保存的摄像头不可用，已启用默认摄像头。"
+      }
+    },
+    "pluginAutoDetect": {
+      "aria": "插件自动检测",
+      "title": "自动检测",
+      "actions": {
+        "cancel": "取消",
+        "detectDevices": "检测设备"
+      },
+      "phase": {
+        "ready": "就绪",
+        "scanning": "扫描中",
+        "scanningLocalCameras": "扫描本地摄像头",
+        "scanningSerialPorts": "扫描串口",
+        "scanningFeetechServoBus": "扫描飞特舵机总线",
+        "scanningAboardCan": "扫描 A 板 CAN",
+        "scanningAboardMotorChannels": "扫描 A 板电机通道",
+        "addingPlugins": "添加插件",
+        "canceling": "正在取消",
+        "canceled": "已取消",
+        "complete": "完成"
+      },
+      "metrics": {
+        "candidates": "候选",
+        "created": "已创建",
+        "skipped": "已跳过",
+        "failed": "失败"
+      },
+      "summary": {
+        "noRun": "尚未执行检测。",
+        "result": "{{created}} 已创建 / {{skipped}} 已跳过 / {{failed}} 失败"
+      },
+      "errors": {
+        "unknown": "未知错误"
+      }
+    },
     "drive": {
       "tracked": "履带",
       "mecanum": "麦轮",
       "commandReady": "驾驶指令已就绪",
       "enableDebug": "开启调试后可发送底盘指令",
       "connectSerial": "连接串口后可控制底盘"
+    },
+    "robotAssembly": {
+      "assets": "素材",
+      "aria": {
+        "palette": "机器人装配素材",
+        "schematic": "{{name}} 装配图",
+        "inspector": "机器人装配检查器"
+      },
+      "groups": {
+        "components": "组件",
+        "plugins": "插件",
+        "hardware": "硬件"
+      },
+      "expandAssetSidebar": "展开素材侧栏",
+      "collapseAssetSidebar": "向左收起素材侧栏",
+      "expandAssets": "展开素材",
+      "collapseAssets": "收起素材",
+      "usedBy": "已被 {{name}} 使用",
+      "saveState": {
+        "saving": "保存中",
+        "error": "保存失败",
+        "saved": "已保存"
+      },
+      "warningErrors": "{{count}} 错误",
+      "warningCount": "{{count}} 警告",
+      "cancelWire": "取消连线",
+      "dragHint": "拖动端口连线",
+      "inspector": {
+        "title": "检查器",
+        "nodesWires": "{{nodes}} 节点 / {{wires}} 连线"
+      },
+      "wireFromPort": "从端口连线",
+      "remove": "移除",
+      "startWire": "开始连线",
+      "cancel": "取消",
+      "fields": {
+        "kind": "类型",
+        "label": "标签",
+        "serialName": "串口",
+        "baudRate": "波特率",
+        "protocol": "协议",
+        "voltage": "电压",
+        "harness": "线束",
+        "none": "无",
+        "name": "名称",
+        "timeoutMs": "超时 ms"
+      },
+      "hideWire": "隐藏连线",
+      "deleteWire": "删除连线",
+      "executableSteps": "{{count}} 步 / {{timeout}} ms",
+      "previewBeforeRun": "运行前预览",
+      "deleteButton": "删除按钮",
+      "selectHint": "选择节点、端口、连线或动作",
+      "harnesses": "线束",
+      "addHarness": "添加线束",
+      "noHarnesses": "暂无线束",
+      "showHarness": "显示线束",
+      "hideHarness": "隐藏线束",
+      "schematicCheck": "结构检查",
+      "noSchematicWarnings": "结构检查通过",
+      "actionButtons": "动作",
+      "newAction": "新建动作",
+      "steps": "{{count}} 步",
+      "runAction": "运行动作",
+      "noActionButtons": "暂无动作",
+      "abort": "中止",
+      "previewTitle": "预览 {{name}}",
+      "close": "关闭",
+      "confirmRun": "确认运行",
+      "runState": {
+        "idle": "待机",
+        "preview": "预览",
+        "running": "运行中",
+        "done": "完成",
+        "error": "错误",
+        "aborted": "已中止"
+      },
+      "runLog": {
+        "autoAbort": "自动中止：页面隐藏或失焦。",
+        "blockedByErrors": "已被结构错误阻止。",
+        "noExecutor": "装配页没有连接命令执行器。",
+        "run": "运行 {{name}}",
+        "timeout": "{{timeout}} ms 后超时。",
+        "done": "完成。",
+        "actionFailed": "动作失败。",
+        "wait": "等待 {{duration}} ms",
+        "servoPosition": "{{name}} -> {{angle}} 度",
+        "motorSpeed": "{{name}} -> {{speed}}%",
+        "motorStop": "{{name}} 停止 {{mode}}",
+        "manualAbort": "手动中止。",
+        "actionAborted": "动作已中止。",
+        "missingPlugin": "步骤 {{label}} 缺少插件。"
+      },
+      "programs": {
+        "title": "图形化程序",
+        "targetPc": "PC 执行",
+        "newProgram": "新建程序",
+        "saveProgram": "保存程序",
+        "runProgram": "运行程序",
+        "deleteProgram": "删除程序",
+        "defaultName": "程序 {{count}}",
+        "preview": "预览",
+        "issues": "检查",
+        "noPreview": "没有可执行积木。",
+        "noIssues": "程序检查通过。",
+        "issueMessages": {
+          "noExecutableBlocks": "没有可执行积木。"
+        },
+        "saveFailed": "动作程序保存失败",
+        "runLog": {
+          "start": "运行 {{name}}"
+        },
+        "categories": {
+          "actions": "机器人动作",
+          "flow": "流程"
+        },
+        "blocks": {
+          "start": "程序开始",
+          "motorSet": "设置电机",
+          "motorStop": "停止电机",
+          "servoMove": "移动舵机",
+          "armPose": "发送机械臂姿态",
+          "cameraGimbal": "设置云台",
+          "wait": "等待",
+          "log": "记录",
+          "repeat": "重复",
+          "ifState": "如果状态",
+          "emergencyStop": "紧急停止"
+        },
+        "fields": {
+          "ms": "毫秒",
+          "speed": "速度",
+          "angle": "角度",
+          "acc": "加速度",
+          "pan": "水平",
+          "tilt": "俯仰",
+          "count": "次",
+          "message": "消息",
+          "device": "设备",
+          "field": "字段",
+          "equals": "等于",
+          "stopMode": "停止"
+        },
+        "stopModes": {
+          "brake": "刹车",
+          "coast": "滑行"
+        }
+      },
+      "warnings": {
+        "missingEndpoint": "连线缺少端点端口。",
+        "loopback": "连线回到了同一个节点。",
+        "uartTxRx": "UART 必须 TX 接 RX。",
+        "uartSerial": "UART 连线应填写串口。",
+        "uartBaud": "UART 连线应填写波特率。",
+        "groundMismatch": "GND 必须连接 GND，不能接到电源轨。",
+        "voltageMismatch": "电压不一致：{{from}} -> {{to}}。",
+        "powerVoltage": "电源连线应声明电压。",
+        "pwmEndpoint": "PWM 连线缺少 PWM 端点。",
+        "canEndpoint": "CAN 必须连接 CAN 端点。",
+        "shareGround": "{{target}} 应与系统共地。"
+      },
+      "errors": {
+        "schematicSaveFailed": "机器人装配图保存失败",
+        "actionButtonsSaveFailed": "动作按钮保存失败"
+      }
     },
     "mapping": {
       "autoGamepad": "自动选择手柄",

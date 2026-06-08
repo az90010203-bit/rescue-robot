@@ -1,8 +1,9 @@
-import { Activity, AlertTriangle, Boxes, Cable, CircleDot, Cpu, Eye, EyeOff, GitBranch, Link2, MousePointer2, Play, PlugZap, Plus, Power, Radio, Save, Square, Trash2, Unplug, Zap } from "lucide-react";
+import { Activity, AlertTriangle, Boxes, Cable, CircleDot, Cpu, Eye, EyeOff, GitBranch, Link2, MousePointer2, PanelLeftClose, PanelLeftOpen, Play, PlugZap, Plus, Power, Radio, Save, Square, Trash2, Unplug, Zap } from "lucide-react";
 import type { DragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { MotorTarget } from "../../lib/protocol";
-import type { PlatformCommandResult, PlatformCommandType } from "../../platform/commands";
+import type { PlatformCommand, PlatformCommandResult, PlatformCommandType } from "../../platform/commands";
 import type {
   ComponentDefinition,
   PluginInstance,
@@ -15,6 +16,8 @@ import type {
   RobotAssemblyNode,
   RobotAssemblyNodeSourceType,
   RobotAssemblyPort,
+  RobotAssemblyWarning,
+  RobotProgram,
   RobotDefinition
 } from "../../platform/architecture";
 import {
@@ -52,6 +55,7 @@ import {
   type RobotAssemblyContext,
   type RobotAssemblySource
 } from "./robotAssembly";
+import { RobotProgramPanel } from "./RobotProgramPanel";
 
 const SOURCE_DRAG_MIME = "application/x-rescue-robot-source";
 
@@ -65,6 +69,7 @@ interface RobotAssemblyWorkspaceProps {
   motorFeedback: MotorFeedbackMap;
   servoFeedback: ServoFeedbackMap;
   onSaveRobot: (robotId: string, patch: Partial<RobotDefinition>) => Promise<RobotDefinition>;
+  dispatchPlatformCommand?: (command: PlatformCommand) => Promise<PlatformCommandResult>;
   onRunPluginCommand?: (instance: PluginInstance, commandType: PlatformCommandType, payload?: Record<string, unknown>) => Promise<PlatformCommandResult>;
   renderPluginDebug: (instance: PluginInstance) => ReactNode;
 }
@@ -78,6 +83,114 @@ type SelectedAssemblyItem =
 type SaveState = "idle" | "saving" | "error";
 type ActionRunState = "idle" | "preview" | "running" | "done" | "error" | "aborted";
 
+const ROBOT_ASSEMBLY_TEXT: Record<string, string> = {
+  "aria.palette": "机器人装配素材",
+  "aria.schematic": "{{name}} 装配图",
+  "aria.inspector": "机器人装配检查器",
+  "assets": "素材",
+  "groups.components": "组件",
+  "groups.plugins": "插件",
+  "groups.hardware": "硬件",
+  "expandAssetSidebar": "展开素材侧栏",
+  "collapseAssetSidebar": "向左收起素材侧栏",
+  "expandAssets": "展开素材",
+  "collapseAssets": "收起素材",
+  "usedBy": "已被 {{name}} 使用",
+  "saveState.saving": "保存中",
+  "saveState.error": "保存失败",
+  "saveState.saved": "已保存",
+  "warningErrors": "{{count}} 错误",
+  "warningCount": "{{count}} 警告",
+  "cancelWire": "取消连线",
+  "dragHint": "拖动端口连线",
+  "inspector.title": "检查器",
+  "inspector.nodesWires": "{{nodes}} 节点 / {{wires}} 连线",
+  "wireFromPort": "从端口连线",
+  "remove": "移除",
+  "startWire": "开始连线",
+  "cancel": "取消",
+  "fields.kind": "类型",
+  "fields.label": "标签",
+  "fields.serialName": "串口",
+  "fields.baudRate": "波特率",
+  "fields.protocol": "协议",
+  "fields.voltage": "电压",
+  "fields.harness": "线束",
+  "fields.none": "无",
+  "fields.name": "名称",
+  "fields.timeoutMs": "超时 ms",
+  "hideWire": "隐藏连线",
+  "deleteWire": "删除连线",
+  "executableSteps": "{{count}} 步 / {{timeout}} ms",
+  "previewBeforeRun": "运行前预览",
+  "deleteButton": "删除按钮",
+  "selectHint": "选择节点、端口、连线或动作",
+  "harnesses": "线束",
+  "addHarness": "添加线束",
+  "noHarnesses": "暂无线束",
+  "showHarness": "显示线束",
+  "hideHarness": "隐藏线束",
+  "schematicCheck": "结构检查",
+  "noSchematicWarnings": "结构检查通过",
+  "actionButtons": "动作",
+  "newAction": "新建动作",
+  "steps": "{{count}} 步",
+  "runAction": "运行动作",
+  "noActionButtons": "暂无动作",
+  "abort": "中止",
+  "previewTitle": "预览 {{name}}",
+  "close": "关闭",
+  "confirmRun": "确认运行",
+  "runState.idle": "待机",
+  "runState.preview": "预览",
+  "runState.running": "运行中",
+  "runState.done": "完成",
+  "runState.error": "错误",
+  "runState.aborted": "已中止",
+  "runLog.autoAbort": "自动中止：页面隐藏或失焦。",
+  "runLog.blockedByErrors": "已被结构错误阻止。",
+  "runLog.noExecutor": "装配页没有连接命令执行器。",
+  "runLog.run": "运行 {{name}}",
+  "runLog.timeout": "{{timeout}} ms 后超时。",
+  "runLog.done": "完成。",
+  "runLog.actionFailed": "动作失败。",
+  "runLog.wait": "等待 {{duration}} ms",
+  "runLog.servoPosition": "{{name}} -> {{angle}} 度",
+  "runLog.motorSpeed": "{{name}} -> {{speed}}%",
+  "runLog.motorStop": "{{name}} 停止 {{mode}}",
+  "runLog.manualAbort": "手动中止。",
+  "runLog.actionAborted": "动作已中止。",
+  "runLog.missingPlugin": "步骤 {{label}} 缺少插件。",
+  "errors.schematicSaveFailed": "机器人装配图保存失败",
+  "errors.actionButtonsSaveFailed": "动作按钮保存失败",
+  "programs.saveFailed": "动作程序保存失败",
+  "warnings.missingEndpoint": "连线缺少端点端口。",
+  "warnings.loopback": "连线回到了同一个节点。",
+  "warnings.uartTxRx": "UART 必须 TX 接 RX。",
+  "warnings.uartSerial": "UART 连线应填写串口。",
+  "warnings.uartBaud": "UART 连线应填写波特率。",
+  "warnings.groundMismatch": "GND 必须连接 GND，不能接到电源轨。",
+  "warnings.voltageMismatch": "电压不一致：{{from}} -> {{to}}。",
+  "warnings.powerVoltage": "电源连线应声明电压。",
+  "warnings.pwmEndpoint": "PWM 连线缺少 PWM 端点。",
+  "warnings.canEndpoint": "CAN 必须连接 CAN 端点。",
+  "warnings.shareGround": "{{target}} 应与系统共地。"
+};
+
+const ROBOT_ASSEMBLY_WARNING_KEYS: Record<string, string> = {
+  "Connection is missing an endpoint port.": "missingEndpoint",
+  "Connection loops back to the same node.": "loopback",
+  "UART must connect TX to RX.": "uartTxRx",
+  "UART connection should name the serial port.": "uartSerial",
+  "UART connection should set a baud rate.": "uartBaud",
+  "Ground must connect to ground, not a powered rail.": "groundMismatch",
+  "Power connection should declare voltage.": "powerVoltage",
+  "PWM connection has no PWM endpoint.": "pwmEndpoint",
+  "CAN must connect CAN endpoints.": "canEndpoint"
+};
+
+const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
 export function RobotAssemblyWorkspace({
   robot,
   robots,
@@ -88,9 +201,18 @@ export function RobotAssemblyWorkspace({
   motorFeedback,
   servoFeedback,
   onSaveRobot,
+  dispatchPlatformCommand,
   onRunPluginCommand,
   renderPluginDebug
 }: RobotAssemblyWorkspaceProps) {
+  const { t } = useTranslation();
+  function robotText(key: string, values: Record<string, unknown> = {}) {
+    return t(`robotAssembly.${key}`, {
+      defaultValue: ROBOT_ASSEMBLY_TEXT[key] ?? key,
+      ...values
+    });
+  }
+
   const context = useMemo<RobotAssemblyContext>(() => ({ robot, components, pluginInstances }), [components, pluginInstances, robot]);
   const normalizedFromRobot = useMemo(() => normalizeRobotAssemblyConfig(robot.config?.assembly, context), [context, robot.config]);
   const actionButtonsFromRobot = useMemo(() => normalizeRobotActionButtons(robot.config?.actionButtons, pluginInstances), [pluginInstances, robot.config]);
@@ -105,6 +227,7 @@ export function RobotAssemblyWorkspace({
   const [runState, setRunState] = useState<ActionRunState>("idle");
   const [runLog, setRunLog] = useState<string[]>([]);
   const [previewActionId, setPreviewActionId] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const abortRef = useRef(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
@@ -175,7 +298,7 @@ export function RobotAssemblyWorkspace({
       if (runState === "running") {
         abortRef.current = true;
         setRunState("aborted");
-        setRunLog((current) => [...current, "Auto abort: page hidden or blurred."]);
+        setRunLog((current) => [...current, robotText("runLog.autoAbort")]);
       }
     }
     window.addEventListener("blur", handleSafetyAbort);
@@ -184,7 +307,7 @@ export function RobotAssemblyWorkspace({
       window.removeEventListener("blur", handleSafetyAbort);
       document.removeEventListener("visibilitychange", handleSafetyAbort);
     };
-  }, [runState]);
+  }, [runState, t]);
 
   function setAssemblyState(next: RobotAssemblyConfig) {
     assemblyRef.current = next;
@@ -218,7 +341,7 @@ export function RobotAssemblyWorkspace({
       setSaveState("idle");
     } catch (nextError) {
       setSaveState("error");
-      setError(nextError instanceof Error ? nextError.message : "Robot schematic save failed");
+      setError(nextError instanceof Error ? nextError.message : robotText("errors.schematicSaveFailed"));
     }
   }
 
@@ -237,7 +360,27 @@ export function RobotAssemblyWorkspace({
       setSaveState("idle");
     } catch (nextError) {
       setSaveState("error");
-      setError(nextError instanceof Error ? nextError.message : "Action buttons save failed");
+      setError(nextError instanceof Error ? nextError.message : robotText("errors.actionButtonsSaveFailed"));
+    }
+  }
+
+  async function saveProgramsNow(next: RobotProgram[]) {
+    setSaveState("saving");
+    setError("");
+    try {
+      await onSaveRobot(robot.id, {
+        config: {
+          ...(robot.config ?? {}),
+          assembly,
+          actionButtons,
+          programs: next
+        }
+      });
+      setSaveState("idle");
+    } catch (nextError) {
+      setSaveState("error");
+      setError(nextError instanceof Error ? nextError.message : robotText("programs.saveFailed"));
+      throw nextError;
     }
   }
 
@@ -407,21 +550,21 @@ export function RobotAssemblyWorkspace({
   async function runActionButton(button: RobotActionButton) {
     if (blockingWarnings.length > 0) {
       setRunState("error");
-      setRunLog(["Blocked by schematic errors.", ...blockingWarnings.map((item) => item.message)]);
+      setRunLog([robotText("runLog.blockedByErrors"), ...blockingWarnings.map((item) => warningMessageForDisplay(item))]);
       return;
     }
     if (!onRunPluginCommand) {
       setRunState("error");
-      setRunLog(["No command executor is attached to the robot assembly workspace."]);
+      setRunLog([robotText("runLog.noExecutor")]);
       return;
     }
     abortRef.current = false;
     setRunState("running");
-    setRunLog([`Run ${button.name}`]);
+    setRunLog([robotText("runLog.run", { name: button.name })]);
     const timeout = window.setTimeout(() => {
       abortRef.current = true;
       setRunState("aborted");
-      setRunLog((current) => [...current, `Timeout after ${button.timeoutMs} ms.`]);
+      setRunLog((current) => [...current, robotText("runLog.timeout", { timeout: button.timeoutMs })]);
     }, button.timeoutMs);
     try {
       for (const step of button.steps) {
@@ -429,11 +572,11 @@ export function RobotAssemblyWorkspace({
       }
       if (!abortRef.current) {
         setRunState("done");
-        setRunLog((current) => [...current, "Done."]);
+        setRunLog((current) => [...current, robotText("runLog.done")]);
       }
     } catch (nextError) {
       setRunState("error");
-      setRunLog((current) => [...current, nextError instanceof Error ? nextError.message : "Action failed."]);
+      setRunLog((current) => [...current, nextError instanceof Error ? nextError.message : robotText("runLog.actionFailed")]);
     } finally {
       window.clearTimeout(timeout);
       setPreviewActionId("");
@@ -442,7 +585,7 @@ export function RobotAssemblyWorkspace({
 
   async function runActionStep(step: RobotActionButtonStep): Promise<void> {
     if (abortRef.current) {
-      throw new Error("Action aborted.");
+      throw new Error(robotText("runLog.actionAborted"));
     }
     if (step.kind === "parallel") {
       await Promise.all((step.steps ?? []).map((child) => runActionStep(child)));
@@ -450,33 +593,55 @@ export function RobotAssemblyWorkspace({
     }
     if (step.kind === "wait") {
       await delay(step.durationMs ?? 0);
-      setRunLog((current) => [...current, `Wait ${step.durationMs ?? 0} ms`]);
+      setRunLog((current) => [...current, robotText("runLog.wait", { duration: step.durationMs ?? 0 })]);
       return;
     }
     const plugin = step.pluginInstanceId ? pluginById.get(step.pluginInstanceId) : null;
     if (!plugin || !onRunPluginCommand) {
-      throw new Error(`Missing plugin for step ${step.label}.`);
+      throw new Error(robotText("runLog.missingPlugin", { label: step.label }));
     }
     if (step.kind === "servo.move") {
       await onRunPluginCommand(plugin, "servo.set_position", { angleDeg: step.angleDeg ?? 0, speedRaw: step.speedRaw ?? 600, acc: step.acc ?? 30 });
-      setRunLog((current) => [...current, `${plugin.name} -> ${step.angleDeg ?? 0} deg`]);
+      setRunLog((current) => [...current, robotText("runLog.servoPosition", { name: plugin.name, angle: step.angleDeg ?? 0 })]);
       return;
     }
     if (step.kind === "motor.set") {
       await onRunPluginCommand(plugin, "motor.set_speed", { speedPercent: step.speedPercent ?? 0 });
-      setRunLog((current) => [...current, `${plugin.name} -> ${step.speedPercent ?? 0}%`]);
+      setRunLog((current) => [...current, robotText("runLog.motorSpeed", { name: plugin.name, speed: step.speedPercent ?? 0 })]);
       return;
     }
     if (step.kind === "motor.stop") {
       await onRunPluginCommand(plugin, "motor.stop", { stopMode: step.stopMode ?? "coast" });
-      setRunLog((current) => [...current, `${plugin.name} stop ${step.stopMode ?? "coast"}`]);
+      setRunLog((current) => [...current, robotText("runLog.motorStop", { name: plugin.name, mode: step.stopMode ?? "coast" })]);
     }
   }
 
   function abortAction() {
     abortRef.current = true;
     setRunState("aborted");
-    setRunLog((current) => [...current, "Manual abort."]);
+    setRunLog((current) => [...current, robotText("runLog.manualAbort")]);
+  }
+
+  function warningMessageForDisplay(item: RobotAssemblyWarning) {
+    const shareGroundMatch = item.message.match(/^(.*) should share ground with the system\.$/);
+    if (shareGroundMatch) {
+      const node = nodeById.get(item.targetId);
+      return robotText("warnings.shareGround", {
+        target: node ? sourceLabel(node, context) : compactLongIds(shareGroundMatch[1] ?? item.targetId)
+      });
+    }
+
+    const voltageMatch = item.message.match(/^Voltage mismatch: (.+) to (.+)\.$/);
+    if (voltageMatch) {
+      return robotText("warnings.voltageMismatch", { from: voltageMatch[1], to: voltageMatch[2] });
+    }
+
+    const warningKey = ROBOT_ASSEMBLY_WARNING_KEYS[item.message];
+    if (warningKey) {
+      return robotText(`warnings.${warningKey}`);
+    }
+
+    return compactLongIds(item.message);
   }
 
   function renderNode(node: RobotAssemblyNode) {
@@ -609,9 +774,22 @@ export function RobotAssemblyWorkspace({
 
   return (
     <div className="robot-assembly-backend">
-      <div className="robot-assembly-workspace">
-        <section className="robot-assembly-palette" aria-label="robot assembly palette">
-          {renderPaletteGroup("Components", <Boxes size={17} />, `${components.length}`, components.map((component) => {
+      <div className={sidebarCollapsed ? "robot-assembly-workspace palette-collapsed" : "robot-assembly-workspace"}>
+        <section className="robot-assembly-palette" aria-label={robotText("aria.palette")}>
+          <div className="robot-assembly-palette-top">
+            <span className="robot-assembly-palette-title"><Boxes size={16} />{robotText("assets")}</span>
+            <button
+              className="icon-only robot-assembly-sidebar-toggle"
+              aria-label={sidebarCollapsed ? robotText("expandAssetSidebar") : robotText("collapseAssetSidebar")}
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              title={sidebarCollapsed ? robotText("expandAssets") : robotText("collapseAssets")}
+              type="button"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+          </div>
+          {renderPaletteGroup(robotText("groups.components"), <Boxes size={17} />, `${components.length}`, components.map((component) => {
             const owner = robots.find((item) => item.id !== robot.id && item.componentIds.includes(component.id));
             const inRobot = robot.componentIds.includes(component.id);
             return {
@@ -620,11 +798,11 @@ export function RobotAssemblyWorkspace({
               meta: componentMeta(component, pluginInstances),
               active: inRobot,
               disabled: Boolean(owner),
-              title: owner ? `Used by ${owner.name}` : component.name,
+              title: owner ? robotText("usedBy", { name: owner.name }) : component.name,
               source: { sourceType: "component" as const, sourceId: component.id }
             };
           }))}
-          {renderPaletteGroup("Plugins", <PlugZap size={17} />, `${pluginInstances.length}`, pluginInstances.map((plugin) => {
+          {renderPaletteGroup(robotText("groups.plugins"), <PlugZap size={17} />, `${pluginInstances.length}`, pluginInstances.map((plugin) => {
             const availability = pluginAvailability(plugin, robot, components, usage);
             return {
               id: plugin.id,
@@ -636,7 +814,7 @@ export function RobotAssemblyWorkspace({
               source: { sourceType: "plugin" as const, sourceId: plugin.id }
             };
           }))}
-          {renderPaletteGroup("Hardware", <Cpu size={17} />, `${ROBOT_ASSEMBLY_HARDWARE_TEMPLATES.length}`, ROBOT_ASSEMBLY_HARDWARE_TEMPLATES.map((template) => ({
+          {renderPaletteGroup(robotText("groups.hardware"), <Cpu size={17} />, `${ROBOT_ASSEMBLY_HARDWARE_TEMPLATES.length}`, ROBOT_ASSEMBLY_HARDWARE_TEMPLATES.map((template) => ({
             id: template.id,
             label: template.name,
             meta: template.subtitle,
@@ -651,19 +829,19 @@ export function RobotAssemblyWorkspace({
           <div className="robot-assembly-toolbar">
             <div className="robot-assembly-toolbar-left">
               <span className={saveState === "error" ? "platform-status-pill error" : saveState === "saving" ? "platform-status-pill standby" : "platform-status-pill online"}>
-                {saveState === "saving" ? "Saving" : saveState === "error" ? "Save failed" : "Saved"}
+                {saveState === "saving" ? robotText("saveState.saving") : saveState === "error" ? robotText("saveState.error") : robotText("saveState.saved")}
               </span>
               <span className={blockingWarnings.length > 0 ? "platform-status-pill error" : warnings.length > 0 ? "platform-status-pill standby" : "platform-status-pill online"}>
-                {blockingWarnings.length > 0 ? `${blockingWarnings.length} errors` : `${warnings.length} warnings`}
+                {blockingWarnings.length > 0 ? robotText("warningErrors", { count: blockingWarnings.length }) : robotText("warningCount", { count: warnings.length })}
               </span>
             </div>
             {connectFromPortId ? (
               <button className="icon-button" onClick={() => setConnectFromPortId(null)} type="button">
                 <Unplug size={16} />
-                <span>Cancel wire</span>
+                <span>{robotText("cancelWire")}</span>
               </button>
             ) : (
-              <span className="robot-assembly-toolbar-hint"><MousePointer2 size={15} />Drag nodes, click ports</span>
+              <span className="robot-assembly-toolbar-hint"><MousePointer2 size={15} />{robotText("dragHint")}</span>
             )}
           </div>
           {error ? <p className="form-error robot-assembly-error">{error}</p> : null}
@@ -671,7 +849,7 @@ export function RobotAssemblyWorkspace({
             ref={svgRef}
             className="robot-assembly-canvas schematic"
             role="img"
-            aria-label={`${robot.name} schematic`}
+            aria-label={robotText("aria.schematic", { name: robot.name })}
             viewBox={`0 0 ${ROBOT_ASSEMBLY_CANVAS_WIDTH} ${ROBOT_ASSEMBLY_CANVAS_HEIGHT}`}
             onClick={() => {
               setSelected(null);
@@ -694,16 +872,40 @@ export function RobotAssemblyWorkspace({
           </svg>
         </section>
 
-        <section className="robot-assembly-inspector" aria-label="robot assembly inspector">
+        <section className="robot-assembly-inspector" aria-label={robotText("aria.inspector")}>
           {renderInspector()}
         </section>
       </div>
       {renderActionDock()}
+      <RobotProgramPanel
+        components={components}
+        dispatchPlatformCommand={dispatchPlatformCommand}
+        onSavePrograms={saveProgramsNow}
+        pluginInstances={pluginInstances}
+        robot={robot}
+        schematicWarnings={warnings}
+        statusContext={statusContext}
+      />
       {previewAction && preview ? renderPreviewOverlay(previewAction, preview) : null}
     </div>
   );
 
   function renderPaletteGroup(title: string, icon: ReactNode, meta: string, items: Array<{ id: string; label: string; meta: string; active: boolean; disabled: boolean; title: string; source: RobotAssemblySource }>) {
+    if (sidebarCollapsed) {
+      return (
+        <button
+          className="robot-assembly-palette-rail-button"
+          key={title}
+          onClick={() => setSidebarCollapsed(false)}
+          title={`${title} · ${meta}`}
+          type="button"
+        >
+          {icon}
+          <small>{meta}</small>
+        </button>
+      );
+    }
+
     return (
       <div className="robot-assembly-palette-group" key={title}>
         <div className="robot-assembly-panel-head">
@@ -735,8 +937,8 @@ export function RobotAssemblyWorkspace({
     return (
       <>
         <div className="robot-assembly-panel-head">
-          <span><CircleDot size={17} />Inspector</span>
-          <small>{assembly.nodes.length} nodes / {assembly.edges.length} wires</small>
+          <span><CircleDot size={17} />{robotText("inspector.title")}</span>
+          <small>{robotText("inspector.nodesWires", { nodes: assembly.nodes.length, wires: assembly.edges.length })}</small>
         </div>
         {selectedNode ? renderNodeInspector(selectedNode) : null}
         {selectedPort ? renderPortInspector(selectedPort) : null}
@@ -758,11 +960,11 @@ export function RobotAssemblyWorkspace({
         <div className="robot-assembly-action-row">
           <button className="icon-button" onClick={() => ports[0] && setConnectFromPortId(ports[0].id)} type="button">
             <Link2 size={16} />
-            <span>Wire from port</span>
+            <span>{robotText("wireFromPort")}</span>
           </button>
           <button className="icon-button danger" onClick={removeSelectedNode} type="button">
             <Trash2 size={16} />
-            <span>Remove</span>
+            <span>{robotText("remove")}</span>
           </button>
         </div>
         <div className="robot-assembly-port-list">
@@ -801,11 +1003,11 @@ export function RobotAssemblyWorkspace({
         <div className="robot-assembly-action-row">
           <button className="icon-button primary" onClick={() => setConnectFromPortId(port.id)} type="button">
             <Cable size={16} />
-            <span>Start wire</span>
+            <span>{robotText("startWire")}</span>
           </button>
           <button className="icon-button" onClick={() => setConnectFromPortId(null)} type="button">
             <Unplug size={16} />
-            <span>Cancel</span>
+            <span>{robotText("cancel")}</span>
           </button>
         </div>
       </div>
@@ -821,20 +1023,20 @@ export function RobotAssemblyWorkspace({
           <strong>{edgeDisplayLabel(edge)}</strong>
           <small>{from?.label ?? edge.fromNodeId} {"->"} {to?.label ?? edge.toNodeId}</small>
         </div>
-        <label><span>Kind</span><input value={edge.kind} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { kind: event.target.value }))} /></label>
-        <label><span>Label</span><input value={edge.label} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { label: event.target.value }))} /></label>
-        <label><span>Serial name</span><input value={edge.serialName ?? ""} placeholder="/dev/ttyAMA5" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { serialName: event.target.value }))} /></label>
-        <label><span>Baud rate</span><input value={edge.baudRate ?? ""} placeholder="115200" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { baudRate: Number(event.target.value) }))} /></label>
-        <label><span>Protocol</span><input value={edge.protocol ?? ""} placeholder="serial-json / CAN1 / PWM" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { protocol: event.target.value }))} /></label>
-        <label><span>Voltage</span><input value={edge.voltage ?? ""} placeholder="5V / 12V / 0V" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { voltage: event.target.value }))} /></label>
-        <label><span>Harness</span><select value={edge.harnessId ?? ""} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { harnessId: event.target.value }))}>
-          <option value="">None</option>
+        <label><span>{robotText("fields.kind")}</span><input value={edge.kind} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { kind: event.target.value }))} /></label>
+        <label><span>{robotText("fields.label")}</span><input value={edge.label} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { label: event.target.value }))} /></label>
+        <label><span>{robotText("fields.serialName")}</span><input value={edge.serialName ?? ""} placeholder="/dev/ttyAMA5" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { serialName: event.target.value }))} /></label>
+        <label><span>{robotText("fields.baudRate")}</span><input value={edge.baudRate ?? ""} placeholder="115200" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { baudRate: Number(event.target.value) }))} /></label>
+        <label><span>{robotText("fields.protocol")}</span><input value={edge.protocol ?? ""} placeholder="serial-json / CAN1 / PWM" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { protocol: event.target.value }))} /></label>
+        <label><span>{robotText("fields.voltage")}</span><input value={edge.voltage ?? ""} placeholder="5V / 12V / 0V" onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { voltage: event.target.value }))} /></label>
+        <label><span>{robotText("fields.harness")}</span><select value={edge.harnessId ?? ""} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { harnessId: event.target.value }))}>
+          <option value="">{robotText("fields.none")}</option>
           {(assembly.harnesses ?? []).map((harness) => <option key={harness.id} value={harness.id}>{harness.name}</option>)}
         </select></label>
-        <label className="robot-assembly-check-row"><input checked={edge.hidden === true} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { hidden: event.target.checked }))} type="checkbox" /><span>Hide this wire</span></label>
+        <label className="robot-assembly-check-row"><input checked={edge.hidden === true} onChange={(event) => commitAssembly(updateAssemblyEdge(assemblyRef.current, edge.id, { hidden: event.target.checked }))} type="checkbox" /><span>{robotText("hideWire")}</span></label>
         <button className="icon-button danger" onClick={() => { commitAssembly(deleteAssemblyEdge(assemblyRef.current, edge.id)); setSelected(null); }} type="button">
           <Trash2 size={16} />
-          <span>Delete wire</span>
+          <span>{robotText("deleteWire")}</span>
         </button>
       </div>
     );
@@ -847,15 +1049,15 @@ export function RobotAssemblyWorkspace({
       <div className="robot-assembly-inspector-stack">
         <div className="robot-assembly-selection-summary">
           <strong>{button.name}</strong>
-          <small>{flattenActionSteps(button.steps).length} executable steps / {button.timeoutMs} ms</small>
+          <small>{robotText("executableSteps", { count: flattenActionSteps(button.steps).length, timeout: button.timeoutMs })}</small>
         </div>
-        <label><span>Name</span><input value={button.name} onChange={(event) => commitActionButtons(nextName(event.target.value))} /></label>
-        <label><span>Timeout ms</span><input value={button.timeoutMs} onChange={(event) => commitActionButtons(nextTimeout(Number(event.target.value)))} /></label>
-        <label className="robot-assembly-check-row"><input checked={button.confirmRequired} onChange={(event) => commitActionButtons(actionButtons.map((item) => item.id === button.id ? { ...item, confirmRequired: event.target.checked } : item))} type="checkbox" /><span>Preview before run</span></label>
+        <label><span>{robotText("fields.name")}</span><input value={button.name} onChange={(event) => commitActionButtons(nextName(event.target.value))} /></label>
+        <label><span>{robotText("fields.timeoutMs")}</span><input value={button.timeoutMs} onChange={(event) => commitActionButtons(nextTimeout(Number(event.target.value)))} /></label>
+        <label className="robot-assembly-check-row"><input checked={button.confirmRequired} onChange={(event) => commitActionButtons(actionButtons.map((item) => item.id === button.id ? { ...item, confirmRequired: event.target.checked } : item))} type="checkbox" /><span>{robotText("previewBeforeRun")}</span></label>
         {button.steps.map((step) => <ActionStepView key={step.id} step={step} pluginById={pluginById} />)}
         <button className="icon-button danger" onClick={() => { commitActionButtons(actionButtons.filter((item) => item.id !== button.id)); setSelected(null); }} type="button">
           <Trash2 size={16} />
-          <span>Delete button</span>
+          <span>{robotText("deleteButton")}</span>
         </button>
       </div>
     );
@@ -867,25 +1069,25 @@ export function RobotAssemblyWorkspace({
         <div className="robot-assembly-empty">
           <Cpu size={22} />
           <strong>{robot.name}</strong>
-          <small>Select a node, port, wire, harness, or action.</small>
+          <small>{robotText("selectHint")}</small>
         </div>
         <section className="robot-assembly-harness-panel">
-          <div className="robot-assembly-panel-head"><span><GitBranch size={16} />Harnesses</span><button className="icon-only" onClick={addHarness} title="Add harness" type="button"><Plus size={15} /></button></div>
-          {(assembly.harnesses ?? []).length === 0 ? <small className="robot-assembly-muted">No harnesses yet.</small> : null}
+          <div className="robot-assembly-panel-head"><span><GitBranch size={16} />{robotText("harnesses")}</span><button className="icon-only" onClick={addHarness} title={robotText("addHarness")} type="button"><Plus size={15} /></button></div>
+          {(assembly.harnesses ?? []).length === 0 ? <small className="robot-assembly-muted">{robotText("noHarnesses")}</small> : null}
           {(assembly.harnesses ?? []).map((harness) => (
             <div className="robot-assembly-harness-row" key={harness.id}>
               <span style={{ background: harness.color }} />
               <strong>{harness.name}</strong>
-              <button className="icon-only" onClick={() => commitAssembly(toggleHarnessHidden(assemblyRef.current, harness.id))} title={harness.hidden ? "Show harness" : "Hide harness"} type="button">
+              <button className="icon-only" onClick={() => commitAssembly(toggleHarnessHidden(assemblyRef.current, harness.id))} title={harness.hidden ? robotText("showHarness") : robotText("hideHarness")} type="button">
                 {harness.hidden ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             </div>
           ))}
         </section>
         <section className="robot-assembly-warning-panel">
-          <div className="robot-assembly-panel-head"><span><AlertTriangle size={16} />Schematic check</span><small>{warnings.length}</small></div>
-          {warnings.length === 0 ? <small className="robot-assembly-muted">No schematic warnings.</small> : warnings.map((item) => (
-            <p className={`robot-assembly-warning ${item.severity}`} key={item.id}>{item.message}</p>
+          <div className="robot-assembly-panel-head"><span><AlertTriangle size={16} />{robotText("schematicCheck")}</span><small>{warnings.length}</small></div>
+          {warnings.length === 0 ? <small className="robot-assembly-muted">{robotText("noSchematicWarnings")}</small> : warnings.map((item) => (
+            <p className={`robot-assembly-warning ${item.severity}`} key={item.id} title={item.message}>{warningMessageForDisplay(item)}</p>
           ))}
         </section>
       </div>
@@ -896,23 +1098,23 @@ export function RobotAssemblyWorkspace({
     return (
       <section className="robot-assembly-action-dock">
         <div className="robot-assembly-panel-head">
-          <span><Zap size={17} />Action buttons</span>
-          <button className="icon-button" onClick={addActionButton} type="button"><Plus size={16} /><span>New action</span></button>
+          <span><Zap size={17} />{robotText("actionButtons")}</span>
+          <button className="icon-button" onClick={addActionButton} type="button"><Plus size={16} /><span>{robotText("newAction")}</span></button>
         </div>
         <div className="robot-assembly-action-grid">
           {actionButtons.map((button) => (
             <div className={selected?.type === "action" && selected.id === button.id ? "robot-action-button selected" : "robot-action-button"} key={button.id} onClick={() => setSelected({ type: "action", id: button.id })} role="button" tabIndex={0}>
               <span className="robot-action-button-light" style={{ background: button.color }} />
               <strong>{button.name}</strong>
-              <small>{flattenActionSteps(button.steps).length} steps</small>
-              <button className="icon-only" onClick={(event) => { event.stopPropagation(); button.confirmRequired ? setPreviewActionId(button.id) : void runActionButton(button); }} title="Run action" type="button"><Play size={15} /></button>
+              <small>{robotText("steps", { count: flattenActionSteps(button.steps).length })}</small>
+              <button className="icon-only" onClick={(event) => { event.stopPropagation(); button.confirmRequired ? setPreviewActionId(button.id) : void runActionButton(button); }} title={robotText("runAction")} type="button"><Play size={15} /></button>
             </div>
           ))}
-          {actionButtons.length === 0 ? <div className="robot-assembly-muted">No action buttons yet.</div> : null}
+          {actionButtons.length === 0 ? <div className="robot-assembly-muted">{robotText("noActionButtons")}</div> : null}
         </div>
         <div className={`robot-assembly-run-log state-${runState}`}>
-          <div><Activity size={15} /><span>{runState.toUpperCase()}</span></div>
-          {runState === "running" ? <button className="icon-button danger" onClick={abortAction} type="button"><Square size={15} /><span>Abort</span></button> : null}
+          <div><Activity size={15} /><span>{robotText(`runState.${runState}`)}</span></div>
+          {runState === "running" ? <button className="icon-button danger" onClick={abortAction} type="button"><Square size={15} /><span>{robotText("abort")}</span></button> : null}
           <pre>{runLog.slice(-8).join("\n")}</pre>
         </div>
       </section>
@@ -921,22 +1123,26 @@ export function RobotAssemblyWorkspace({
 
   function renderPreviewOverlay(button: RobotActionButton, actionPreview: { blocked: boolean; lines: string[]; warnings: Array<{ message: string }> }) {
     return (
-      <div className="robot-action-preview-backdrop" role="dialog" aria-modal="true">
+      <div className="robot-action-preview-backdrop" role="dialog" aria-modal="true" aria-label={robotText("previewTitle", { name: button.name })}>
         <div className="robot-action-preview">
           <div className="robot-assembly-panel-head">
-            <span><Play size={17} />Preview {button.name}</span>
-            <button className="icon-only" onClick={() => setPreviewActionId("")} title="Close" type="button"><Unplug size={15} /></button>
+            <span><Play size={17} />{robotText("previewTitle", { name: button.name })}</span>
+            <button className="icon-only" onClick={() => setPreviewActionId("")} title={robotText("close")} type="button"><Unplug size={15} /></button>
           </div>
-          {actionPreview.warnings.map((item) => <p className="robot-assembly-warning error" key={item.message}>{item.message}</p>)}
+          {actionPreview.warnings.map((item) => <p className="robot-assembly-warning error" key={item.message} title={item.message}>{compactLongIds(item.message)}</p>)}
           <ol>{actionPreview.lines.map((line) => <li key={line}>{line}</li>)}</ol>
           <div className="robot-assembly-action-row">
-            <button className="icon-button" onClick={() => setPreviewActionId("")} type="button">Cancel</button>
-            <button className="icon-button primary" disabled={actionPreview.blocked} onClick={() => void runActionButton(button)} type="button"><Play size={16} /><span>Confirm run</span></button>
+            <button className="icon-button" onClick={() => setPreviewActionId("")} type="button">{robotText("cancel")}</button>
+            <button className="icon-button primary" disabled={actionPreview.blocked} onClick={() => void runActionButton(button)} type="button"><Play size={16} /><span>{robotText("confirmRun")}</span></button>
           </div>
         </div>
       </div>
     );
   }
+}
+
+function compactLongIds(value: string) {
+  return value.replace(UUID_PATTERN, (id) => `${id.slice(0, 8)}...`);
 }
 
 function ActionStepView({ pluginById, step }: { pluginById: Map<string, PluginInstance>; step: RobotActionButtonStep }) {

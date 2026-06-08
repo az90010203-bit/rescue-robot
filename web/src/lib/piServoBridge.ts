@@ -48,7 +48,7 @@ interface PiServoBridgeRequestOptions {
 }
 
 export function buildPiServoBridgeBaseUrl(host: string): string {
-  const trimmed = host.trim() || "raspberrypi.local";
+  const trimmed = host.trim() || "rescue-pi.local";
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed.replace(/\/+$/, "");
   }

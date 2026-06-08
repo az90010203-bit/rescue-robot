@@ -67,4 +67,60 @@ describe("workflow runtime", () => {
 
     expect(result.visitedNodeIds).toEqual(["event", "check"]);
   });
+
+  it("stops on failed commands when requested", async () => {
+    const command = createPlatformCommand("motor.stop", "motor:M1");
+    const result = await runWorkflow(
+      {
+        id: "fail-fast",
+        name: "Fail fast",
+        nodes: [
+          { id: "event", kind: "event" },
+          { id: "stop", kind: "command", config: { command } },
+          { id: "log", kind: "log", config: { message: "after" } }
+        ],
+        edges: [
+          { from: "event", to: "stop" },
+          { from: "stop", to: "log" }
+        ]
+      },
+      {
+        dispatchCommand: async (item) => ({ commandId: item.id, deviceId: item.targetDeviceId, status: "failed", message: "motor offline" }),
+        stopOnCommandFailure: true
+      }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("motor offline");
+    expect(result.visitedNodeIds).toEqual(["event", "stop"]);
+  });
+
+  it("can abort before running the next node", async () => {
+    let aborted = false;
+    const result = await runWorkflow(
+      {
+        id: "abortable",
+        name: "Abortable",
+        nodes: [
+          { id: "event", kind: "event" },
+          { id: "wait", kind: "delay", config: { ms: 1 } },
+          { id: "log", kind: "log", config: { message: "after" } }
+        ],
+        edges: [
+          { from: "event", to: "wait" },
+          { from: "wait", to: "log" }
+        ]
+      },
+      {
+        wait: async () => {
+          aborted = true;
+        },
+        shouldAbort: () => aborted
+      }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("workflow aborted");
+    expect(result.visitedNodeIds).toEqual(["event", "wait"]);
+  });
 });

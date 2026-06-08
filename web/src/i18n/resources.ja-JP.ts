@@ -3,7 +3,11 @@ export const jaJPResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "救援ロボットコンソール",
-      "systemLine": "USB Serial · 115200 baud · {{module}}"
+      "systemLine": "USB Serial · 115200 baud · {{module}}",
+      "servoBridgeSystemLine": "Pi サーボブリッジ · 115200 UART · {{module}}",
+      "servoBusSystemLine": "USB シリアル · 1000000 baud · {{module}}",
+      "piServoDefaultDetail": "Pi 6/8/10 serial0",
+      "aBoardDefaultDetail": "Pi 32/33 UART5"
     },
     "aria": {
       "systemStatus": "システム状態",
@@ -30,6 +34,11 @@ export const jaJPResource = {
     "language": {
       "label": "言語",
       "select": "言語を選択"
+    },
+    "loading": {
+      "console": "コンソールを読み込み中...",
+      "arm3d": "3D アームを読み込み中...",
+      "architecture": "三層アーキテクチャ作業領域を読み込み中..."
     },
     "sections": {
       "console": "主コンソール",
@@ -218,6 +227,9 @@ export const jaJPResource = {
       "uploadFirmware": "ファームウェアを書込",
       "checkPiHelper": "Pi ヘルパー確認",
       "testPiConnection": "Pi 接続テスト",
+      "discoverPi": "Pi を検出",
+      "applyDiscoveredPi": "ホスト適用",
+      "setupPiUsbGadget": "USB 直結を設定",
       "connectPi": "Pi 接続",
       "reconnectPi": "Pi 再接続",
       "uploadPiFile": "ファイルアップロード",
@@ -227,6 +239,7 @@ export const jaJPResource = {
       "checkPiCamera": "カメラ確認",
       "startPiCamera": "映像を開始",
       "stopPiCamera": "映像を停止",
+      "syncPiCameraUrl": "カメラ URL を同期",
       "installPiCameraTools": "カメラサービスをインストール",
       "clearPiOutput": "出力をクリア",
       "execPiCommand": "コマンド実行",
@@ -269,6 +282,7 @@ export const jaJPResource = {
     },
     "webSerial": {
       "ready": "Web Serial Ready",
+      "feetechBusReady": "Feetech バス · 1000000 baud",
       "unavailable": "Web Serial 使用不可"
     },
     "panels": {
@@ -335,6 +349,7 @@ export const jaJPResource = {
         "robot-arm": "ロボットアーム",
         "raspberry-pi": "Raspberry Pi",
         "firmware": "ファームウェア",
+        "gamepad": "ゲームパッド",
         "gpio": "GPIO",
         "sensor": "センサー"
       },
@@ -479,6 +494,221 @@ export const jaJPResource = {
         "upload": "アップロード"
       }
     },
+    "architecture": {
+      "aria": "三層アーキテクチャ",
+      "sqliteProject": "SQLite プロジェクト",
+      "dataServiceRequired": "三層アーキテクチャには SQLite データサービスが必要です",
+      "dataServiceHint": "先に data-service を起動し、プロジェクト内でプラグインインスタンス、コンポーネント、ロボットを作成してください。",
+      "status": {
+        "loading": "読み込み中",
+        "saving": "保存中",
+        "error": "エラー",
+        "synced": "同期済み"
+      },
+      "actions": {
+        "refresh": "更新",
+        "backToPluginLibrary": "プラグインライブラリへ戻る",
+        "createPluginInstance": "プラグインインスタンス作成",
+        "deletePluginInstance": "プラグインインスタンス削除",
+        "saveLimits": "限界/リセットを保存",
+        "setResetPoint": "リセット点に設定",
+        "setLogicalCenter": "論理中心に設定",
+        "reset": "リセット",
+        "pingCurrentId": "現在 ID を Ping",
+        "writeNewId": "新 ID 書込",
+        "writing": "書込中",
+        "clear": "クリア"
+      },
+      "create": {
+        "plugins": "プラグインインスタンス作成",
+        "selectType": "タイプ選択",
+        "configure": "設定",
+        "confirm": "確認",
+        "allDevices": "全デバイス",
+        "noCodeLibrarySelected": "コードライブラリ未選択",
+        "waitingName": "名称待ち",
+        "device": "デバイス",
+        "brand": "ブランド",
+        "noBrands": "ブランドなし",
+        "model": "モデル",
+        "noModels": "モデルなし",
+        "codeLibrary": "コードライブラリ",
+        "searchPlaceholder": "モデル、コードファイル、ドライバーを検索",
+        "noCodeLibraries": "このデバイスとブランドに一致するコードライブラリはありません",
+        "customCatalog": "このモデルはデータベースにありません。現在のコードライブラリからカスタムモデルを作成します",
+        "customBrand": "カスタムブランド",
+        "customModel": "カスタムモデル",
+        "instanceNamePlaceholder": "例 Base joint / Left track",
+        "selectDeviceBrandCode": "先にデバイス、ブランド、コードライブラリを選択してください",
+        "codeLibraryCount": "{{count}} 件のコードライブラリ",
+        "collapse": "折りたたむ",
+        "collapseLeft": "左へ折りたたむ",
+        "expandConfig": "設定を展開",
+        "stepsAria": "{{title}} ステップ"
+      },
+      "library": {
+        "pluginDebug": "プラグインデバッグ",
+        "pluginLibrary": "プラグインライブラリ",
+        "allTypes": "全タイプ",
+        "available": "利用可能",
+        "autoDetected": "自動検出",
+        "noPlugins": "プラグインインスタンスはまだありません",
+        "noMatchingPlugins": "一致するプラグインインスタンスはありません",
+        "instanceCount": "{{shown}} / {{total}} インスタンス",
+        "deleteNamed": "{{name}} を削除",
+        "removeBeforeDelete": "削除前に {{owner}} から外してください"
+      },
+      "empty": {
+        "selectOrCreateDevice": "デバイスモデルを選択または作成してください",
+        "noCameraStream": "映像ストリーム未設定",
+        "noDedicatedPanel": "この能力にはまだ専用パネルがありません",
+        "invalidServoPlugin": "このサーボプラグインには有効な servoId がないためデバッグできません",
+        "invalidMotorPlugin": "このモータープラグインには有効な channel がないためデバッグできません",
+        "noAdvancedWrites": "高度な書込記録はまだありません"
+      },
+      "servoDebug": {
+        "feedback": "フィードバックあり",
+        "notRead": "未読取",
+        "logicalRange": "論理範囲",
+        "physicalLimit": "物理限界",
+        "resetTitle": "限界とリセット",
+        "resetHint": "現在のプラグインインスタンス設定に保存され、更新後も保持されます。リセット角は現在の限界範囲内の論理角です。",
+        "resetAngle": "リセット角",
+        "logicalCenter": "論理中心",
+        "internalTitle": "サーボ内部設定",
+        "internalHint": "Feetech サーボ本体の EEPROM に書き込みます。ID 変更前はこのサーボ 1 台だけを接続してください。書込成功後にプラグイン設定へ同期します。",
+        "currentId": "現在 ID",
+        "targetId": "目標 ID",
+        "newId": "新 ID",
+        "singleServoConfirm": "バスにはこのサーボ 1 台だけが接続されていることを確認しました",
+        "serialTitle": "サーボ書込 TX/RX",
+        "serialHint": "最新の高度な書込 TX/RX 概要を表示します。完全なシリアルログはシステムログに残ります。"
+      },
+      "components": {
+        "availablePluginCount": "利用可能プラグイン {{count}} 件",
+        "steps": {
+          "type": "コンポーネントタイプ",
+          "bindPlugins": "プラグイン割当"
+        },
+        "selectedPluginCount": "{{count}} 件のプラグインを選択",
+        "createTitle": "コンポーネント作成",
+        "type": "コンポーネントタイプ",
+        "name": "コンポーネント名",
+        "kind": {
+          "custom": "通常コンポーネント",
+          "robotArm": "ロボットアーム"
+        },
+        "noAvailablePluginInstances": "利用可能なプラグインインスタンスはありません",
+        "createRobotArm": "ロボットアーム作成",
+        "createComponent": "コンポーネント作成",
+        "count": "{{count}} コンポーネント",
+        "panelTitle": "コンポーネントパネル",
+        "empty": "コンポーネントはまだありません",
+        "pluginCount": "{{count}} プラグイン",
+        "selectComponent": "コンポーネントを選択してください"
+      },
+      "robots": {
+        "steps": {
+          "name": "命名",
+          "assets": "資産選択"
+        },
+        "directPluginCount": "{{count}} 直属プラグイン",
+        "createTitle": "ロボット作成",
+        "name": "ロボット名",
+        "createComponentFirst": "先にコンポーネントを作成してください",
+        "directPlugins": "直属プラグイン",
+        "createRobot": "ロボット作成",
+        "count": "{{count}} ロボット",
+        "panelTitle": "ロボット実行パネル",
+        "empty": "ロボットはまだありません",
+        "selectRobot": "ロボットを選択してください"
+      },
+      "armComponent": {
+        "empty": {
+          "noServoPlugin": "ロボットアームコンポーネントには少なくとも 1 つのサーボプラグインが必要です"
+        },
+        "jointCount": "{{count}} 関節",
+        "poseAria": "{{name}} ロボットアーム姿勢",
+        "metrics": {
+          "joints": "関節",
+          "mode": "モード",
+          "selectedJoint": "選択中の関節"
+        },
+        "modes": {
+          "manual": "手動関節",
+          "ik": "自動 IK",
+          "liveDrag": "ライブドラッグ"
+        },
+        "sendMode": {
+          "preview": "プレビュー",
+          "live": "ライブ",
+          "needsLiveDrag": "ライブドラッグを有効にしてください"
+        },
+        "autoIk": "コンポーネント自動 IK",
+        "ikStatus": {
+          "converged": "収束済み",
+          "nearPose": "姿勢に近い",
+          "awaitingDrag": "ドラッグ待ち"
+        },
+        "modeAria": "ロボットアームコンポーネントモード",
+        "sendModeAria": "自動 IK 送信モード",
+        "ik": {
+          "targetX": "目標 X",
+          "targetY": "目標 Y",
+          "error": "誤差",
+          "steps": "ステップ",
+          "reachable": "到達可能",
+          "movedJoints": "移動関節",
+          "send": "送信"
+        },
+        "feedbackCorrection": "フィードバック補正: オフ / テンプレート予約",
+        "archive": {
+          "trackName": "軌跡名",
+          "notes": "メモ",
+          "archive": "アーカイブ",
+          "noneSelected": "未選択",
+          "saveCurrent": "現在の軌跡を保存",
+          "stopPlayback": "再生停止",
+          "playArchive": "アーカイブ再生",
+          "saveNotes": "メモ保存",
+          "deleteArchive": "アーカイブ削除",
+          "currentSamples": "今回のサンプル",
+          "currentDuration": "今回の時間",
+          "archiveCount": "アーカイブ数",
+          "selectedSamples": "選択サンプル",
+          "selectedDuration": "選択時間"
+        },
+        "jointOrdinal": "関節 {{index}}",
+        "moveUpNamed": "{{name}} を上へ",
+        "moveDownNamed": "{{name}} を下へ",
+        "fields": {
+          "jointIndex": "関節番号",
+          "lengthPx": "長さ px",
+          "neutralDeg": "中立"
+        },
+        "shape": {
+          "title": "ジオメトリ",
+          "hint": "中立姿勢での折れ線セグメントを設定し、L 字、折返し、重なり構造を表現します",
+          "addSegment": "セグメント追加",
+          "childFrameOffset": "次関節取付オフセット",
+          "segmentName": "セグメント名",
+          "initialDirection": "初期方向",
+          "initialDirectionFor": "{{name}} 初期方向",
+          "deleteSegment": "形状セグメント削除",
+          "deleteSegmentNamed": "{{name}} を削除"
+        },
+        "limits": {
+          "title": "サーボ限界",
+          "hint": "このコンポーネント内の関節はこの範囲に制限され、保存後にプラグインインスタンスへ同期されます",
+          "range": "動作範囲",
+          "currentServo": "現在のサーボ"
+        },
+        "actions": {
+          "syncActualPose": "実姿勢を同期",
+          "savePose": "姿勢を保存"
+        }
+      }
+    },
     "meta": {
       "servoCount": "{{count}} サーボ",
       "motorCount": "{{count}} ポート",
@@ -501,6 +731,8 @@ export const jaJPResource = {
       "wheelSliderDeg": "ホイールスライダー",
       "wheelMaxSpeedRaw": "最大速度 raw",
       "acceleration": "加速度",
+      "controlMode": "制御モード",
+      "actualAngle": "実角度",
       "speedPercent": "速度 %",
       "stopMode": "停止方式",
       "speedSlider": "速度スライダー",
@@ -535,6 +767,7 @@ export const jaJPResource = {
       "encoderAPin": "エンコーダA",
       "encoderBPin": "エンコーダB",
       "enabled": "有効",
+      "disabled": "無効",
       "linkageName": "連動グループ名",
       "linkageMode": "連動モード",
       "positionMode": "位置モード",
@@ -555,6 +788,8 @@ export const jaJPResource = {
       "safetySensitive": "敏感",
       "clockwiseTurns": "時計回り回転数",
       "counterclockwiseTurns": "反時計回り回転数",
+      "minAngle": "最小角",
+      "maxAngle": "最大角",
       "neutralDeg": "ニュートラル角 deg",
       "segmentLength": "セグメント長 px",
       "liveDrag": "リアルタイムドラッグ",
@@ -604,7 +839,7 @@ export const jaJPResource = {
       "optionalPin": "任意",
       "addServoToGroup": "サーボをグループに追加",
       "addMotorToGroup": "モーターをグループに追加",
-      "piHost": "raspberrypi.local または 192.168.1.20",
+      "piHost": "rescue-pi.local または 192.168.1.20",
       "piPrivateKeyPath": "例 C:\\Users\\YU\\.ssh\\id_rsa"
     },
     "empty": {
@@ -630,6 +865,21 @@ export const jaJPResource = {
       "data": "データ",
       "idle": "待機",
       "deleteNamed": "{{name}} を削除"
+    },
+    "servo": {
+      "smoothingControl": "平滑制御",
+      "smoothingPreset": "平滑プリセット",
+      "directMode": "直接送信モード",
+      "motionStatus": {
+        "idle": "待機",
+        "smoothing": "平滑中",
+        "paused": "停止後待機"
+      },
+      "smoothPresets": {
+        "soft": "ソフト",
+        "standard": "標準",
+        "fast": "高速"
+      }
     },
     "metrics": {
       "rawPosition": "生位置",
@@ -848,6 +1098,9 @@ export const jaJPResource = {
       "piCameraStartFailed": "カメラ映像の開始に失敗しました",
       "piCameraStopped": "カメラ映像を停止しました",
       "piCameraToolsInstalled": "カメラサービスのインストールコマンドを実行しました",
+      "piDiscoveryComplete": "Pi 検出完了: {{count}} 件、推奨 {{host}}",
+      "piDiscoveryHostApplied": "Pi ホストを {{host}} に更新しました",
+      "piUsbGadgetConfigured": "USB 直結設定コマンドが終了しました。終了コード {{code}}",
       "motorLinkageNoTargets": "モーター連動グループに送信対象がありません",
       "motorLinkageCommandSent": "モーター連動コマンドを送信しました",
       "motorLinkageStopped": "モーター連動グループを停止しました",
@@ -897,6 +1150,39 @@ export const jaJPResource = {
         "temperatureHigh": "温度高"
       }
     },
+    "armTeach": {
+      "eyebrow": "アーム教示",
+      "title": "教示記録",
+      "track": "軌跡",
+      "noTracks": "軌跡なし",
+      "name": "名称",
+      "notes": "メモ",
+      "namePlaceholder": "Teach route",
+      "notesPlaceholder": "タスクメモ",
+      "metrics": {
+        "duration": "時間",
+        "samples": "サンプル",
+        "frequency": "周波数",
+        "joints": "関節",
+        "latestSample": "最新サンプル"
+      },
+      "actions": {
+        "start": "教示開始",
+        "stopRecording": "記録停止",
+        "playback": "再生",
+        "pausePlayback": "再生一時停止",
+        "save": "保存",
+        "delete": "削除"
+      },
+      "status": {
+        "idle": "待機",
+        "preparing": "準備中",
+        "recording": "記録中",
+        "stopped": "停止",
+        "playing": "再生中",
+        "error": "エラー"
+      }
+    },
     "arm3d": {
       "meta": "Three.js",
       "orbitHint": "ドラッグで回転、ホイールでズーム。下の関節スライダーは同じアーム姿勢を使います。",
@@ -937,6 +1223,43 @@ export const jaJPResource = {
       "checkHint": "SSH、Python、作業ディレクトリを確認",
       "setupHint": "作業ディレクトリと実行スクリプトを作成",
       "advancedSettings": "高度な設定",
+      "discovery": {
+        "title": "Raspberry Pi を検出",
+        "statusLabel": "スキャン",
+        "recommended": "推奨",
+        "usbHosts": "USB 直結",
+        "available": "利用可能",
+        "noResults": "まだスキャン結果はありません",
+        "status": {
+          "idle": "待機",
+          "scanning": "スキャン中",
+          "complete": "完了",
+          "error": "エラー"
+        },
+        "probe": {
+          "online": "利用可",
+          "offline": "オフライン",
+          "skipped": "スキップ"
+        },
+        "source": {
+          "saved": "保存済みホスト",
+          "usb-gadget-hostname": "USB ホスト名",
+          "mdns": "mDNS ホスト名",
+          "usb-gadget-fallback": "USB gadget 予備",
+          "manual-usb-fallback": "手動 USB 予備"
+        },
+        "errors": {
+          "noHost": "接続可能な Raspberry Pi 候補が見つかりません。",
+          "scanFailed": "Raspberry Pi の検出に失敗しました。"
+        }
+      },
+      "usbRecovery": {
+        "setupConfirm": "Raspberry Pi の USB ネットワーク設定を変更します。再起動が必要になる場合があります。続行しますか？",
+        "powerHint": "USB 候補が出たり消えたりする場合は、データ対応ケーブルと安定した Pi 電源を確認してください。",
+        "errors": {
+          "setupFailed": "USB 直結設定に失敗しました。sudo 権限とコマンド出力を確認してください。"
+        }
+      },
       "auth": {
         "password": "パスワード",
         "privateKey": "秘密鍵"
@@ -973,6 +1296,7 @@ export const jaJPResource = {
         "tool": "映像サービス",
         "webrtc": "WebRTC",
         "webrtcUnavailable": "利用不可",
+        "adaptiveStream": "現在の Pi URL",
         "toolMissing": "未インストール",
         "advanced": "高度なカメラ設定",
         "installConfirm": "SSH 経由で Raspberry Pi 上の apt-get を実行し、ffmpeg、v4l-utils、python3-venv、pip をインストールします。続行しますか？",
@@ -1053,12 +1377,238 @@ export const jaJPResource = {
       "enableDebug": "デバッグを有効にするとジンバルを制御できます",
       "connectSerial": "シリアル接続後にジンバルを制御できます"
     },
+    "localCamera": {
+      "previewStopped": "カメラプレビューは停止中です",
+      "unsupported": "ローカルカメラは使用できません",
+      "deviceLabel": "カメラデバイス",
+      "systemDefault": "システム既定",
+      "refreshDevices": "デバイス更新",
+      "enableCamera": "カメラを有効化",
+      "stopPreview": "プレビュー停止",
+      "status": {
+        "online": "プレビュー中",
+        "loading": "読み込み中",
+        "error": "エラー",
+        "idle": "待機"
+      },
+      "metrics": {
+        "status": "状態",
+        "device": "デバイス",
+        "resolution": "解像度",
+        "frameRate": "フレームレート"
+      },
+      "errors": {
+        "unsupported": "このブラウザーはローカルカメラアクセスに対応していません。",
+        "noneDetected": "ローカルカメラが検出されませんでした。",
+        "savedUnavailable": "保存済みカメラは使用できません。既定のカメラを使用します。",
+        "savedUnavailableActive": "保存済みカメラは使用できません。既定のカメラが有効です。"
+      }
+    },
+    "pluginAutoDetect": {
+      "aria": "プラグイン自動検出",
+      "title": "自動検出",
+      "actions": {
+        "cancel": "キャンセル",
+        "detectDevices": "デバイス検出"
+      },
+      "phase": {
+        "ready": "準備完了",
+        "scanning": "スキャン中",
+        "scanningLocalCameras": "ローカルカメラをスキャン中",
+        "scanningSerialPorts": "シリアルポートをスキャン中",
+        "scanningFeetechServoBus": "Feetech サーボバスをスキャン中",
+        "scanningAboardCan": "A ボード CAN をスキャン中",
+        "scanningAboardMotorChannels": "A ボードモーターチャンネルをスキャン中",
+        "addingPlugins": "プラグイン追加中",
+        "canceling": "キャンセル中",
+        "canceled": "キャンセル済み",
+        "complete": "完了"
+      },
+      "metrics": {
+        "candidates": "候補",
+        "created": "作成済み",
+        "skipped": "スキップ",
+        "failed": "失敗"
+      },
+      "summary": {
+        "noRun": "まだ検出を実行していません。",
+        "result": "{{created}} 作成 / {{skipped}} スキップ / {{failed}} 失敗"
+      },
+      "errors": {
+        "unknown": "不明なエラー"
+      }
+    },
     "drive": {
       "tracked": "履帯",
       "mecanum": "メカナム",
       "commandReady": "駆動コマンド準備完了",
       "enableDebug": "デバッグを有効にすると駆動コマンドを送信できます",
       "connectSerial": "シリアル接続後に駆動を制御できます"
+    },
+    "robotAssembly": {
+      "assets": "アセット",
+      "aria": {
+        "palette": "ロボット組立アセット",
+        "schematic": "{{name}} の組立図",
+        "inspector": "ロボット組立インスペクター"
+      },
+      "groups": {
+        "components": "コンポーネント",
+        "plugins": "プラグイン",
+        "hardware": "ハードウェア"
+      },
+      "expandAssetSidebar": "アセットサイドバーを展開",
+      "collapseAssetSidebar": "アセットサイドバーを左へ収納",
+      "expandAssets": "アセットを展開",
+      "collapseAssets": "アセットを折りたたむ",
+      "usedBy": "{{name}} が使用中",
+      "saveState": {
+        "saving": "保存中",
+        "error": "保存失敗",
+        "saved": "保存済み"
+      },
+      "warningErrors": "{{count}} 件のエラー",
+      "warningCount": "{{count}} 件の警告",
+      "cancelWire": "配線をキャンセル",
+      "dragHint": "ポートを配線",
+      "inspector": {
+        "title": "インスペクター",
+        "nodesWires": "{{nodes}} ノード / {{wires}} 配線"
+      },
+      "wireFromPort": "ポートから配線",
+      "remove": "削除",
+      "startWire": "配線開始",
+      "cancel": "キャンセル",
+      "fields": {
+        "kind": "種類",
+        "label": "ラベル",
+        "serialName": "シリアル名",
+        "baudRate": "ボーレート",
+        "protocol": "プロトコル",
+        "voltage": "電圧",
+        "harness": "ハーネス",
+        "none": "なし",
+        "name": "名前",
+        "timeoutMs": "タイムアウト ms"
+      },
+      "hideWire": "この配線を隠す",
+      "deleteWire": "配線を削除",
+      "executableSteps": "{{count}} 実行ステップ / {{timeout}} ms",
+      "previewBeforeRun": "実行前にプレビュー",
+      "deleteButton": "ボタンを削除",
+      "selectHint": "ノード、ポート、配線、またはアクションを選択",
+      "harnesses": "ハーネス",
+      "addHarness": "ハーネスを追加",
+      "noHarnesses": "ハーネスなし",
+      "showHarness": "ハーネスを表示",
+      "hideHarness": "ハーネスを非表示",
+      "schematicCheck": "組立チェック",
+      "noSchematicWarnings": "組立チェック通過",
+      "actionButtons": "アクション",
+      "newAction": "新規アクション",
+      "steps": "{{count}} ステップ",
+      "runAction": "アクションを実行",
+      "noActionButtons": "アクションなし",
+      "abort": "中止",
+      "previewTitle": "{{name}} をプレビュー",
+      "close": "閉じる",
+      "confirmRun": "実行を確認",
+      "runState": {
+        "idle": "待機",
+        "preview": "プレビュー",
+        "running": "実行中",
+        "done": "完了",
+        "error": "エラー",
+        "aborted": "中止済み"
+      },
+      "runLog": {
+        "autoAbort": "自動中止: ページが非表示またはフォーカス外です。",
+        "blockedByErrors": "組立エラーによりブロックされました。",
+        "noExecutor": "ロボット組立ワークスペースにコマンド実行器が接続されていません。",
+        "run": "{{name}} を実行",
+        "timeout": "{{timeout}} ms 後にタイムアウトしました。",
+        "done": "完了。",
+        "actionFailed": "アクションに失敗しました。",
+        "wait": "{{duration}} ms 待機",
+        "servoPosition": "{{name}} -> {{angle}} 度",
+        "motorSpeed": "{{name}} -> {{speed}}%",
+        "motorStop": "{{name}} 停止 {{mode}}",
+        "manualAbort": "手動中止。",
+        "actionAborted": "アクションは中止されました。",
+        "missingPlugin": "ステップ {{label}} のプラグインが見つかりません。"
+      },
+      "programs": {
+        "title": "グラフィカルプログラム",
+        "targetPc": "PC 実行",
+        "newProgram": "新規プログラム",
+        "saveProgram": "プログラム保存",
+        "runProgram": "プログラム実行",
+        "deleteProgram": "プログラム削除",
+        "defaultName": "プログラム {{count}}",
+        "preview": "プレビュー",
+        "issues": "チェック",
+        "noPreview": "実行可能なブロックはありません。",
+        "noIssues": "プログラムに問題はありません。",
+        "issueMessages": {
+          "noExecutableBlocks": "実行可能なブロックはありません。"
+        },
+        "saveFailed": "プログラム保存に失敗しました",
+        "runLog": {
+          "start": "{{name}} を実行"
+        },
+        "categories": {
+          "actions": "ロボット動作",
+          "flow": "フロー"
+        },
+        "blocks": {
+          "start": "プログラム開始",
+          "motorSet": "モーター設定",
+          "motorStop": "モーター停止",
+          "servoMove": "サーボ移動",
+          "armPose": "アーム姿勢送信",
+          "cameraGimbal": "ジンバル設定",
+          "wait": "待機",
+          "log": "ログ",
+          "repeat": "繰り返し",
+          "ifState": "状態なら",
+          "emergencyStop": "緊急停止"
+        },
+        "fields": {
+          "ms": "ms",
+          "speed": "速度",
+          "angle": "角度",
+          "acc": "加速度",
+          "pan": "パン",
+          "tilt": "チルト",
+          "count": "回",
+          "message": "メッセージ",
+          "device": "デバイス",
+          "field": "フィールド",
+          "equals": "等しい",
+          "stopMode": "停止"
+        },
+        "stopModes": {
+          "brake": "ブレーキ",
+          "coast": "惰性"
+        }
+      },
+      "warnings": {
+        "missingEndpoint": "配線に端点ポートがありません。",
+        "loopback": "配線が同じノードに戻っています。",
+        "uartTxRx": "UART は TX と RX を接続してください。",
+        "uartSerial": "UART 配線にはシリアル名が必要です。",
+        "uartBaud": "UART 配線にはボーレートが必要です。",
+        "groundMismatch": "GND は GND に接続し、電源レールには接続しません。",
+        "voltageMismatch": "電圧不一致: {{from}} -> {{to}}。",
+        "powerVoltage": "電源配線には電圧を指定してください。",
+        "pwmEndpoint": "PWM 配線に PWM 端点がありません。",
+        "canEndpoint": "CAN は CAN 端点同士を接続してください。",
+        "shareGround": "{{target}} はシステム GND と共通化してください。"
+      },
+      "errors": {
+        "schematicSaveFailed": "ロボット組立図の保存に失敗しました",
+        "actionButtonsSaveFailed": "アクションボタンの保存に失敗しました"
+      }
     },
     "mapping": {
       "autoGamepad": "ゲームパッドを自動選択",

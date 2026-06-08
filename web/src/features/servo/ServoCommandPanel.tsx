@@ -147,20 +147,20 @@ export function ServoCommandPanel({
               }
             }}
           />
-          <span>平滑控制</span>
+          <span>{t("servo.smoothingControl")}</span>
         </label>
         <label>
-          <span>平滑档位</span>
+          <span>{t("servo.smoothingPreset")}</span>
           <select value={servoSmoothPreset} disabled={!servoSmoothingEnabled} onChange={(event) => setServoSmoothPreset(event.target.value as ServoSmoothPreset)}>
-            <option value="soft">柔和</option>
-            <option value="standard">标准</option>
-            <option value="fast">快速</option>
+            <option value="soft">{t("servo.smoothPresets.soft")}</option>
+            <option value="standard">{t("servo.smoothPresets.standard")}</option>
+            <option value="fast">{t("servo.smoothPresets.fast")}</option>
           </select>
         </label>
         <div className="servo-smoothing-meta">
           {servoSmoothingEnabled
             ? `${currentServoSmoothConfig.tickMs}ms tick / ${currentServoSmoothConfig.positionDegPerSec} deg/s / ${currentServoSmoothConfig.wheelRawPerSec} raw/s`
-            : "直发模式"}
+            : t("servo.directMode")}
         </div>
         <label className="checkbox-field servo-smoothing-toggle">
           <input type="checkbox" checked={servoSafetyEnabled} onChange={(event) => setServoSafetyEnabled(event.target.checked)} />

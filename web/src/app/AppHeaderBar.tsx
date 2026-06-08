@@ -110,8 +110,8 @@ export function AppHeaderBar({
 }: AppHeaderBarProps) {
   const piRemoteConnected = piRemoteStatus === "ready" || piRemoteStatus === "complete";
   const servoModuleLine = piServoBridgeConnected
-    ? `Pi Servo Bridge · 115200 UART · ${activeModuleLabel}`
-    : `USB Serial · 1000000 baud · ${activeModuleLabel}`;
+    ? t("app.servoBridgeSystemLine", { module: activeModuleLabel })
+    : t("app.servoBusSystemLine", { module: activeModuleLabel });
   const piRemoteValue = t(`piRemote.status.${piRemoteStatus}`);
   const piRemoteButtonLabel = piRemoteBusy ? t("status.syncing") : piRemoteConnected ? t("actions.reconnectPi") : t("actions.connectPi");
   const aBoardButtonLabel = aBoardBridgeBusy
@@ -154,7 +154,7 @@ export function AppHeaderBar({
             <HeaderConnectionCard
               label={t("metrics.piServoBridge")}
               value={piServoBridgeLabel}
-              detail={piServoBridgeDetail || "Pi 6/8/10 serial0"}
+              detail={piServoBridgeDetail || t("app.piServoDefaultDetail")}
               tone={piServoBridgeTone}
               buttonLabel={piServoButtonLabel}
               buttonIcon={piServoBridgeConnected ? <Unplug size={15} /> : <Cable size={15} />}
@@ -171,7 +171,7 @@ export function AppHeaderBar({
             <HeaderConnectionCard
               label={t("metrics.aBoardBridge")}
               value={aBoardBridgeLabel}
-              detail={aBoardBridgeDetail || "Pi 32/33 UART5"}
+              detail={aBoardBridgeDetail || t("app.aBoardDefaultDetail")}
               tone={aBoardBridgeTone}
               buttonLabel={aBoardButtonLabel}
               buttonIcon={aBoardBridgeConnected ? <Unplug size={15} /> : <Cable size={15} />}
@@ -273,7 +273,7 @@ export function AppHeaderBar({
         </div>
 
         <div className={webSerialAvailable ? "serial-note" : "serial-note unavailable"}>
-          {webSerialAvailable ? (isServoBusModule(activeModule) ? "Feetech Bus · 1000000 baud" : t("webSerial.ready")) : t("webSerial.unavailable")}
+          {webSerialAvailable ? (isServoBusModule(activeModule) ? t("webSerial.feetechBusReady") : t("webSerial.ready")) : t("webSerial.unavailable")}
         </div>
 
         <label className="language-select">

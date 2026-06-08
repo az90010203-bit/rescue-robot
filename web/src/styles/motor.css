@@ -248,6 +248,10 @@
   .can-servo-status-grid {
     grid-template-columns: 1fr;
   }
+
+  .pi-discovery-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .pi-remote-form-grid {
@@ -343,6 +347,97 @@
 .pi-remote-status-grid {
   grid-template-columns: repeat(2, minmax(120px, 1fr));
   margin: 0;
+}
+
+.pi-discovery-section {
+  background:
+    linear-gradient(135deg, rgba(232, 246, 255, 0.48), transparent 44%),
+    rgba(255, 255, 255, 0.68);
+}
+
+.pi-discovery-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pi-discovery-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.pi-discovery-row[data-status="online"] {
+  border-color: rgba(27, 166, 115, 0.24);
+}
+
+.pi-discovery-row[data-status="partial"] {
+  border-color: rgba(201, 119, 0, 0.22);
+}
+
+.pi-discovery-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.pi-discovery-main strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-discovery-main span,
+.pi-discovery-empty,
+.pi-discovery-note {
+  margin: 0;
+  color: var(--steel);
+  font-size: 0.76rem;
+  font-weight: 680;
+  line-height: 1.4;
+}
+
+.pi-discovery-probes {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pi-discovery-probes span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 7px;
+  color: var(--steel);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pi-discovery-probes span[data-status="online"] {
+  border-color: rgba(27, 166, 115, 0.22);
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.pi-discovery-probes span[data-status="offline"] {
+  border-color: rgba(212, 86, 86, 0.24);
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.pi-discovery-probes span[data-status="skipped"] {
+  border-color: rgba(201, 119, 0, 0.22);
+  color: var(--orange);
+  background: var(--orange-soft);
 }
 
 .pi-command-preview,

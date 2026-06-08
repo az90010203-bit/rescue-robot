@@ -178,7 +178,7 @@ export interface GamepadSummary {
 export const defaultServoDraft = { id: "23", name: "ID23" };
 export const defaultMotorDraft = { channel: "M7", name: "Motor 7" };
 export const defaultPiRemoteForm: PiRemoteForm = {
-  host: "raspberrypi.local",
+  host: "rescue-pi.local",
   port: "22",
   username: "robot1",
   password: "oct",

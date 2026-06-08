@@ -824,7 +824,7 @@ function layoutsEqual(left: Layout, right: Layout): boolean {
 export { CONSOLE_DASHBOARD_PANEL_DEFINITIONS };
 
 function ConsolePiCameraControls({ piRemote, source, t }: { piRemote: PiRemoteRuntime; source: CameraVideoSource; t: TFunction }) {
-  const cameraTarget = `${piRemote.piRemoteForm.username || "robot1"}@${piRemote.piRemoteForm.host || "raspberrypi.local"}`;
+  const cameraTarget = `${piRemote.piRemoteForm.username || "robot1"}@${piRemote.piRemoteForm.host || "rescue-pi.local"}`;
   const streamUrl = piRemote.piCameraCheck?.streamUrl || source.streamUrl || "--";
   const statusTone =
     piRemote.piCameraStatus === "error" ? "danger" : piRemote.piCameraStatus === "streaming" ? "online" : piRemote.piCameraBusy ? "warning" : "neutral";
@@ -840,7 +840,7 @@ function ConsolePiCameraControls({ piRemote, source, t }: { piRemote: PiRemoteRu
       <div className="console-pi-camera-actions">
         <button className="icon-button" disabled={!piRemote.piRemoteForm.host.trim()} onClick={() => piRemote.syncCameraConfigToPiHost()} type="button">
           <RotateCw size={18} />
-          <span>Pi URL</span>
+          <span>{t("actions.syncPiCameraUrl")}</span>
         </button>
         <button className="icon-button" disabled={!piRemote.canUsePiCamera} onClick={() => void piRemote.checkRaspberryPiCamera(source)} type="button">
           <Radar size={18} />

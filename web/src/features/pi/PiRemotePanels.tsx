@@ -97,6 +97,80 @@ function PiRemoteOutput({ runtime, t, command }: PiRemotePanelsProps & { command
   );
 }
 
+function discoveryTone(status: string): "neutral" | "online" | "warning" | "danger" {
+  if (status === "online") {
+    return "online";
+  }
+  if (status === "partial" || status === "skipped" || status === "scanning") {
+    return "warning";
+  }
+  if (status === "offline" || status === "error") {
+    return "danger";
+  }
+  return "neutral";
+}
+
+function PiDiscoverySection({ runtime, t }: PiRemotePanelsProps) {
+  const recommended = runtime.piDiscoveryRecommended;
+  const resultCount = runtime.piDiscoveryResults.filter((result) => result.status !== "offline").length;
+  return (
+    <div className="pi-remote-section pi-discovery-section">
+      <div className="port-config-title">
+        <Radar size={17} />
+        <span>{t("piRemote.discovery.title")}</span>
+      </div>
+      <div className="preview-grid pi-remote-status-grid">
+        <Metric label={t("piRemote.discovery.statusLabel")} value={t(`piRemote.discovery.status.${runtime.piDiscoveryStatus}`)} tone={discoveryTone(runtime.piDiscoveryStatus)} />
+        <Metric label={t("piRemote.discovery.recommended")} value={recommended?.candidate.host ?? "--"} tone={recommended ? discoveryTone(recommended.status) : "neutral"} />
+        <Metric className="frame-preview" code label={t("piRemote.discovery.usbHosts")} value="rescue-pi.local / 10.12.194.1 / 10.43.0.1" />
+        <Metric label={t("piRemote.discovery.available")} value={String(resultCount)} tone={resultCount > 0 ? "online" : runtime.piDiscoveryStatus === "complete" ? "warning" : "neutral"} />
+      </div>
+      <div className="action-grid port-config-actions">
+        <button className="icon-button primary" disabled={!runtime.canDiscoverPi} onClick={() => void runtime.discoverRaspberryPiHosts()} type="button">
+          <Radar size={18} />
+          <span>{t("actions.discoverPi")}</span>
+        </button>
+        <button className="icon-button" disabled={!recommended} onClick={() => recommended && runtime.applyPiDiscoveryHost(recommended.candidate.host)} type="button">
+          <Save size={18} />
+          <span>{t("actions.applyDiscoveredPi")}</span>
+        </button>
+        <button className="icon-button" disabled={!runtime.canSetupPiUsbGadget} onClick={() => void runtime.setupRaspberryPiUsbGadget()} type="button">
+          <Usb size={18} />
+          <span>{t("actions.setupPiUsbGadget")}</span>
+        </button>
+      </div>
+      {runtime.piDiscoveryError && <p className="form-error">{runtime.piDiscoveryError}</p>}
+      <div className="pi-discovery-list">
+        {runtime.piDiscoveryResults.length === 0 ? (
+          <p className="pi-discovery-empty">{t("piRemote.discovery.noResults")}</p>
+        ) : (
+          runtime.piDiscoveryResults.map((result) => (
+            <div className="pi-discovery-row" data-status={result.status} key={`${result.candidate.source}:${result.candidate.host}`}>
+              <div className="pi-discovery-main">
+                <strong>{result.candidate.host}</strong>
+                <span>{t(`piRemote.discovery.source.${result.candidate.source}`)}</span>
+              </div>
+              <div className="pi-discovery-probes">
+                <span data-status={result.ssh.status}>SSH {t(`piRemote.discovery.probe.${result.ssh.status}`)}</span>
+                {result.services.map((service) => (
+                  <span data-status={service.status} key={`${result.candidate.host}:${service.id}`}>
+                    {service.port} {t(`piRemote.discovery.probe.${service.status}`)}
+                  </span>
+                ))}
+              </div>
+              <button className="icon-button" disabled={result.status === "offline"} onClick={() => runtime.applyPiDiscoveryHost(result.candidate.host)} type="button">
+                <Save size={16} />
+                <span>{t("actions.applyDiscoveredPi")}</span>
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <p className="pi-discovery-note">{t("piRemote.usbRecovery.powerHint")}</p>
+    </div>
+  );
+}
+
 function PiAboardBridgeSection({ aBoardBridge, t }: Pick<PiRemotePanelsProps, "aBoardBridge" | "t">) {
   if (!aBoardBridge) {
     return null;
@@ -177,7 +251,7 @@ export function SimplePiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: 
 
   return (
     <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
-      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "rescue-pi.local"} title={t("panels.piRemote")} />
 
       <div className="pi-remote-grid">
         <div className="pi-remote-stack">
@@ -247,6 +321,7 @@ export function SimplePiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: 
             </div>
           </div>
 
+          <PiDiscoverySection runtime={runtime} t={t} />
           <PiServoBridgeSection piServoBridge={piServoBridge} t={t} />
           <PiAboardBridgeSection aBoardBridge={aBoardBridge} t={t} />
 
@@ -333,7 +408,7 @@ export function SimplePiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: 
 export function PiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: PiRemotePanelsProps) {
   return (
     <section className="panel pi-remote-panel" aria-labelledby="pi-remote-title">
-      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "raspberrypi.local"} title={t("panels.piRemote")} />
+      <PanelTitle icon={<Terminal size={18} />} id="pi-remote-title" meta={runtime.piRemoteForm.host || "rescue-pi.local"} title={t("panels.piRemote")} />
 
       <div className="pi-remote-grid">
         <div className="pi-remote-stack">
@@ -377,6 +452,7 @@ export function PiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: PiRemo
             </div>
           </div>
 
+          <PiDiscoverySection runtime={runtime} t={t} />
           <PiServoBridgeSection piServoBridge={piServoBridge} t={t} />
           <PiAboardBridgeSection aBoardBridge={aBoardBridge} t={t} />
 
@@ -442,12 +518,12 @@ export function PiRemotePage({ aBoardBridge, piServoBridge, runtime, t }: PiRemo
 }
 
 export function PiCameraCard({ activeCameraSource, cameraStreamUrl, runtime, t }: PiCameraCardProps) {
-  const cameraTarget = `${runtime.piRemoteForm.username || "robot1"}@${runtime.piRemoteForm.host || "raspberrypi.local"}`;
+  const cameraTarget = `${runtime.piRemoteForm.username || "robot1"}@${runtime.piRemoteForm.host || "rescue-pi.local"}`;
   const deviceLabel = runtime.piCameraCheck?.device ?? activeCameraSource.devicePath;
   const toolLabel = runtime.piCameraCheck ? (runtime.piCameraCheck.ustreamerAvailable ? t("status.ready") : t("piRemote.camera.toolMissing")) : t("status.unknown");
   const webrtcToolLabel = runtime.piCameraCheck ? (runtime.piCameraCheck.webrtcAvailable ? t("status.ready") : t("piRemote.camera.webrtcUnavailable")) : t("status.unknown");
   const streamLabel = runtime.piCameraCheck?.streamUrl || cameraStreamUrl || "--";
-  const adaptiveStreamLabel = buildPiCameraStreamUrl(runtime.piRemoteForm.host || "raspberrypi.local", activeCameraSource.port);
+  const adaptiveStreamLabel = buildPiCameraStreamUrl(runtime.piRemoteForm.host || "rescue-pi.local", activeCameraSource.port);
   const statusTone: "neutral" | "online" | "warning" | "danger" =
     runtime.piCameraStatus === "error" ? "danger" : runtime.piCameraStatus === "streaming" ? "online" : runtime.piCameraBusy ? "warning" : "neutral";
 
@@ -466,12 +542,12 @@ export function PiCameraCard({ activeCameraSource, cameraStreamUrl, runtime, t }
         <Metric label={t("piRemote.camera.tool")} value={toolLabel} tone={runtime.piCameraCheck?.ustreamerAvailable ? "online" : runtime.piCameraCheck ? "warning" : "neutral"} />
         <Metric label={t("piRemote.camera.webrtc")} value={webrtcToolLabel} tone={runtime.piCameraCheck?.webrtcAvailable ? "online" : runtime.piCameraCheck ? "warning" : "neutral"} />
         <Metric className="frame-preview" code label={t("metrics.stream")} value={streamLabel} />
-        <Metric className="frame-preview" code label="Pi URL" value={adaptiveStreamLabel} />
+        <Metric className="frame-preview" code label={t("piRemote.camera.adaptiveStream")} value={adaptiveStreamLabel} />
       </div>
       <div className="action-grid pi-camera-actions">
         <button className="icon-button" disabled={!runtime.piRemoteForm.host.trim()} onClick={() => runtime.syncCameraConfigToPiHost()} type="button">
           <RotateCw size={18} />
-          <span>Pi URL</span>
+          <span>{t("actions.syncPiCameraUrl")}</span>
         </button>
         <button className="icon-button" disabled={!runtime.canUsePiCamera} onClick={() => void runtime.checkRaspberryPiCamera(activeCameraSource)} type="button">
           <Radar size={18} />

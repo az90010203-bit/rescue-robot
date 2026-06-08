@@ -1,5 +1,6 @@
 import type { MotorDirection } from "../lib/protocol";
 import type { ServoSafetyTriggerReason } from "../lib/servoSafety";
+import { metricNumberText } from "../shared/formatters";
 import type { ServoSafetyDisplayStatus } from "./appModel";
 import type { wheelSliderDirection } from "../lib/servoWheelSlider";
 
@@ -40,7 +41,7 @@ export function useDisplayFormatters({ servoSafetyEnabled, t }: UseDisplayFormat
   }
 
   function metricNumber(value: number | undefined, digits = 1) {
-    return value === undefined || !Number.isFinite(value) ? undefined : value.toFixed(digits);
+    return metricNumberText(value, digits);
   }
 
   function formatDirectionLabel(direction: MotorDirection | string) {

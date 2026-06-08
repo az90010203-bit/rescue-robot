@@ -1,5 +1,6 @@
 import { Download, Play, Radar, Save, Square, Trash2 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
 import type { ArmTeachTrack } from "../../lib/armTeach";
 import type { ArmTeachStatus } from "../../app/appModel";
 import { Metric } from "../../shared/ui/AppChrome";
@@ -51,6 +52,7 @@ export function ArmTeachPanel({
   startArmTeachRecording,
   stopArmTeachRecording
 }: ArmTeachPanelProps) {
+  const { t } = useTranslation();
   const selectedTrack = selectedArmTeachTrack;
   const canRecord = servoBusConnected() && armTeachStatus !== "recording" && armTeachStatus !== "playing" && getEnabledArmTeachJoints().length > 0;
   const canStop = armTeachStatus === "recording" || armTeachStatus === "preparing" || armTeachStatus === "error";
@@ -62,14 +64,14 @@ export function ArmTeachPanel({
     <section className="arm-teach-panel">
       <div className="panel-heading-row">
         <div>
-          <p className="eyebrow">ARM TEACH</p>
-          <h3>示教录制</h3>
+          <p className="eyebrow">{t("armTeach.eyebrow")}</p>
+          <h3>{t("armTeach.title")}</h3>
         </div>
-        <span className={`teach-status ${armTeachStatus}`}>{armTeachStatus.toUpperCase()}</span>
+        <span className={`teach-status ${armTeachStatus}`}>{t(`armTeach.status.${armTeachStatus}`)}</span>
       </div>
       <div className="command-grid arm-teach-grid">
         <label>
-          <span>轨迹</span>
+          <span>{t("armTeach.track")}</span>
           <select
             value={selectedTrack?.id ?? ""}
             onChange={(event) => {
@@ -80,7 +82,7 @@ export function ArmTeachPanel({
             }}
           >
             {armTeachUnsavedTrack ? <option value={armTeachUnsavedTrack.id}>{armTeachUnsavedTrack.name} *</option> : null}
-            {armTeachTracks.length === 0 && !armTeachUnsavedTrack ? <option value="">暂无轨迹</option> : null}
+            {armTeachTracks.length === 0 && !armTeachUnsavedTrack ? <option value="">{t("armTeach.noTracks")}</option> : null}
             {armTeachTracks.map((track) => (
               <option key={track.id} value={track.id}>
                 {track.name}
@@ -89,41 +91,41 @@ export function ArmTeachPanel({
           </select>
         </label>
         <label>
-          <span>名称</span>
-          <input value={armTeachDraftName} onChange={(event) => setArmTeachDraftName(event.target.value)} placeholder="Teach route" />
+          <span>{t("armTeach.name")}</span>
+          <input value={armTeachDraftName} onChange={(event) => setArmTeachDraftName(event.target.value)} placeholder={t("armTeach.namePlaceholder")} />
         </label>
         <label>
-          <span>备注</span>
-          <input value={armTeachDraftNotes} onChange={(event) => setArmTeachDraftNotes(event.target.value)} placeholder="task notes" />
+          <span>{t("armTeach.notes")}</span>
+          <input value={armTeachDraftNotes} onChange={(event) => setArmTeachDraftNotes(event.target.value)} placeholder={t("armTeach.notesPlaceholder")} />
         </label>
       </div>
       <div className="arm-status-strip arm-teach-metrics">
-        <Metric label="时长" value={durationSeconds.toFixed(1)} suffix=" s" />
-        <Metric label="采样点" value={selectedTrack?.samples.length ?? armTeachSampleCount} />
-        <Metric label="频率" value="10" suffix=" Hz" />
-        <Metric label="关节" value={selectedTrack?.jointIds.length ?? getEnabledArmTeachJoints().length} />
-        <Metric label="最近采样" value={armTeachLastSampleStatus || "--"} tone={armTeachStatus === "error" ? "danger" : armTeachStatus === "recording" ? "warning" : "neutral"} />
+        <Metric label={t("armTeach.metrics.duration")} value={durationSeconds.toFixed(1)} suffix=" s" />
+        <Metric label={t("armTeach.metrics.samples")} value={selectedTrack?.samples.length ?? armTeachSampleCount} />
+        <Metric label={t("armTeach.metrics.frequency")} value="10" suffix=" Hz" />
+        <Metric label={t("armTeach.metrics.joints")} value={selectedTrack?.jointIds.length ?? getEnabledArmTeachJoints().length} />
+        <Metric label={t("armTeach.metrics.latestSample")} value={armTeachLastSampleStatus || "--"} tone={armTeachStatus === "error" ? "danger" : armTeachStatus === "recording" ? "warning" : "neutral"} />
       </div>
       <div className="action-grid arm-teach-actions">
         <button className="icon-button primary" disabled={!canRecord} onClick={() => void startArmTeachRecording()} type="button">
           <Radar size={18} />
-          <span>开始示教</span>
+          <span>{t("armTeach.actions.start")}</span>
         </button>
         <button className="icon-button danger" disabled={!canStop} onClick={() => void stopArmTeachRecording()} type="button">
           <Square size={18} />
-          <span>停止录制</span>
+          <span>{t("armTeach.actions.stopRecording")}</span>
         </button>
         <button className="icon-button" disabled={!canPlay} onClick={() => void playArmTeachTrack()} type="button">
           <Play size={18} />
-          <span>回放</span>
+          <span>{t("armTeach.actions.playback")}</span>
         </button>
         <button className="icon-button" disabled={armTeachStatus !== "playing"} onClick={() => void pauseArmTeachPlayback()} type="button">
           <Square size={18} />
-          <span>暂停回放</span>
+          <span>{t("armTeach.actions.pausePlayback")}</span>
         </button>
         <button className="icon-button" disabled={!canSave} onClick={() => void saveCurrentArmTeachTrack()} type="button">
           <Save size={18} />
-          <span>保存</span>
+          <span>{t("armTeach.actions.save")}</span>
         </button>
         <button className="icon-button" disabled={!selectedTrack} onClick={() => exportArmTeachTrack(selectedTrack, "json")} type="button">
           <Download size={18} />
@@ -135,7 +137,7 @@ export function ArmTeachPanel({
         </button>
         <button className="icon-button danger" disabled={!selectedTrack} onClick={() => void removeSelectedArmTeachTrack()} type="button">
           <Trash2 size={18} />
-          <span>删除</span>
+          <span>{t("armTeach.actions.delete")}</span>
         </button>
       </div>
     </section>

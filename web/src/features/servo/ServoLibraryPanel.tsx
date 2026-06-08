@@ -123,7 +123,7 @@ export function ServoLibraryPanel({
                 </button>
                 <div className="servo-limit-grid">
                   <label>
-                    <span>最小角</span>
+                    <span>{t("fields.minAngle")}</span>
                     <input
                       type="number"
                       min={0}
@@ -134,7 +134,7 @@ export function ServoLibraryPanel({
                     />
                   </label>
                   <label>
-                    <span>最大角</span>
+                    <span>{t("fields.maxAngle")}</span>
                     <input
                       type="number"
                       min={0}
@@ -150,7 +150,7 @@ export function ServoLibraryPanel({
                       checked={normalizedServo.direction === -1}
                       onChange={(event) => updateServoDirection(servo.id, event.target.checked)}
                     />
-                    <span>反转</span>
+                    <span>{t("fields.invertAxis")}</span>
                   </label>
                 </div>
               </div>

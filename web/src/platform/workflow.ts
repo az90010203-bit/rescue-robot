@@ -1,7 +1,7 @@
 import { PlatformCommand, PlatformCommandResult } from "./commands";
 import { PlatformEvent } from "./types";
 
-export type WorkflowNodeKind = "event" | "condition" | "command" | "delay" | "log";
+export type WorkflowNodeKind = "event" | "condition" | "command" | "delay" | "log" | "noop";
 export type WorkflowRunStatus = "completed" | "skipped" | "failed";
 
 export interface WorkflowNode {
@@ -30,6 +30,8 @@ export interface WorkflowRuntimeContext {
   dispatchCommand?: (command: PlatformCommand) => Promise<PlatformCommandResult>;
   wait?: (ms: number) => Promise<void>;
   log?: (message: string) => void;
+  shouldAbort?: () => boolean;
+  stopOnCommandFailure?: boolean;
 }
 
 export interface WorkflowRunResult {
@@ -54,6 +56,9 @@ export async function runWorkflow(definition: WorkflowDefinition, context: Workf
   let guard = 0;
 
   while (current) {
+    if (context.shouldAbort?.()) {
+      return { status: "failed", visitedNodeIds, commandResults, message: "workflow aborted" };
+    }
     guard += 1;
     if (guard > definition.nodes.length + definition.edges.length + 1) {
       return { status: "failed", visitedNodeIds, commandResults, message: "workflow cycle detected" };
@@ -67,11 +72,18 @@ export async function runWorkflow(definition: WorkflowDefinition, context: Workf
       if (!command || !context.dispatchCommand) {
         return { status: "failed", visitedNodeIds, commandResults, message: "workflow command node requires command and dispatcher" };
       }
-      commandResults.push(await context.dispatchCommand(command));
+      const result = await context.dispatchCommand(command);
+      commandResults.push(result);
+      if (context.stopOnCommandFailure && (result.status === "failed" || result.status === "timeout")) {
+        return { status: "failed", visitedNodeIds, commandResults, message: result.message ?? `workflow command ${result.status}` };
+      }
     } else if (current.kind === "delay") {
       const ms = Number(current.config?.ms ?? 0);
       if (context.wait && Number.isFinite(ms) && ms > 0) {
         await context.wait(ms);
+      }
+      if (context.shouldAbort?.()) {
+        return { status: "failed", visitedNodeIds, commandResults, message: "workflow aborted" };
       }
     } else if (current.kind === "log") {
       const message = typeof current.config?.message === "string" ? current.config.message : current.label ?? current.id;
@@ -113,11 +125,30 @@ export function validateWorkflow(definition: WorkflowDefinition): string | null 
 export function evaluateWorkflowCondition(node: WorkflowNode, context: WorkflowRuntimeContext): boolean {
   const field = typeof node.config?.field === "string" ? node.config.field : "";
   const equals = node.config?.equals;
-  const source = node.config?.source === "event" ? context.event?.payload : context.state;
+  const source = workflowConditionSource(node, context);
   if (!field || !source || typeof source !== "object") {
     return false;
   }
   return (source as Record<string, unknown>)[field] === equals;
+}
+
+function workflowConditionSource(node: WorkflowNode, context: WorkflowRuntimeContext): Record<string, unknown> | undefined {
+  if (node.config?.source === "event") {
+    return context.event?.payload;
+  }
+  const deviceId = typeof node.config?.deviceId === "string" ? node.config.deviceId : "";
+  if (!deviceId) {
+    return context.state;
+  }
+  const device = context.state?.[deviceId];
+  if (!device || typeof device !== "object") {
+    return undefined;
+  }
+  const snapshot = device as { status?: unknown; values?: unknown };
+  return {
+    ...(snapshot.values && typeof snapshot.values === "object" ? snapshot.values as Record<string, unknown> : {}),
+    status: snapshot.status
+  };
 }
 
 function nextWorkflowEdge(edges: WorkflowEdge[], from: string, lastCondition: boolean): WorkflowEdge | undefined {

@@ -70,7 +70,7 @@ export function ArchitectureWorkspacePage({
   }
 
   return (
-    <Suspense fallback={<div className="empty-state">Loading architecture workspace...</div>}>
+    <Suspense fallback={<div className="empty-state">{t("loading.architecture")}</div>}>
       <ThreeLayerWorkspace
         dataServiceOnline={databaseStatus !== "offline"}
         dispatchPlatformCommand={dispatchPlatformCommand}

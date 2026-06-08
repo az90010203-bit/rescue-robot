@@ -3,7 +3,11 @@ export const enUSResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "Rescue Robot Console",
-      "systemLine": "USB Serial · 115200 baud · {{module}}"
+      "systemLine": "USB Serial · 115200 baud · {{module}}",
+      "servoBridgeSystemLine": "Pi Servo Bridge · 115200 UART · {{module}}",
+      "servoBusSystemLine": "USB Serial · 1000000 baud · {{module}}",
+      "piServoDefaultDetail": "Pi 6/8/10 serial0",
+      "aBoardDefaultDetail": "Pi 32/33 UART5"
     },
     "aria": {
       "systemStatus": "System status",
@@ -30,6 +34,11 @@ export const enUSResource = {
     "language": {
       "label": "Language",
       "select": "Select language"
+    },
+    "loading": {
+      "console": "Loading console...",
+      "arm3d": "Loading 3D arm...",
+      "architecture": "Loading architecture workspace..."
     },
     "sections": {
       "console": "Main Console",
@@ -73,7 +82,7 @@ export const enUSResource = {
       "cameraStick": "Gimbal Stick",
       "driveStickTracked": "Forward / turn",
       "driveStickMecanum": "Forward / strafe",
-      "cameraStickHint": "パン / チルト",
+      "cameraStickHint": "Pan / tilt",
       "telemetryNote": "When whole-robot voltage/current protocol is not connected, existing servo and motor feedback is shown."
     },
     "dashboard": {
@@ -196,7 +205,7 @@ export const enUSResource = {
       "centerCamera": "Center",
       "panRight": "Pan Right",
       "tiltDown": "Tilt Down",
-      "ping": "通信確認",
+      "ping": "Ping",
       "saveMapping": "Save Mapping",
       "resetMapping": "Reset Defaults",
       "captureKey": "Capture",
@@ -218,6 +227,9 @@ export const enUSResource = {
       "uploadFirmware": "Upload Firmware",
       "checkPiHelper": "Check Pi Helper",
       "testPiConnection": "Test Pi Link",
+      "discoverPi": "Find Pi",
+      "applyDiscoveredPi": "Apply Host",
+      "setupPiUsbGadget": "Setup USB Direct",
       "connectPi": "Connect Pi",
       "reconnectPi": "Reconnect Pi",
       "uploadPiFile": "Upload File",
@@ -269,7 +281,8 @@ export const enUSResource = {
       "asmgFactoryReset": "Factory Reset"
     },
     "webSerial": {
-      "ready": "Web Serial 準備完了",
+      "ready": "Web Serial Ready",
+      "feetechBusReady": "Feetech Bus · 1000000 baud",
       "unavailable": "Web Serial Unavailable"
     },
     "panels": {
@@ -336,6 +349,7 @@ export const enUSResource = {
         "robot-arm": "Robot Arm",
         "raspberry-pi": "Raspberry Pi",
         "firmware": "Firmware",
+        "gamepad": "Gamepad",
         "gpio": "GPIO",
         "sensor": "Sensor"
       },
@@ -480,6 +494,221 @@ export const enUSResource = {
         "upload": "Upload"
       }
     },
+    "architecture": {
+      "aria": "Three layer architecture",
+      "sqliteProject": "SQLite Project",
+      "dataServiceRequired": "Three-layer architecture needs the SQLite data service",
+      "dataServiceHint": "Start data-service first, then create plugin instances, components, and robots in the project.",
+      "status": {
+        "loading": "Loading",
+        "saving": "Saving",
+        "error": "Error",
+        "synced": "Synced"
+      },
+      "actions": {
+        "refresh": "Refresh",
+        "backToPluginLibrary": "Back to Plugin Library",
+        "createPluginInstance": "Create Plugin Instance",
+        "deletePluginInstance": "Delete Plugin Instance",
+        "saveLimits": "Save Limits/Reset",
+        "setResetPoint": "Set Reset Point",
+        "setLogicalCenter": "Set Logical Center",
+        "reset": "Reset",
+        "pingCurrentId": "Ping Current ID",
+        "writeNewId": "Write New ID",
+        "writing": "Writing",
+        "clear": "Clear"
+      },
+      "create": {
+        "plugins": "Create Plugin Instance",
+        "selectType": "Select Type",
+        "configure": "Configure",
+        "confirm": "Confirm",
+        "allDevices": "All Devices",
+        "noCodeLibrarySelected": "No code library selected",
+        "waitingName": "Waiting for name",
+        "device": "Device",
+        "brand": "Brand",
+        "noBrands": "No brands",
+        "model": "Model",
+        "noModels": "No models",
+        "codeLibrary": "Code Library",
+        "searchPlaceholder": "Search models, code files, or drivers",
+        "noCodeLibraries": "No code libraries match this device and brand",
+        "customCatalog": "This model is not in the database; create a custom model from the current code library",
+        "customBrand": "Custom Brand",
+        "customModel": "Custom Model",
+        "instanceNamePlaceholder": "e.g. Base joint / Left track",
+        "selectDeviceBrandCode": "Select a device, brand, and code library first",
+        "codeLibraryCount": "{{count}} code libraries",
+        "collapse": "Collapse",
+        "collapseLeft": "Collapse Left",
+        "expandConfig": "Expand Config",
+        "stepsAria": "{{title}} steps"
+      },
+      "library": {
+        "pluginDebug": "Plugin Debug",
+        "pluginLibrary": "Plugin Library",
+        "allTypes": "All Types",
+        "available": "Available",
+        "autoDetected": "Auto detected",
+        "noPlugins": "No plugin instances yet",
+        "noMatchingPlugins": "No matching plugin instances",
+        "instanceCount": "{{shown}} / {{total}} instances",
+        "deleteNamed": "Delete {{name}}",
+        "removeBeforeDelete": "Remove it from {{owner}} before deleting"
+      },
+      "empty": {
+        "selectOrCreateDevice": "Select or create a device model",
+        "noCameraStream": "No video stream configured",
+        "noDedicatedPanel": "This capability does not have a dedicated panel yet",
+        "invalidServoPlugin": "This servo plugin has no valid servoId, so it cannot be debugged",
+        "invalidMotorPlugin": "This motor plugin has no valid channel, so it cannot be debugged",
+        "noAdvancedWrites": "No advanced write records yet"
+      },
+      "servoDebug": {
+        "feedback": "Feedback",
+        "notRead": "Not read",
+        "logicalRange": "Logical Range",
+        "physicalLimit": "Physical Limit",
+        "resetTitle": "Limits and Reset",
+        "resetHint": "Saved to the current plugin instance config and kept after refresh. Reset angle is the logical angle inside the current limit range.",
+        "resetAngle": "Reset Angle",
+        "logicalCenter": "Logical Center",
+        "internalTitle": "Servo Internal Config",
+        "internalHint": "Writes to the Feetech servo EEPROM. Before changing ID, connect only this servo; after a successful write, the plugin config is synced.",
+        "currentId": "Current ID",
+        "targetId": "Target ID",
+        "newId": "New ID",
+        "singleServoConfirm": "I confirm only this servo is connected to the bus",
+        "serialTitle": "Servo Write TX/RX",
+        "serialHint": "Shows the latest advanced write TX/RX summary; full serial logs remain in the system log."
+      },
+      "components": {
+        "availablePluginCount": "{{count}} available plugins",
+        "steps": {
+          "type": "Component Type",
+          "bindPlugins": "Bind Plugins"
+        },
+        "selectedPluginCount": "{{count}} plugins selected",
+        "createTitle": "Create Component",
+        "type": "Component Type",
+        "name": "Component Name",
+        "kind": {
+          "custom": "Custom Component",
+          "robotArm": "Robot Arm"
+        },
+        "noAvailablePluginInstances": "No available plugin instances",
+        "createRobotArm": "Create Robot Arm",
+        "createComponent": "Create Component",
+        "count": "{{count}} components",
+        "panelTitle": "Component Panel",
+        "empty": "No components yet",
+        "pluginCount": "{{count}} plugins",
+        "selectComponent": "Select a component"
+      },
+      "robots": {
+        "steps": {
+          "name": "Name",
+          "assets": "Select Assets"
+        },
+        "directPluginCount": "{{count}} direct plugins",
+        "createTitle": "Create Robot",
+        "name": "Robot Name",
+        "createComponentFirst": "Create a component first",
+        "directPlugins": "Direct Plugins",
+        "createRobot": "Create Robot",
+        "count": "{{count}} robots",
+        "panelTitle": "Robot Runtime Panel",
+        "empty": "No robots yet",
+        "selectRobot": "Select a robot"
+      },
+      "armComponent": {
+        "empty": {
+          "noServoPlugin": "Robot arm components need at least one servo plugin"
+        },
+        "jointCount": "{{count}} joints",
+        "poseAria": "{{name}} robot arm pose",
+        "metrics": {
+          "joints": "Joints",
+          "mode": "Mode",
+          "selectedJoint": "Selected Joint"
+        },
+        "modes": {
+          "manual": "Manual Joints",
+          "ik": "Auto IK",
+          "liveDrag": "Live Drag"
+        },
+        "sendMode": {
+          "preview": "Preview",
+          "live": "Live",
+          "needsLiveDrag": "Enable live drag first"
+        },
+        "autoIk": "Component Auto IK",
+        "ikStatus": {
+          "converged": "Converged",
+          "nearPose": "Near Pose",
+          "awaitingDrag": "Awaiting Drag"
+        },
+        "modeAria": "Robot arm component mode",
+        "sendModeAria": "Auto IK send mode",
+        "ik": {
+          "targetX": "Target X",
+          "targetY": "Target Y",
+          "error": "Error",
+          "steps": "Steps",
+          "reachable": "Reachable",
+          "movedJoints": "Moved Joints",
+          "send": "Send"
+        },
+        "feedbackCorrection": "Feedback correction: off / template reserved",
+        "archive": {
+          "trackName": "Track Name",
+          "notes": "Notes",
+          "archive": "Archive",
+          "noneSelected": "None selected",
+          "saveCurrent": "Save Current Track",
+          "stopPlayback": "Stop Playback",
+          "playArchive": "Play Archive",
+          "saveNotes": "Save Notes",
+          "deleteArchive": "Delete Archive",
+          "currentSamples": "Current Samples",
+          "currentDuration": "Current Duration",
+          "archiveCount": "Archive Count",
+          "selectedSamples": "Selected Samples",
+          "selectedDuration": "Selected Duration"
+        },
+        "jointOrdinal": "Joint {{index}}",
+        "moveUpNamed": "Move up {{name}}",
+        "moveDownNamed": "Move down {{name}}",
+        "fields": {
+          "jointIndex": "Joint Index",
+          "lengthPx": "Length px",
+          "neutralDeg": "Neutral"
+        },
+        "shape": {
+          "title": "Geometry",
+          "hint": "Configure fold-line segments for the neutral pose to represent L-shapes, returns, and overlapping structures",
+          "addSegment": "Add Segment",
+          "childFrameOffset": "Next Joint Mount Offset",
+          "segmentName": "Segment Name",
+          "initialDirection": "Initial Direction",
+          "initialDirectionFor": "{{name}} initial direction",
+          "deleteSegment": "Delete Shape Segment",
+          "deleteSegmentNamed": "Delete {{name}}"
+        },
+        "limits": {
+          "title": "Servo Limits",
+          "hint": "Joints in this component are clamped to this range and synced to the plugin instance after saving",
+          "range": "Range",
+          "currentServo": "Current Servo"
+        },
+        "actions": {
+          "syncActualPose": "Sync Actual Pose",
+          "savePose": "Save Pose"
+        }
+      }
+    },
     "meta": {
       "servoCount": "{{count}} servos",
       "motorCount": "{{count}} ports",
@@ -502,6 +731,8 @@ export const enUSResource = {
       "wheelSliderDeg": "Wheel Slider",
       "wheelMaxSpeedRaw": "Max Speed raw",
       "acceleration": "Acceleration",
+      "controlMode": "Control Mode",
+      "actualAngle": "Actual Angle",
       "speedPercent": "Speed %",
       "stopMode": "Stop Mode",
       "speedSlider": "Speed Slider",
@@ -536,6 +767,7 @@ export const enUSResource = {
       "encoderAPin": "Encoder A",
       "encoderBPin": "Encoder B",
       "enabled": "Enabled",
+      "disabled": "Disabled",
       "linkageName": "Linkage Name",
       "linkageMode": "Linkage Mode",
       "positionMode": "Position Mode",
@@ -556,6 +788,8 @@ export const enUSResource = {
       "safetySensitive": "Sensitive",
       "clockwiseTurns": "Clockwise Turns",
       "counterclockwiseTurns": "Counterclockwise Turns",
+      "minAngle": "Min Angle",
+      "maxAngle": "Max Angle",
       "neutralDeg": "Neutral deg",
       "segmentLength": "Segment Length px",
       "liveDrag": "Live Drag",
@@ -605,7 +839,7 @@ export const enUSResource = {
       "optionalPin": "Optional",
       "addServoToGroup": "Add servo to group",
       "addMotorToGroup": "Add motor to group",
-      "piHost": "raspberrypi.local or 192.168.1.20",
+      "piHost": "rescue-pi.local or 192.168.1.20",
       "piPrivateKeyPath": "e.g. C:\\Users\\YU\\.ssh\\id_rsa"
     },
     "empty": {
@@ -631,6 +865,21 @@ export const enUSResource = {
       "data": "DATA",
       "idle": "IDLE",
       "deleteNamed": "Delete {{name}}"
+    },
+    "servo": {
+      "smoothingControl": "Smooth Control",
+      "smoothingPreset": "Smooth Preset",
+      "directMode": "Direct Mode",
+      "motionStatus": {
+        "idle": "Idle",
+        "smoothing": "Smoothing",
+        "paused": "Idle after stop"
+      },
+      "smoothPresets": {
+        "soft": "Soft",
+        "standard": "Standard",
+        "fast": "Fast"
+      }
     },
     "metrics": {
       "rawPosition": "Raw Position",
@@ -849,6 +1098,9 @@ export const enUSResource = {
       "piCameraStartFailed": "Camera video failed to start",
       "piCameraStopped": "Camera video stopped",
       "piCameraToolsInstalled": "Camera service install command finished",
+      "piDiscoveryComplete": "Pi discovery finished: {{count}} candidate(s), recommended {{host}}",
+      "piDiscoveryHostApplied": "Pi host updated to {{host}}",
+      "piUsbGadgetConfigured": "USB direct setup command finished with exit code {{code}}",
       "motorLinkageNoTargets": "Motor linkage group has no motor targets",
       "motorLinkageCommandSent": "Motor linkage command sent",
       "motorLinkageStopped": "Motor linkage group stopped",
@@ -898,6 +1150,39 @@ export const enUSResource = {
         "temperatureHigh": "High temp"
       }
     },
+    "armTeach": {
+      "eyebrow": "Arm Teach",
+      "title": "Teach Recording",
+      "track": "Track",
+      "noTracks": "No tracks",
+      "name": "Name",
+      "notes": "Notes",
+      "namePlaceholder": "Teach route",
+      "notesPlaceholder": "Task notes",
+      "metrics": {
+        "duration": "Duration",
+        "samples": "Samples",
+        "frequency": "Frequency",
+        "joints": "Joints",
+        "latestSample": "Latest sample"
+      },
+      "actions": {
+        "start": "Start Teach",
+        "stopRecording": "Stop Recording",
+        "playback": "Playback",
+        "pausePlayback": "Pause Playback",
+        "save": "Save",
+        "delete": "Delete"
+      },
+      "status": {
+        "idle": "Idle",
+        "preparing": "Preparing",
+        "recording": "Recording",
+        "stopped": "Stopped",
+        "playing": "Playing",
+        "error": "Error"
+      }
+    },
     "arm3d": {
       "meta": "Three.js",
       "orbitHint": "Drag to orbit, scroll to zoom. Joint sliders below reuse the same arm pose.",
@@ -938,6 +1223,43 @@ export const enUSResource = {
       "checkHint": "Check SSH, Python, and workspace",
       "setupHint": "Create workspace and runner script",
       "advancedSettings": "Advanced Settings",
+      "discovery": {
+        "title": "Find Raspberry Pi",
+        "statusLabel": "Scan",
+        "recommended": "Recommended",
+        "usbHosts": "USB Direct",
+        "available": "Available",
+        "noResults": "No scan results yet",
+        "status": {
+          "idle": "Idle",
+          "scanning": "Scanning",
+          "complete": "Complete",
+          "error": "Error"
+        },
+        "probe": {
+          "online": "Ready",
+          "offline": "Offline",
+          "skipped": "Skipped"
+        },
+        "source": {
+          "saved": "Saved host",
+          "usb-gadget-hostname": "USB hostname",
+          "mdns": "mDNS hostname",
+          "usb-gadget-fallback": "USB gadget fallback",
+          "manual-usb-fallback": "Manual USB fallback"
+        },
+        "errors": {
+          "noHost": "No reachable Raspberry Pi candidate was found.",
+          "scanFailed": "Raspberry Pi discovery failed."
+        }
+      },
+      "usbRecovery": {
+        "setupConfirm": "This will change Raspberry Pi USB networking and may require a reboot. Continue?",
+        "powerHint": "If USB candidates appear and disappear, use a data-capable cable and stable Pi power.",
+        "errors": {
+          "setupFailed": "USB direct setup failed. Check sudo permissions and the command output."
+        }
+      },
       "auth": {
         "password": "Password",
         "privateKey": "Private Key"
@@ -1055,12 +1377,238 @@ export const enUSResource = {
       "enableDebug": "Enable debug mode to send gimbal commands",
       "connectSerial": "Connect serial to control the gimbal"
     },
+    "localCamera": {
+      "previewStopped": "Camera preview is stopped",
+      "unsupported": "Local camera is not supported",
+      "deviceLabel": "Camera Device",
+      "systemDefault": "System default",
+      "refreshDevices": "Refresh Devices",
+      "enableCamera": "Enable Camera",
+      "stopPreview": "Stop Preview",
+      "status": {
+        "online": "Preview active",
+        "loading": "Loading",
+        "error": "Error",
+        "idle": "Idle"
+      },
+      "metrics": {
+        "status": "Status",
+        "device": "Device",
+        "resolution": "Resolution",
+        "frameRate": "Frame Rate"
+      },
+      "errors": {
+        "unsupported": "This browser does not support local camera access.",
+        "noneDetected": "No local camera was detected.",
+        "savedUnavailable": "Saved camera is unavailable. The default camera will be used.",
+        "savedUnavailableActive": "Saved camera is unavailable. The default camera is active."
+      }
+    },
+    "pluginAutoDetect": {
+      "aria": "Plugin auto detection",
+      "title": "Auto detect",
+      "actions": {
+        "cancel": "Cancel",
+        "detectDevices": "Detect devices"
+      },
+      "phase": {
+        "ready": "Ready",
+        "scanning": "Scanning",
+        "scanningLocalCameras": "Scanning local cameras",
+        "scanningSerialPorts": "Scanning serial ports",
+        "scanningFeetechServoBus": "Scanning Feetech servo bus",
+        "scanningAboardCan": "Scanning A board CAN",
+        "scanningAboardMotorChannels": "Scanning A board motor channels",
+        "addingPlugins": "Adding plugins",
+        "canceling": "Canceling",
+        "canceled": "Canceled",
+        "complete": "Complete"
+      },
+      "metrics": {
+        "candidates": "Candidates",
+        "created": "Created",
+        "skipped": "Skipped",
+        "failed": "Failed"
+      },
+      "summary": {
+        "noRun": "No detection run yet.",
+        "result": "{{created}} created / {{skipped}} skipped / {{failed}} failed"
+      },
+      "errors": {
+        "unknown": "unknown error"
+      }
+    },
     "drive": {
       "tracked": "Tracked",
       "mecanum": "Mecanum",
       "commandReady": "Drive command ready",
       "enableDebug": "Enable debug mode to send drive commands",
       "connectSerial": "Connect serial to control the drive"
+    },
+    "robotAssembly": {
+      "assets": "Assets",
+      "aria": {
+        "palette": "Robot assembly assets",
+        "schematic": "{{name}} schematic",
+        "inspector": "Robot assembly inspector"
+      },
+      "groups": {
+        "components": "Components",
+        "plugins": "Plugins",
+        "hardware": "Hardware"
+      },
+      "expandAssetSidebar": "Expand asset sidebar",
+      "collapseAssetSidebar": "Collapse asset sidebar left",
+      "expandAssets": "Expand assets",
+      "collapseAssets": "Collapse assets",
+      "usedBy": "Used by {{name}}",
+      "saveState": {
+        "saving": "Saving",
+        "error": "Save failed",
+        "saved": "Saved"
+      },
+      "warningErrors": "{{count}} errors",
+      "warningCount": "{{count}} warnings",
+      "cancelWire": "Cancel wire",
+      "dragHint": "Wire ports",
+      "inspector": {
+        "title": "Inspector",
+        "nodesWires": "{{nodes}} nodes / {{wires}} wires"
+      },
+      "wireFromPort": "Wire from port",
+      "remove": "Remove",
+      "startWire": "Start wire",
+      "cancel": "Cancel",
+      "fields": {
+        "kind": "Kind",
+        "label": "Label",
+        "serialName": "Serial name",
+        "baudRate": "Baud rate",
+        "protocol": "Protocol",
+        "voltage": "Voltage",
+        "harness": "Harness",
+        "none": "None",
+        "name": "Name",
+        "timeoutMs": "Timeout ms"
+      },
+      "hideWire": "Hide this wire",
+      "deleteWire": "Delete wire",
+      "executableSteps": "{{count}} executable steps / {{timeout}} ms",
+      "previewBeforeRun": "Preview before run",
+      "deleteButton": "Delete button",
+      "selectHint": "Select a node, port, wire, or action",
+      "harnesses": "Harnesses",
+      "addHarness": "Add harness",
+      "noHarnesses": "No harnesses",
+      "showHarness": "Show harness",
+      "hideHarness": "Hide harness",
+      "schematicCheck": "Schematic check",
+      "noSchematicWarnings": "Schematic check passed",
+      "actionButtons": "Actions",
+      "newAction": "New action",
+      "steps": "{{count}} steps",
+      "runAction": "Run action",
+      "noActionButtons": "No actions",
+      "abort": "Abort",
+      "previewTitle": "Preview {{name}}",
+      "close": "Close",
+      "confirmRun": "Confirm run",
+      "runState": {
+        "idle": "IDLE",
+        "preview": "PREVIEW",
+        "running": "RUNNING",
+        "done": "DONE",
+        "error": "ERROR",
+        "aborted": "ABORTED"
+      },
+      "runLog": {
+        "autoAbort": "Auto abort: page hidden or blurred.",
+        "blockedByErrors": "Blocked by schematic errors.",
+        "noExecutor": "No command executor is attached to the robot assembly workspace.",
+        "run": "Run {{name}}",
+        "timeout": "Timeout after {{timeout}} ms.",
+        "done": "Done.",
+        "actionFailed": "Action failed.",
+        "wait": "Wait {{duration}} ms",
+        "servoPosition": "{{name}} -> {{angle}} deg",
+        "motorSpeed": "{{name}} -> {{speed}}%",
+        "motorStop": "{{name}} stop {{mode}}",
+        "manualAbort": "Manual abort.",
+        "actionAborted": "Action aborted.",
+        "missingPlugin": "Missing plugin for step {{label}}."
+      },
+      "programs": {
+        "title": "Graphical programs",
+        "targetPc": "PC runtime",
+        "newProgram": "New program",
+        "saveProgram": "Save program",
+        "runProgram": "Run program",
+        "deleteProgram": "Delete program",
+        "defaultName": "Program {{count}}",
+        "preview": "Preview",
+        "issues": "Checks",
+        "noPreview": "No executable blocks.",
+        "noIssues": "No program issues.",
+        "issueMessages": {
+          "noExecutableBlocks": "No executable blocks."
+        },
+        "saveFailed": "Program save failed",
+        "runLog": {
+          "start": "Run {{name}}"
+        },
+        "categories": {
+          "actions": "Robot actions",
+          "flow": "Flow"
+        },
+        "blocks": {
+          "start": "program start",
+          "motorSet": "set motor",
+          "motorStop": "stop motor",
+          "servoMove": "move servo",
+          "armPose": "send arm pose",
+          "cameraGimbal": "set gimbal",
+          "wait": "wait",
+          "log": "log",
+          "repeat": "repeat",
+          "ifState": "if state",
+          "emergencyStop": "emergency stop"
+        },
+        "fields": {
+          "ms": "ms",
+          "speed": "speed",
+          "angle": "angle",
+          "acc": "acc",
+          "pan": "pan",
+          "tilt": "tilt",
+          "count": "times",
+          "message": "message",
+          "device": "device",
+          "field": "field",
+          "equals": "equals",
+          "stopMode": "stop"
+        },
+        "stopModes": {
+          "brake": "brake",
+          "coast": "coast"
+        }
+      },
+      "warnings": {
+        "missingEndpoint": "Connection is missing an endpoint port.",
+        "loopback": "Connection loops back to the same node.",
+        "uartTxRx": "UART must connect TX to RX.",
+        "uartSerial": "UART connection should name the serial port.",
+        "uartBaud": "UART connection should set a baud rate.",
+        "groundMismatch": "GND must connect to GND, not a powered rail.",
+        "voltageMismatch": "Voltage mismatch: {{from}} -> {{to}}.",
+        "powerVoltage": "Power connection should declare voltage.",
+        "pwmEndpoint": "PWM connection has no PWM endpoint.",
+        "canEndpoint": "CAN must connect CAN endpoints.",
+        "shareGround": "{{target}} should share ground with the system."
+      },
+      "errors": {
+        "schematicSaveFailed": "Robot schematic save failed",
+        "actionButtonsSaveFailed": "Action buttons save failed"
+      }
     },
     "mapping": {
       "autoGamepad": "Auto-select gamepad",

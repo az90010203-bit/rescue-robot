@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { Client } from "ssh2";
+import { isLocalRequest, readJsonBody as readHelperJsonBody, sendErrorJson, sendJson } from "./local-http-helper.mjs";
 
 export const PI_HELPER_HOST = "127.0.0.1";
 export const PI_HELPER_PORT = Number(process.env.PI_HELPER_PORT ?? 17352);
@@ -12,35 +13,10 @@ export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 export const MAX_COMMAND_TIMEOUT_MS = 300_000;
 const LOG_LIMIT = 120_000;
 
-export function isLocalRequest(request) {
-  const address = request.socket.remoteAddress;
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-
-function sendJson(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Content-Type": "application/json; charset=utf-8"
-  });
-  response.end(JSON.stringify(body));
-}
+export { isLocalRequest };
 
 async function readJsonBody(request) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of request) {
-    total += chunk.length;
-    if (total > MAX_REQUEST_BYTES) {
-      throw Object.assign(new Error("request body is too large"), { statusCode: 413 });
-    }
-    chunks.push(chunk);
-  }
-  if (chunks.length === 0) {
-    return {};
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return readHelperJsonBody(request, { maxBytes: MAX_REQUEST_BYTES });
 }
 
 function normalizeConnection(body) {
@@ -310,9 +286,7 @@ async function handleRoute(request, response, connector) {
 export function createPiHelperServer({ connector = createSshConnector() } = {}) {
   return createServer((request, response) => {
     handleRoute(request, response, connector).catch((error) => {
-      sendJson(response, error.statusCode ?? 500, {
-        error: error.message || "raspberry pi helper error"
-      });
+      sendErrorJson(response, error, { fallbackMessage: "raspberry pi helper error" });
     });
   });
 }

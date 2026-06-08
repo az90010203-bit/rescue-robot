@@ -334,7 +334,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         piRemoteCanConnect={piRemote.canTestPiConnection}
         piRemoteStatus={piRemote.piRemoteStatus}
         piRemoteStatusTone={piRemote.piRemoteStatusTone}
-        piRemoteTarget={`${piRemote.piRemoteForm.username || "robot1"}@${piRemote.piRemoteForm.host || "raspberrypi.local"}`}
+        piRemoteTarget={`${piRemote.piRemoteForm.username || "robot1"}@${piRemote.piRemoteForm.host || "rescue-pi.local"}`}
         piServoBridgeBusy={ctx.piServoBridgeBusy}
         piServoBridgeConnected={ctx.piServoBridgeConnected}
         piServoBridgeDetail={ctx.piServoBridgeDetail}
@@ -354,7 +354,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
 
       <div className={activeSection === "console" ? "workspace console-workspace" : "workspace"}>
         {activeSection === "console" ? (
-          <Suspense fallback={<div className="empty-state">Loading console...</div>}>
+          <Suspense fallback={<div className="empty-state">{t("loading.console")}</div>}>
             <ConsolePage
               aBoardBridgeBusy={aBoardBridgeBusy}
               aBoardBridgeConnected={aBoardBridgeConnected}
@@ -483,7 +483,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
                 t={t}
               />
             ) : activeSection === "tests" && activeTest === "arm3d" ? (
-              <Suspense fallback={<div className="empty-state">Loading 3D arm...</div>}>
+              <Suspense fallback={<div className="empty-state">{t("loading.arm3d")}</div>}>
                 <ArmThreeSimulationPage
                   armConfig={armConfig}
                   armSegmentPoses={armSegmentPoses}

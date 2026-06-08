@@ -1,5 +1,6 @@
 import { RefreshCw, Square, Video } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   enumerateLocalCameraDevices,
   isLocalCameraSupported,
@@ -19,6 +20,7 @@ interface LocalCameraViewProps {
 }
 
 type LocalCameraStatus = "idle" | "loading" | "online" | "error";
+type LocalizedMessage = { key: string } | { text: string };
 
 export function LocalCameraView({
   fps,
@@ -28,13 +30,14 @@ export function LocalCameraView({
   preferredDeviceId,
   width
 }: LocalCameraViewProps) {
+  const { t } = useTranslation();
   const supported = isLocalCameraSupported();
   const [devices, setDevices] = useState<LocalCameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(() => preferredDeviceId?.trim() ?? "");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [status, setStatus] = useState<LocalCameraStatus>("idle");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [error, setError] = useState<LocalizedMessage | null>(null);
+  const [notice, setNotice] = useState<LocalizedMessage | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const activeTrackSettings = stream?.getVideoTracks()[0]?.getSettings();
@@ -65,7 +68,7 @@ export function LocalCameraView({
 
   async function refreshDevices() {
     if (!supported) {
-      setError("This browser does not support local camera access.");
+      setError({ key: "localCamera.errors.unsupported" });
       setStatus("error");
       return;
     }
@@ -74,30 +77,30 @@ export function LocalCameraView({
       const nextDevices = await enumerateLocalCameraDevices();
       setDevices(nextDevices);
       if (nextDevices.length === 0) {
-        setError("No local camera was detected.");
+        setError({ key: "localCamera.errors.noneDetected" });
         setStatus("error");
         return;
       }
       if (selectedDeviceId && !nextDevices.some((device) => device.deviceId === selectedDeviceId)) {
-        setNotice("Saved camera is unavailable. The default camera will be used.");
+        setNotice({ key: "localCamera.errors.savedUnavailable" });
       }
-      setError("");
+      setError(null);
       setStatus((current) => (current === "online" ? "online" : "idle"));
     } catch (nextError) {
-      setError(mediaErrorMessage(nextError));
+      setError({ text: mediaErrorMessage(nextError) });
       setStatus("error");
     }
   }
 
   async function startPreview(deviceId = selectedDeviceId) {
     if (!supported) {
-      setError("This browser does not support local camera access.");
+      setError({ key: "localCamera.errors.unsupported" });
       setStatus("error");
       return;
     }
     setStatus("loading");
-    setError("");
-    setNotice("");
+    setError(null);
+    setNotice(null);
     stopCurrentStream();
     try {
       let nextStream: MediaStream;
@@ -110,7 +113,7 @@ export function LocalCameraView({
         nextStream = await startLocalCameraStream({ width, height, fps });
         setSelectedDeviceId("");
         onDeviceSelected?.("");
-        setNotice("Saved camera is unavailable. The default camera is active.");
+        setNotice({ key: "localCamera.errors.savedUnavailableActive" });
       }
 
       streamRef.current = nextStream;
@@ -118,7 +121,7 @@ export function LocalCameraView({
       setStatus("online");
       await refreshDevices();
     } catch (nextError) {
-      setError(mediaErrorMessage(nextError));
+      setError({ text: mediaErrorMessage(nextError) });
       setStatus("error");
     }
   }
@@ -135,7 +138,7 @@ export function LocalCameraView({
   function stopPreview() {
     stopCurrentStream();
     setStatus("idle");
-    setNotice("");
+    setNotice(null);
   }
 
   function selectDevice(deviceId: string) {
@@ -146,15 +149,8 @@ export function LocalCameraView({
     }
   }
 
-  const statusLabel =
-    status === "online"
-      ? "Preview active"
-      : status === "loading"
-        ? "Loading"
-        : status === "error"
-          ? "Error"
-          : "Idle";
-  const currentDeviceLabel = selectedDevice?.label || (selectedDeviceId ? selectedDeviceId : "System default");
+  const statusLabel = t(`localCamera.status.${status}`);
+  const currentDeviceLabel = selectedDevice?.label || (selectedDeviceId ? selectedDeviceId : t("localCamera.systemDefault"));
   const resolutionLabel =
     activeTrackSettings?.width && activeTrackSettings.height
       ? `${activeTrackSettings.width} x ${activeTrackSettings.height}`
@@ -169,16 +165,16 @@ export function LocalCameraView({
         ) : (
           <div className="local-camera-placeholder">
             <Video size={42} />
-            <span>{supported ? "Camera preview is stopped" : "Local camera is not supported"}</span>
+            <span>{supported ? t("localCamera.previewStopped") : t("localCamera.unsupported")}</span>
           </div>
         )}
       </div>
 
       <div className="local-camera-toolbar">
         <label>
-          <span>Camera Device</span>
+          <span>{t("localCamera.deviceLabel")}</span>
           <select disabled={!supported || status === "loading"} value={selectedDeviceId} onChange={(event) => selectDevice(event.target.value)}>
-            <option value="">System default</option>
+            <option value="">{t("localCamera.systemDefault")}</option>
             {devices.map((device) => (
               <option key={device.deviceId} value={device.deviceId}>
                 {device.label}
@@ -188,26 +184,26 @@ export function LocalCameraView({
         </label>
         <button className="icon-button" disabled={!supported || status === "loading"} onClick={() => void refreshDevices()} type="button">
           <RefreshCw size={16} />
-          <span>Refresh Devices</span>
+          <span>{t("localCamera.refreshDevices")}</span>
         </button>
         <button className="icon-button primary" disabled={!supported || status === "loading"} onClick={() => void startPreview()} type="button">
           <Video size={16} />
-          <span>Enable Camera</span>
+          <span>{t("localCamera.enableCamera")}</span>
         </button>
         <button className="icon-button danger" disabled={!stream} onClick={stopPreview} type="button">
           <Square size={16} />
-          <span>Stop Preview</span>
+          <span>{t("localCamera.stopPreview")}</span>
         </button>
       </div>
 
       <div className="preview-grid local-camera-metrics">
-        <LocalCameraMetric label="Status" value={statusLabel} />
-        <LocalCameraMetric label="Device" value={currentDeviceLabel} />
-        <LocalCameraMetric label="Resolution" value={resolutionLabel} />
-        <LocalCameraMetric label="Frame Rate" value={fpsLabel} />
+        <LocalCameraMetric label={t("localCamera.metrics.status")} value={statusLabel} />
+        <LocalCameraMetric label={t("localCamera.metrics.device")} value={currentDeviceLabel} />
+        <LocalCameraMetric label={t("localCamera.metrics.resolution")} value={resolutionLabel} />
+        <LocalCameraMetric label={t("localCamera.metrics.frameRate")} value={fpsLabel} />
       </div>
-      {notice && <p className="architecture-debug-message warning">{notice}</p>}
-      {error && <p className="architecture-debug-message danger">{error}</p>}
+      {notice && <p className="architecture-debug-message warning">{localizedMessage(notice, t)}</p>}
+      {error && <p className="architecture-debug-message danger">{localizedMessage(error, t)}</p>}
     </div>
   );
 }
@@ -219,4 +215,8 @@ function LocalCameraMetric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function localizedMessage(message: LocalizedMessage, t: (key: string) => string) {
+  return "key" in message ? t(message.key) : message.text;
 }
