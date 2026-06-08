@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import type { WebSerialClient } from "../lib/serial";
-import type { ArmTeachTrack } from "../lib/armTeach";
-import type { ServoSmoothPreset } from "../lib/servoMotion";
-import type { ServoSafetyPreset } from "../lib/servoSafety";
-import type { DataProject } from "../lib/dataService";
+import type { WebSerialClient } from "@adapters/web-serial/serial";
+import type { ArmTeachTrack } from "@domains/arm/armTeach";
+import type { ServoSmoothPreset } from "@domains/servo/servoMotion";
+import type { ServoSafetyPreset } from "@domains/servo/servoSafety";
+import type { DataProject } from "@adapters/data-service/dataService";
 import {
   DEFAULT_CAMERA_CONFIG,
   DEFAULT_MOTORS,
@@ -15,8 +15,8 @@ import {
   type ServoLinkageGroup,
   type ServoLinkageWheelDirection,
   type ValidationErrorKey
-} from "../lib/storage";
-import type { MotorProfile, MotorStopMode, MotorTarget, ServoProfile } from "../lib/protocol";
+} from "@adapters/persistence/storage";
+import type { MotorProfile, MotorStopMode, MotorTarget, ServoProfile } from "@adapters/hardware/protocol";
 import {
   type ActiveModule,
   type AboardBridgeStatus,
@@ -44,7 +44,7 @@ import {
   type WheelTurnProgress,
   defaultMotorDraft,
   defaultServoDraft
-} from "./appModel";
+} from "@app/appModel";
 
 export function useAppStateRefs() {
   const [activeSection, setActiveSection] = useState<AppSection>("console");

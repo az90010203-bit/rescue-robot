@@ -1,9 +1,9 @@
 import { Activity, Bot, Boxes, Cable, Cpu, Gauge, Languages, ListPlus, Settings, Unplug, Usb } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
-import type { DataProject } from "../lib/dataService";
+import type { DataProject } from "@adapters/data-service/dataService";
 import { supportedLanguages, type SupportedLanguage } from "../i18n/languages";
-import { StatusCard } from "../shared/ui/AppChrome";
+import { StatusCard } from "@shared/ui/AppChrome";
 import {
   databaseStatusTone,
   isServoBusModule,
@@ -11,7 +11,7 @@ import {
   type AppSection,
   type DatabaseSaveStatus,
   type PiRemoteStatus
-} from "./appModel";
+} from "@app/appModel";
 
 type StatusTone = "neutral" | "online" | "warning" | "danger";
 

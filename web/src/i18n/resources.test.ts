@@ -274,8 +274,8 @@ const robotAssemblyDynamicKeys = [
 ];
 
 const robotAssemblyWorkspaceSources = [
-  "../features/robotAssembly/RobotAssemblyWorkspace.tsx",
-  "../features/robotAssembly/RobotProgramPanel.tsx"
+  "../domains/robot-assembly/RobotAssemblyWorkspace.tsx",
+  "../domains/robot-assembly/RobotProgramPanel.tsx"
 ].map((path) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), path), "utf8"));
 
 function hasNestedKey(value: unknown, key: string) {

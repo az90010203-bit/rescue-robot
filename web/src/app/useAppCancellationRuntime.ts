@@ -1,11 +1,11 @@
-import { normalizeMotorChannel, type ServoProfile } from "../lib/protocol";
+import { normalizeMotorChannel, type ServoProfile } from "@adapters/hardware/protocol";
 import type {
   PendingLiveAngleMove,
   PendingLiveWheelMove,
   PendingSingleMotorMove,
   ServoMotionDisplayStatus
-} from "./appModel";
-import type { MotorLinkageGroup, ServoLinkageGroup } from "../lib/storage";
+} from "@app/appModel";
+import type { MotorLinkageGroup, ServoLinkageGroup } from "@adapters/persistence/storage";
 
 interface UseAppCancellationRuntimeOptions {
   armLiveTimerRef: { current: number | undefined };

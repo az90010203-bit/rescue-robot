@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PLATFORM_PLUGINS, feetechServoPackage } from "./builtinPlugins";
-import { createPlatformRegistry } from "./registry";
+import { BUILTIN_PLATFORM_PLUGINS, feetechServoPackage } from "@platform/builtinPlugins";
+import { createPlatformRegistry } from "@platform/registry";
 
 describe("platform registry", () => {
   it("loads built-in platform plugins by kind", () => {

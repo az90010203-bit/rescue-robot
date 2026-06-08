@@ -1,9 +1,9 @@
 import { Play } from "lucide-react";
 import type { TFunction } from "i18next";
-import type { ServoProfile, MotorDirection, MotorProfile } from "../lib/protocol";
-import type { ArmJointConfig, CameraConfig } from "../lib/storage";
-import { formatServoAngle, type ActiveModule, type GamepadSummary, type MotorFeedbackMap, type ServoFeedbackMap } from "./appModel";
-import { Metric, PanelTitle } from "../shared/ui/AppChrome";
+import type { ServoProfile, MotorDirection, MotorProfile } from "@adapters/hardware/protocol";
+import type { ArmJointConfig, CameraConfig } from "@adapters/persistence/storage";
+import { formatServoAngle, type ActiveModule, type GamepadSummary, type MotorFeedbackMap, type ServoFeedbackMap } from "@app/appModel";
+import { Metric, PanelTitle } from "@shared/ui/AppChrome";
 
 interface FeedbackPanelProps {
   activeGamepad?: GamepadSummary;

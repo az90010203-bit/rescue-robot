@@ -1,6 +1,6 @@
-import { InboundMessage, MotorProfile, ServoProfile, normalizeMotorChannel } from "../lib/protocol";
-import { ArmConfig, CameraConfig, MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID } from "../lib/storage";
-import { DeviceDescriptor, DeviceStatus } from "./types";
+import { InboundMessage, MotorProfile, ServoProfile, normalizeMotorChannel } from "@adapters/hardware/protocol";
+import { ArmConfig, CameraConfig, MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID } from "@adapters/persistence/storage";
+import { DeviceDescriptor, DeviceStatus } from "@platform/types";
 
 export type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 export type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;

@@ -20,8 +20,8 @@ import {
   validateComponentDefinition,
   validatePhysicalInstanceAssignments,
   validatePluginInstance
-} from "./architecture";
-import { BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "./builtinPlugins";
+} from "@platform/architecture";
+import { BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "@platform/builtinPlugins";
 
 const servoCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.feetech.sts3215")!;
 const asmeServoCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.asme.asme-se-can-servo")!;

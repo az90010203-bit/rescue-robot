@@ -1,11 +1,11 @@
 import type { ComponentProps, ReactNode } from "react";
-import { ArmCanvas } from "../features/arm/ArmPanels";
-import { PlatformPanels } from "../features/platform/PlatformPanels";
-import type { ArmConfig } from "../lib/storage";
-import type { PlatformCommand } from "../platform/commands";
-import type { PlatformEventBus } from "../platform/events";
-import { platformCommandForControl } from "../platform/ui";
-import type { ArmMotionTarget } from "./appModel";
+import { ArmCanvas } from "@domains/arm/ArmPanels";
+import { PlatformPanels } from "@workspaces/architecture/PlatformPanels";
+import type { ArmConfig } from "@adapters/persistence/storage";
+import type { PlatformCommand } from "@platform/commands";
+import type { PlatformEventBus } from "@platform/events";
+import { platformCommandForControl } from "@platform/ui";
+import type { ArmMotionTarget } from "@app/appModel";
 
 type PlatformPanelsProps = ComponentProps<typeof PlatformPanels>;
 type ArmCanvasProps = ComponentProps<typeof ArmCanvas>;

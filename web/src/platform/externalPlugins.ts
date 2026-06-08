@@ -1,4 +1,4 @@
-import { ExternalPluginSource, PlatformPluginManifest, PlatformPluginPackage } from "./types";
+import { ExternalPluginSource, PlatformPluginManifest, PlatformPluginPackage } from "@platform/types";
 
 export function parsePluginManifest(value: unknown): PlatformPluginManifest {
   if (!value || typeof value !== "object") {

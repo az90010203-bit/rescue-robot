@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { validatePlatformCommand } from "./commands";
-import { BUILTIN_UI_PANELS } from "./builtinPlugins";
-import { DeviceDescriptor, PlatformEvent, UiControlSchema } from "./types";
+import { validatePlatformCommand } from "@platform/commands";
+import { BUILTIN_UI_PANELS } from "@platform/builtinPlugins";
+import { DeviceDescriptor, PlatformEvent, UiControlSchema } from "@platform/types";
 import {
   findPlatformUiPanelForDevice,
   formatPlatformStateValue,
@@ -9,7 +9,7 @@ import {
   platformCommandForControl,
   platformControlDefaultsForDevice,
   resolveSelectedPlatformDeviceId
-} from "./ui";
+} from "@platform/ui";
 
 const devices: DeviceDescriptor[] = [
   {

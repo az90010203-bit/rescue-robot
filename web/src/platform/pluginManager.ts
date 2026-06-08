@@ -1,4 +1,4 @@
-import { PlatformPluginPackage } from "./types";
+import { PlatformPluginPackage } from "@platform/types";
 
 export type ManagedPluginStatus = "enabled" | "disabled" | "blocked";
 

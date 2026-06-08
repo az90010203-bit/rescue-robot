@@ -1,6 +1,6 @@
 import { Box, Camera, CircuitBoard, Cpu, Keyboard, Settings, SlidersHorizontal, Terminal } from "lucide-react";
 import type { TFunction } from "i18next";
-import type { AppSection, TestPanel } from "./appModel";
+import type { AppSection, TestPanel } from "@app/appModel";
 
 interface ContextTabsProps {
   activeModuleLabel: string;

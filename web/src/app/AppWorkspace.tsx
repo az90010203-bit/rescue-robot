@@ -1,22 +1,38 @@
-import { CanServoTestPage } from "../features/canServo/CanServoTestPage";
-import { DrivePage } from "../features/drive/DrivePage";
-import { SimplePiRemotePage } from "../features/pi/PiRemotePanels";
 import { lazy, Suspense } from "react";
-import { AppCommandPanel } from "./AppCommandPanel";
-import { AppHeaderBar } from "./AppHeaderBar";
-import { AppLibraryPanel } from "./AppLibraryPanel";
-import { AppSideStack } from "./AppSideStack";
-import { ArchitectureWorkspacePage } from "./ArchitectureWorkspacePage";
-import { ContextTabs } from "./ContextTabs";
-import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+import { AppCommandPanel } from "@app/AppCommandPanel";
+import { AppHeaderBar } from "@app/AppHeaderBar";
+import { AppLibraryPanel } from "@app/AppLibraryPanel";
+import { AppSideStack } from "@app/AppSideStack";
+import { ContextTabs } from "@app/ContextTabs";
+import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
+
+const ArchitectureWorkspacePage = lazy(async () => {
+  const module = await import("@workspaces/architecture/ArchitectureWorkspacePage");
+  return { default: module.ArchitectureWorkspacePage };
+});
 
 const ConsolePage = lazy(async () => {
-  const module = await import("../features/console/ConsolePage");
+  const module = await import("@workspaces/console/ConsolePage");
   return { default: module.ConsolePage };
 });
 
+const SimplePiRemotePage = lazy(async () => {
+  const module = await import("@workspaces/pi/PiRemotePanels");
+  return { default: module.SimplePiRemotePage };
+});
+
+const CanServoTestPage = lazy(async () => {
+  const module = await import("@workspaces/can-servo/CanServoTestPage");
+  return { default: module.CanServoTestPage };
+});
+
+const DrivePage = lazy(async () => {
+  const module = await import("@workspaces/drive/DrivePage");
+  return { default: module.DrivePage };
+});
+
 const ArmThreeSimulationPage = lazy(async () => {
-  const module = await import("../features/arm/ArmThreeSimulationPage");
+  const module = await import("@domains/arm/ArmThreeSimulationPage");
   return { default: module.ArmThreeSimulationPage };
 });
 
@@ -398,34 +414,36 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
             />
           </Suspense>
         ) : activeSection === "plugins" || activeSection === "components" || activeSection === "robots" ? (
-          <ArchitectureWorkspacePage
-            aBoardBridge={{
-              busy: ctx.aBoardBridgeBusy,
-              connected: ctx.aBoardBridgeConnected,
-              detail: ctx.aBoardBridgeDetail,
-              error: ctx.aBoardBridgeError,
-              label: ctx.aBoardBridgeLabel,
-              tone: ctx.aBoardBridgeTone,
-              check: ctx.checkAboardSerialBridge,
-              disconnect: ctx.disconnectAboardSerialBridge,
-              start: ctx.startAboardSerialBridge
-            }}
-            activeSection={activeSection}
-            canServoHost={piRemote.piRemoteForm.host}
-            currentProject={currentProject}
-            databaseStatus={databaseStatus}
-            dispatchPlatformCommand={dispatchPlatformCommand}
-            driveTargets={driveTargets}
-            gamepads={gamepads}
-            motorFeedback={motorFeedback}
-            nextCommandSeq={ctx.nextCommandSeq}
-            onPluginInstancesChange={syncArchitecturePluginInstances}
-            onPrepareCommand={prepareArchitectureCommand}
-            piRemoteProfile={piRemote.piRemoteForm}
-            sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
-            servoFeedback={servoFeedback}
-            t={t}
-          />
+          <Suspense fallback={<div className="empty-state">{t("status.loading", { defaultValue: "Loading..." })}</div>}>
+            <ArchitectureWorkspacePage
+              aBoardBridge={{
+                busy: ctx.aBoardBridgeBusy,
+                connected: ctx.aBoardBridgeConnected,
+                detail: ctx.aBoardBridgeDetail,
+                error: ctx.aBoardBridgeError,
+                label: ctx.aBoardBridgeLabel,
+                tone: ctx.aBoardBridgeTone,
+                check: ctx.checkAboardSerialBridge,
+                disconnect: ctx.disconnectAboardSerialBridge,
+                start: ctx.startAboardSerialBridge
+              }}
+              activeSection={activeSection}
+              canServoHost={piRemote.piRemoteForm.host}
+              currentProject={currentProject}
+              databaseStatus={databaseStatus}
+              dispatchPlatformCommand={dispatchPlatformCommand}
+              driveTargets={driveTargets}
+              gamepads={gamepads}
+              motorFeedback={motorFeedback}
+              nextCommandSeq={ctx.nextCommandSeq}
+              onPluginInstancesChange={syncArchitecturePluginInstances}
+              onPrepareCommand={prepareArchitectureCommand}
+              piRemoteProfile={piRemote.piRemoteForm}
+              sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
+              servoFeedback={servoFeedback}
+              t={t}
+            />
+          </Suspense>
         ) : (
           <>
             <ContextTabs
@@ -438,50 +456,54 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
               t={t}
             />
             {activeSection === "tests" && activeTest === "pi" ? (
-              <SimplePiRemotePage
-                aBoardBridge={{
-                  busy: ctx.aBoardBridgeBusy,
-                  connected: ctx.aBoardBridgeConnected,
-                  detail: ctx.aBoardBridgeDetail,
-                  error: ctx.aBoardBridgeError,
-                  label: ctx.aBoardBridgeLabel,
-                  tone: ctx.aBoardBridgeTone,
-                  check: ctx.checkAboardSerialBridge,
-                  disconnect: ctx.disconnectAboardSerialBridge,
-                  start: ctx.startAboardSerialBridge
-                }}
-                piServoBridge={{
-                  busy: ctx.piServoBridgeBusy,
-                  connected: ctx.piServoBridgeConnected,
-                  detail: ctx.piServoBridgeDetail,
-                  error: ctx.piServoBridgeError,
-                  label: ctx.piServoBridgeLabel,
-                  tone: ctx.piServoBridgeTone,
-                  check: ctx.checkPiServoSerialBridge,
-                  disconnect: ctx.disconnectPiServoSerialBridge,
-                  start: ctx.startPiServoSerialBridge
-                }}
-                runtime={piRemote}
-                t={t}
-              />
+              <Suspense fallback={<div className="empty-state">{t("status.loading", { defaultValue: "Loading..." })}</div>}>
+                <SimplePiRemotePage
+                  aBoardBridge={{
+                    busy: ctx.aBoardBridgeBusy,
+                    connected: ctx.aBoardBridgeConnected,
+                    detail: ctx.aBoardBridgeDetail,
+                    error: ctx.aBoardBridgeError,
+                    label: ctx.aBoardBridgeLabel,
+                    tone: ctx.aBoardBridgeTone,
+                    check: ctx.checkAboardSerialBridge,
+                    disconnect: ctx.disconnectAboardSerialBridge,
+                    start: ctx.startAboardSerialBridge
+                  }}
+                  piServoBridge={{
+                    busy: ctx.piServoBridgeBusy,
+                    connected: ctx.piServoBridgeConnected,
+                    detail: ctx.piServoBridgeDetail,
+                    error: ctx.piServoBridgeError,
+                    label: ctx.piServoBridgeLabel,
+                    tone: ctx.piServoBridgeTone,
+                    check: ctx.checkPiServoSerialBridge,
+                    disconnect: ctx.disconnectPiServoSerialBridge,
+                    start: ctx.startPiServoSerialBridge
+                  }}
+                  runtime={piRemote}
+                  t={t}
+                />
+              </Suspense>
             ) : activeSection === "tests" && activeTest === "canServo" ? (
-              <CanServoTestPage
-                aBoardBridge={{
-                  busy: ctx.aBoardBridgeBusy,
-                  connected: ctx.aBoardBridgeConnected,
-                  detail: ctx.aBoardBridgeDetail,
-                  error: ctx.aBoardBridgeError,
-                  label: ctx.aBoardBridgeLabel,
-                  tone: ctx.aBoardBridgeTone,
-                  check: ctx.checkAboardSerialBridge,
-                  disconnect: ctx.disconnectAboardSerialBridge,
-                  start: ctx.startAboardSerialBridge
-                }}
-                host={piRemote.piRemoteForm.host}
-                nextCommandSeq={ctx.nextCommandSeq}
-                sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
-                t={t}
-              />
+              <Suspense fallback={<div className="empty-state">{t("status.loading", { defaultValue: "Loading..." })}</div>}>
+                <CanServoTestPage
+                  aBoardBridge={{
+                    busy: ctx.aBoardBridgeBusy,
+                    connected: ctx.aBoardBridgeConnected,
+                    detail: ctx.aBoardBridgeDetail,
+                    error: ctx.aBoardBridgeError,
+                    label: ctx.aBoardBridgeLabel,
+                    tone: ctx.aBoardBridgeTone,
+                    check: ctx.checkAboardSerialBridge,
+                    disconnect: ctx.disconnectAboardSerialBridge,
+                    start: ctx.startAboardSerialBridge
+                  }}
+                  host={piRemote.piRemoteForm.host}
+                  nextCommandSeq={ctx.nextCommandSeq}
+                  sendAboardBridgeCanServoCommand={ctx.sendAboardBridgeCanServoCommand}
+                  t={t}
+                />
+              </Suspense>
             ) : activeSection === "tests" && activeTest === "arm3d" ? (
               <Suspense fallback={<div className="empty-state">{t("loading.arm3d")}</div>}>
                 <ArmThreeSimulationPage
@@ -498,49 +520,51 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
                 />
               </Suspense>
             ) : activeSection === "tests" && activeTest === "driveCamera" ? (
-              <DrivePage
-                activeDriveBase={activeDriveBase}
-                activeCameraSource={activeCameraSource}
-                activeGamepad={activeGamepad}
-                cameraCanCommand={cameraCanCommand}
-                cameraConfig={cameraConfig}
-                cameraConfigError={cameraConfigError}
-                cameraPreviewCommand={cameraPreviewCommand}
-                cameraSourceRuntimeById={cameraSourceRuntimeById}
-                cameraStreamReloadToken={cameraStreamReloadToken}
-                cameraStreamFailed={cameraStreamFailed}
-                cameraStreamLoaded={cameraStreamLoaded}
-                cameraStreamUrl={cameraStreamUrl}
-                cameraValidationError={cameraValidationError}
-                cameraVideoSources={cameraVideoSources}
-                centerCamera={centerCamera}
-                connected={connected}
-                debugEnabled={debugEnabled}
-                driveCanCommand={driveCanCommand}
-                driveInput={driveInput}
-                drivePreviewCommand={drivePreviewCommand}
-                driveSpeedLimit={driveSpeedLimit}
-                driveTargets={driveTargets}
-                nudgeCamera={nudgeCamera}
-                piRemote={piRemote}
-                saveCameraSettings={saveCameraSettings}
-                selectDriveBase={selectDriveBase}
-                setCameraSourceRuntime={setCameraSourceRuntime}
-                setDriveSpeedLimit={setDriveSpeedLimit}
-                setStopMode={setStopMode}
-                speedLimitPercent={speedLimitPercent}
-                stopAllMotors={stopAllMotors}
-                stopMode={stopMode}
-                t={t}
-                updateCameraActiveSource={updateCameraActiveSource}
-                updateCameraLatencyProfile={updateCameraLatencyProfile}
-                updateCameraNumber={updateCameraNumber}
-                updateCameraSourcePort={updateCameraSourcePort}
-                updateCameraSourceText={updateCameraSourceText}
-                updateCameraStreamMode={updateCameraStreamMode}
-                updateCameraText={updateCameraText}
-                updateCameraVideoLayout={updateCameraVideoLayout}
-              />
+              <Suspense fallback={<div className="empty-state">{t("status.loading", { defaultValue: "Loading..." })}</div>}>
+                <DrivePage
+                  activeDriveBase={activeDriveBase}
+                  activeCameraSource={activeCameraSource}
+                  activeGamepad={activeGamepad}
+                  cameraCanCommand={cameraCanCommand}
+                  cameraConfig={cameraConfig}
+                  cameraConfigError={cameraConfigError}
+                  cameraPreviewCommand={cameraPreviewCommand}
+                  cameraSourceRuntimeById={cameraSourceRuntimeById}
+                  cameraStreamReloadToken={cameraStreamReloadToken}
+                  cameraStreamFailed={cameraStreamFailed}
+                  cameraStreamLoaded={cameraStreamLoaded}
+                  cameraStreamUrl={cameraStreamUrl}
+                  cameraValidationError={cameraValidationError}
+                  cameraVideoSources={cameraVideoSources}
+                  centerCamera={centerCamera}
+                  connected={connected}
+                  debugEnabled={debugEnabled}
+                  driveCanCommand={driveCanCommand}
+                  driveInput={driveInput}
+                  drivePreviewCommand={drivePreviewCommand}
+                  driveSpeedLimit={driveSpeedLimit}
+                  driveTargets={driveTargets}
+                  nudgeCamera={nudgeCamera}
+                  piRemote={piRemote}
+                  saveCameraSettings={saveCameraSettings}
+                  selectDriveBase={selectDriveBase}
+                  setCameraSourceRuntime={setCameraSourceRuntime}
+                  setDriveSpeedLimit={setDriveSpeedLimit}
+                  setStopMode={setStopMode}
+                  speedLimitPercent={speedLimitPercent}
+                  stopAllMotors={stopAllMotors}
+                  stopMode={stopMode}
+                  t={t}
+                  updateCameraActiveSource={updateCameraActiveSource}
+                  updateCameraLatencyProfile={updateCameraLatencyProfile}
+                  updateCameraNumber={updateCameraNumber}
+                  updateCameraSourcePort={updateCameraSourcePort}
+                  updateCameraSourceText={updateCameraSourceText}
+                  updateCameraStreamMode={updateCameraStreamMode}
+                  updateCameraText={updateCameraText}
+                  updateCameraVideoLayout={updateCameraVideoLayout}
+                />
+              </Suspense>
             ) : (
               <>
         <AppLibraryPanel ctx={ctx} />

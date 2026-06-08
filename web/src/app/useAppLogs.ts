@@ -1,7 +1,7 @@
 import { Dispatch, MutableRefObject, SetStateAction, useRef, useState } from "react";
-import { PersistedLogEntry } from "../lib/appDatabase";
-import { DataTelemetryEntry, appendEvents, appendTelemetry } from "../lib/dataService";
-import { LogEntry, LogValues } from "./appModel";
+import { PersistedLogEntry } from "@adapters/persistence/appDatabase";
+import { DataTelemetryEntry, appendEvents, appendTelemetry } from "@adapters/data-service/dataService";
+import { LogEntry, LogValues } from "@app/appModel";
 
 interface UseAppLogsOptions {
   currentSessionIdRef: MutableRefObject<string | null>;

@@ -5,18 +5,18 @@ import {
   isValidServoId,
   normalizeMotorChannel,
   normalizeServoProfile
-} from "../lib/protocol";
-import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "./types";
-import type { PanelLayoutItem } from "./panelLayoutCore";
-import type { WorkflowDefinition } from "./workflow";
-import { findPlatformUiPanelForDevice } from "./ui";
+} from "@adapters/hardware/protocol";
+import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "@platform/types";
+import type { PanelLayoutItem } from "@platform/panelLayoutCore";
+import type { WorkflowDefinition } from "@platform/workflow";
+import { findPlatformUiPanelForDevice } from "@platform/ui";
 export {
   defaultPanelLayoutItems,
   mergePanelLayoutItems,
   reorderPanelLayoutItems,
   reflowPanelLayout
-} from "./panelLayoutCore";
-export type { PanelLayoutItem, PanelLayoutTarget } from "./panelLayoutCore";
+} from "@platform/panelLayoutCore";
+export type { PanelLayoutItem, PanelLayoutTarget } from "@platform/panelLayoutCore";
 
 export type DeviceConfigValue = string | number | boolean | null;
 export type DeviceConfig = Record<string, DeviceConfigValue>;

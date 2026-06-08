@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultArmConfig, DEFAULT_CAMERA_CONFIG } from "../lib/storage";
-import { createPlatformStateSnapshot } from "./stateStore";
+import { createDefaultArmConfig, DEFAULT_CAMERA_CONFIG } from "@adapters/persistence/storage";
+import { createPlatformStateSnapshot } from "@platform/stateStore";
 
 describe("platform state store", () => {
   it("maps servo and motor feedback into normalized device state", () => {

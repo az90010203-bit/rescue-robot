@@ -7,18 +7,18 @@ import {
   createAppConfigSnapshot,
   createAppStateSnapshotV2,
   normalizeAppStateSnapshotV2
-} from "../lib/appDatabase";
-import { CurrentProjectState, DataTelemetryEntry, createProject, endSession, listArmTeachTracks, listProjects, saveProjectState, selectProject, startSession } from "../lib/dataService";
-import { normalizeArmTeachTracks } from "../lib/armTeach";
-import { FIRMWARE_BOARD_OPTIONS, FirmwareBoardId } from "../lib/firmwareUpload";
-import { cloneMapping } from "../lib/inputMapping";
+} from "@adapters/persistence/appDatabase";
+import { CurrentProjectState, DataTelemetryEntry, createProject, endSession, listArmTeachTracks, listProjects, saveProjectState, selectProject, startSession } from "@adapters/data-service/dataService";
+import { normalizeArmTeachTracks } from "@domains/arm/armTeach";
+import { FIRMWARE_BOARD_OPTIONS, FirmwareBoardId } from "@adapters/firmware/firmwareUpload";
+import { cloneMapping } from "@domains/drive/inputMapping";
 import type {
   MotorErrorDisplay,
   MotorFeedbackMap,
   ServoCommandStateMap,
   ServoFeedbackMap,
   WheelTurnProgress
-} from "./appModel";
+} from "@app/appModel";
 
 interface UseAppPersistenceActionsOptions {
   [key: string]: any;

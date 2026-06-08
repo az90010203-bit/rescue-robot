@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ActiveModule, AppSection, ConnectionMode, TestPanel } from "./appModel";
-import { useAppNavigation } from "./useAppNavigation";
+import type { ActiveModule, AppSection, ConnectionMode, TestPanel } from "@app/appModel";
+import { useAppNavigation } from "@app/useAppNavigation";
 
 function createNavigation(options: {
   activeModule?: ActiveModule;

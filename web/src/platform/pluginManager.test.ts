@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PLUGIN_PACKAGES } from "./builtinPlugins";
+import { BUILTIN_PLUGIN_PACKAGES } from "@platform/builtinPlugins";
 import {
   createPluginManagerState,
   defaultEnabledPluginPackageIds,
   disablePluginPackage,
   enablePluginPackage
-} from "./pluginManager";
+} from "@platform/pluginManager";
 
 describe("plugin manager state", () => {
   it("enables built-in plugin packages by default", () => {

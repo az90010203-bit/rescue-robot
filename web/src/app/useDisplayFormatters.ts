@@ -1,8 +1,8 @@
-import type { MotorDirection } from "../lib/protocol";
-import type { ServoSafetyTriggerReason } from "../lib/servoSafety";
-import { metricNumberText } from "../shared/formatters";
-import type { ServoSafetyDisplayStatus } from "./appModel";
-import type { wheelSliderDirection } from "../lib/servoWheelSlider";
+import type { MotorDirection } from "@adapters/hardware/protocol";
+import type { ServoSafetyTriggerReason } from "@domains/servo/servoSafety";
+import { metricNumberText } from "@shared/formatters";
+import type { ServoSafetyDisplayStatus } from "@app/appModel";
+import type { wheelSliderDirection } from "@domains/servo/servoWheelSlider";
 
 interface UseDisplayFormattersOptions {
   servoSafetyEnabled: boolean;

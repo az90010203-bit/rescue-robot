@@ -11,6 +11,16 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {
+      "@app/*": ["src/app/*"],
+      "@workspaces/*": ["src/workspaces/*"],
+      "@domains/*": ["src/domains/*"],
+      "@platform/*": ["src/platform/*"],
+      "@plugins/*": ["src/plugins/*"],
+      "@adapters/*": ["src/adapters/*"],
+      "@shared/*": ["src/shared/*"]
+    },
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,

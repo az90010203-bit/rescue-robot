@@ -1,5 +1,5 @@
-import { PlatformCommand, PlatformCommandResult } from "./commands";
-import { PlatformEvent } from "./types";
+import { PlatformCommand, PlatformCommandResult } from "@platform/commands";
+import { PlatformEvent } from "@platform/types";
 
 export type WorkflowNodeKind = "event" | "condition" | "command" | "delay" | "log" | "noop";
 export type WorkflowRunStatus = "completed" | "skipped" | "failed";

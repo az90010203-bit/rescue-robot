@@ -4,7 +4,7 @@ import {
   loadOrMigrateAppConfigSnapshot,
   normalizeAppStateSnapshotV2,
   saveAppDatabaseSnapshot
-} from "../lib/appDatabase";
+} from "@adapters/persistence/appDatabase";
 import {
   checkDataService,
   endSession,
@@ -13,8 +13,8 @@ import {
   loadCurrentProjectState,
   saveProjectState,
   startSession
-} from "../lib/dataService";
-import { normalizeArmTeachTracks } from "../lib/armTeach";
+} from "@adapters/data-service/dataService";
+import { normalizeArmTeachTracks } from "@domains/arm/armTeach";
 
 interface UseAppPersistenceEffectsOptions {
   [key: string]: any;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PlatformEventBus } from "./events";
+import { PlatformEventBus } from "@platform/events";
 
 describe("platform event bus", () => {
   it("emits, stores, and publishes typed events", () => {

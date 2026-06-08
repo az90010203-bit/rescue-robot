@@ -1,6 +1,6 @@
-import { createPlatformCommand, PlatformCommand } from "./commands";
-import { DeviceDescriptor, PlatformEvent, UiPanelSchema } from "./types";
-import { formatScalarValue } from "../shared/formatters";
+import { createPlatformCommand, PlatformCommand } from "@platform/commands";
+import { DeviceDescriptor, PlatformEvent, UiPanelSchema } from "@platform/types";
+import { formatScalarValue } from "@shared/formatters";
 
 export type PlatformControlDraft = Record<string, unknown>;
 

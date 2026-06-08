@@ -1,16 +1,16 @@
-import { flattenPlatformPlugins, flattenUiPanels, validatePluginPackages } from "../../platform/packages";
-import { asmeCanServoPackage } from "./asmeCanServo";
-import { browserCameraPackage } from "./browserCamera";
-import { browserGamepadPackage } from "./browserGamepad";
-import { cameraGimbalPackage } from "./cameraGimbal";
-import { coreCapabilitiesPackage } from "./coreCapabilities";
-import { coreTransportsPackage } from "./coreTransports";
-import { feetechServoPackage } from "./feetechServo";
-import { firmwareUploadPackage } from "./firmwareUpload";
-import { raspberryPiPackage } from "./raspberryPi";
-import { robotArmPackage } from "./robotArm";
-import { secondaryCameraPackage } from "./secondaryCamera";
-import { tb6618MotorPackage } from "./tb6618Motor";
+import { flattenPlatformPlugins, flattenUiPanels, validatePluginPackages } from "@platform/packages";
+import { asmeCanServoPackage } from "@plugins/builtin/asmeCanServo";
+import { browserCameraPackage } from "@plugins/builtin/browserCamera";
+import { browserGamepadPackage } from "@plugins/builtin/browserGamepad";
+import { cameraGimbalPackage } from "@plugins/builtin/cameraGimbal";
+import { coreCapabilitiesPackage } from "@plugins/builtin/coreCapabilities";
+import { coreTransportsPackage } from "@plugins/builtin/coreTransports";
+import { feetechServoPackage } from "@plugins/builtin/feetechServo";
+import { firmwareUploadPackage } from "@plugins/builtin/firmwareUpload";
+import { raspberryPiPackage } from "@plugins/builtin/raspberryPi";
+import { robotArmPackage } from "@plugins/builtin/robotArm";
+import { secondaryCameraPackage } from "@plugins/builtin/secondaryCamera";
+import { tb6618MotorPackage } from "@plugins/builtin/tb6618Motor";
 
 export const BUILTIN_PLUGIN_PACKAGES = [
   coreCapabilitiesPackage,

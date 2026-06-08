@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultArmConfig, DEFAULT_CAMERA_CONFIG } from "../lib/storage";
-import { createPlatformDevices } from "./deviceModel";
+import { createDefaultArmConfig, DEFAULT_CAMERA_CONFIG } from "@adapters/persistence/storage";
+import { createPlatformDevices } from "@platform/deviceModel";
 
 describe("platform device model", () => {
   it("maps existing servo, motor, camera, and arm config into devices", () => {

@@ -1,4 +1,4 @@
-import type { CapabilityId } from "./types";
+import type { CapabilityId } from "@platform/types";
 
 export interface PanelLayoutItem {
   id: string;

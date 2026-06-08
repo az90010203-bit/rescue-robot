@@ -1,4 +1,4 @@
-import { CapabilityId } from "./types";
+import { CapabilityId } from "@platform/types";
 
 export type PlatformCommandStatus = "sent" | "skipped" | "failed" | "timeout";
 

@@ -1,4 +1,4 @@
-import { PlatformCommand, PlatformCommandResult, PlatformCommandType, validatePlatformCommand } from "./commands";
+import { PlatformCommand, PlatformCommandResult, PlatformCommandType, validatePlatformCommand } from "@platform/commands";
 
 export type PlatformCommandHandler = (command: PlatformCommand) => Promise<Partial<PlatformCommandResult> | PlatformCommandResult | null | undefined>;
 

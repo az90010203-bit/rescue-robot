@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createPlatformCommand } from "./commands";
-import { runWorkflow, validateWorkflow } from "./workflow";
+import { createPlatformCommand } from "@platform/commands";
+import { runWorkflow, validateWorkflow } from "@platform/workflow";
 
 describe("workflow runtime", () => {
   it("validates basic workflow structure", () => {

@@ -270,7 +270,7 @@ Raspberry Pi bridge:
   reboot. The web "Install/Start Persistent A Board Bridge" action also appends
   this line if it is missing, but the Pi still needs one reboot before
   `/dev/ttyAMA5` appears.
-- Run `web/scripts/a-board-serial-bridge.py` on the Pi; it listens on
+- Run `web/local-services/a-board-serial-bridge.py` on the Pi; it listens on
   `http://0.0.0.0:17353`.
 - `GET /health` reports the UART bridge state.
 - `POST /command` writes one JSON command to `/dev/ttyAMA5 @ 115200` and

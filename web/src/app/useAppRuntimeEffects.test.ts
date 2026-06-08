@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { driveCommandSignature, runtimeValuesMatch, stableRuntimeSignature } from "./useAppRuntimeEffects";
+import { driveCommandSignature, runtimeValuesMatch, stableRuntimeSignature } from "@app/useAppRuntimeEffects";
 
 describe("runtime effect helpers", () => {
   it("creates stable signatures for equivalent objects with different key order", () => {

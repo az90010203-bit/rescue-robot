@@ -1,4 +1,4 @@
-import { PlatformPlugin, PlatformPluginPackage, UiPanelSchema } from "./types";
+import { PlatformPlugin, PlatformPluginPackage, UiPanelSchema } from "@platform/types";
 
 export function flattenPlatformPlugins(packages: PlatformPluginPackage[]): PlatformPlugin[] {
   return packages.flatMap((pluginPackage) => pluginPackage.plugins);

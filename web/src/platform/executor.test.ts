@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createPlatformCommand } from "./commands";
-import { executePlatformCommand } from "./executor";
+import { createPlatformCommand } from "@platform/commands";
+import { executePlatformCommand } from "@platform/executor";
 
 describe("platform command executor", () => {
   it("fails before dispatching invalid commands", async () => {

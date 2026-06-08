@@ -1,4 +1,4 @@
-import { PlatformEvent } from "./types";
+import { PlatformEvent } from "@platform/types";
 
 export type PlatformEventHandler = (event: PlatformEvent) => void;
 

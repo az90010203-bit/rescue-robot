@@ -4,7 +4,7 @@ import {
   platformCommandEventType,
   resolvePlatformCommandTarget,
   validatePlatformCommand
-} from "./commands";
+} from "@platform/commands";
 
 describe("platform commands", () => {
   it("accepts valid servo and motor commands", () => {

@@ -1,4 +1,4 @@
-import { CapabilityId, DeviceDescriptor } from "./types";
+import { CapabilityId, DeviceDescriptor } from "@platform/types";
 
 export interface RobotDeviceTemplate {
   id: string;

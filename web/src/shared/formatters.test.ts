@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAngle, formatHexByte, formatScalarValue, formatVector3, metricNumber, metricNumberText } from "./formatters";
+import { formatAngle, formatHexByte, formatScalarValue, formatVector3, metricNumber, metricNumberText } from "@shared/formatters";
 
 describe("shared formatters", () => {
   it("formats metric numbers for dashboard and app contexts", () => {

@@ -5,7 +5,7 @@ import {
   enabledExternalPluginSources,
   parsePluginManifest,
   parsePluginManifestJson
-} from "./externalPlugins";
+} from "@platform/externalPlugins";
 
 describe("external plugin manifest loading", () => {
   it("parses and normalizes plugin manifests", () => {

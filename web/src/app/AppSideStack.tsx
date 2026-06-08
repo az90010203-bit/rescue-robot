@@ -1,6 +1,6 @@
-import { LogPanel } from "../shared/ui/AppChrome";
-import { FeedbackPanel } from "./FeedbackPanel";
-import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+import { LogPanel } from "@shared/ui/AppChrome";
+import { FeedbackPanel } from "@app/FeedbackPanel";
+import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
 interface AppSideStackProps {
   ctx: AppWorkspaceContext;

@@ -1,5 +1,5 @@
-import { AppWorkspace } from "./AppWorkspace";
-import { useAppWorkspaceContext } from "./useAppWorkspaceContext";
+import { AppWorkspace } from "@app/AppWorkspace";
+import { useAppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
 export default function App() {
   const ctx = useAppWorkspaceContext();

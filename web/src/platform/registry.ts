@@ -1,4 +1,4 @@
-import { CapabilityPlugin, DriverPlugin, PlatformPlugin, PlatformPluginManifest, PlatformPluginPackage, TransportPlugin } from "./types";
+import { CapabilityPlugin, DriverPlugin, PlatformPlugin, PlatformPluginManifest, PlatformPluginPackage, TransportPlugin } from "@platform/types";
 
 export class PlatformRegistry {
   private readonly plugins = new Map<string, PlatformPlugin>();

@@ -11,22 +11,22 @@ import {
   buildWriteSpeedFrames,
   clampServoLogicalAngle,
   toHex
-} from "../lib/protocol";
-import { ArmTeachSample } from "../lib/armTeach";
-import { InputMapping } from "../lib/inputMapping";
-import { PiSetupProfile } from "../lib/piRemote";
-import { ServoSafetyRuntime, ServoSafetyTriggerReason } from "../lib/servoSafety";
+} from "@adapters/hardware/protocol";
+import { ArmTeachSample } from "@domains/arm/armTeach";
+import { InputMapping } from "@domains/drive/inputMapping";
+import { PiSetupProfile } from "@adapters/pi/piRemote";
+import { ServoSafetyRuntime, ServoSafetyTriggerReason } from "@domains/servo/servoSafety";
 import {
   WHEEL_SLIDER_CENTER_DEG,
   clampWheelSliderDeg,
   normalizeWheelMaxSpeedRaw
-} from "../lib/servoWheelSlider";
+} from "@domains/servo/servoWheelSlider";
 import {
   ArmJointConfig,
   CameraConfig,
   MotorLinkageGroup,
   ServoLinkageGroup
-} from "../lib/storage";
+} from "@adapters/persistence/storage";
 
 export type LogValues = Record<string, string | number | boolean>;
 

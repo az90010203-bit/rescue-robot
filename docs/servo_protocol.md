@@ -248,7 +248,7 @@ Web UI
   -> Feetech STS/SCS servo bus
 ```
 
-The bridge script is `web/scripts/pi-servo-serial-bridge.py`. The web
+The bridge script is `web/local-services/pi-servo-serial-bridge.py`. The web
 "Install/Start Pi Servo Bridge" action uploads it to the Pi and installs
 `pi-servo-serial-bridge.service` with `Restart=always`.
 

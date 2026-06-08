@@ -45,8 +45,9 @@ flowchart LR
   subgraph Browser[浏览器本地运行层]
     Web --> AppRuntime[app/* 外壳 / 导航 / 运行时 hooks]
     AppRuntime --> Console[主控台 / 插件 / 组件 / 机器人 / 功能测试 / 设置]
-    AppRuntime --> FeaturePanels[features/* 舵机 / 机械臂 / 底盘 / 摄像头 / 树莓派]
-    FeaturePanels --> ArmKinematics[armKinematics FK / CCD IK / 自动调参建议]
+    AppRuntime --> Workspaces[workspaces/* console / architecture / drive / pi / can-servo]
+    AppRuntime --> DomainModules[domains/* camera / arm / servo / motor / drive / robot-assembly]
+    DomainModules --> ArmKinematics[armKinematics FK / CCD IK / 自动调参建议]
     AppRuntime --> PluginUi[插件]
     AppRuntime --> ComponentUi[组件]
     AppRuntime --> RobotUi[机器人]
@@ -129,28 +130,30 @@ flowchart LR
 
 ## Stepwise Merge Refactor Notes
 
-- Camera rendering now goes through `web/src/features/drive/CameraSourcePanel.tsx`, shared by the drive page and console dashboard camera panels.
+- Camera rendering now goes through `web/src/domains/camera/CameraSourcePanel.tsx`, shared by the drive page and console dashboard camera panels.
 - Panel layout primitives live in `web/src/platform/panelLayoutCore.ts`; `architecture.ts` re-exports the same API for compatibility.
-- Plugin auto-detection hardware scanning lives in `web/src/features/pluginAutoDetect/detectors.ts`; the panel only manages phases, cancellation, rendering, and auto-add.
-- Local helper HTTP basics live in `web/scripts/local-http-helper.mjs` and are shared by `data-service.mjs`, `firmware-helper.mjs`, and `pi-helper.mjs`.
+- Plugin auto-detection hardware scanning lives in `web/src/domains/plugin-auto-detect/detectors.ts`; the panel only manages phases, cancellation, rendering, and auto-add.
+- Local helper HTTP basics live in `web/local-services/local-http-helper.mjs` and are shared by `data-service.mjs`, `firmware-helper.mjs`, and `pi-helper.mjs`.
 - Display formatting helpers live in `web/src/shared/formatters.ts` for dashboard, platform state, and app metric formatting.
-- Three-layer workspace primitives and pure helpers now live in `web/src/components/ArchitectureWorkspacePrimitives.tsx` and `web/src/components/architectureWorkspaceUtils.ts`.
+- Three-layer workspace primitives and pure helpers now live in `web/src/workspaces/architecture/ArchitectureWorkspacePrimitives.tsx` and `web/src/workspaces/architecture/architectureWorkspaceUtils.ts`.
 - Production TypeScript builds exclude `src/**/*.test.ts(x)`; Vitest remains responsible for test files.
+- Vite splits lazy workspaces and large vendors into route/vendor chunks; Blockly and Three remain intentional lazy-loaded large library chunks with the warning threshold set to 700 kB.
 
 ## 主要模块
 
 - `web/src/App.tsx`：极薄入口，直接导出 `web/src/app/AppShell.tsx`。
 - `web/src/app/*`：控制台外壳、导航、持久化、串口/平台/反馈运行时和工作区组合逻辑。
-- `web/src/features/*`：按功能拆分的舵机、机械臂、底盘、摄像头、电机、树莓派和平台面板；机械臂面板包含 2D FK/IK 与调参建议 UI。
-- `web/src/components/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，由架构页按需加载，按入口 `layer` 分别渲染；创建插件、组件和机器人使用折叠创建向导，收起态变为 56px 左侧 rail，让右侧库和运行面板横向扩展；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
-- `web/src/features/robotAssembly/RobotAssemblyWorkspace.tsx`：机器人装配画布、素材栏、右侧检查器、动作按钮和 Blockly 图形化程序面板；素材栏可一键收缩为组件、插件、硬件图标栏，收起后画布优先扩展，右侧检查器保持稳定宽度；可见文案通过 `robotText` 兜底，避免 `robotAssembly.*` key 泄漏，并将结构检查里的内部 ID 和英文校验消息压缩成更适合操作员阅读的提示；图形化程序保存为 `RobotProgram`，首版固定在 PC/浏览器端编译成 `WorkflowDefinition` 后执行。
+- `web/src/workspaces/*`：页面级工作区，包含主控 dashboard、架构三层页、驾驶页、树莓派远程页和 CAN 舵机测试页。
+- `web/src/domains/*`：按业务领域收拢的摄像头、机械臂、舵机、电机、底盘、机器人装配和插件自动检测模块；机械臂面板包含 2D FK/IK 与调参建议 UI。
+- `web/src/workspaces/architecture/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，由架构页按需加载，按入口 `layer` 分别渲染；创建插件、组件和机器人使用折叠创建向导，收起态变为 56px 左侧 rail，让右侧库和运行面板横向扩展；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
+- `web/src/domains/robot-assembly/RobotAssemblyWorkspace.tsx`：机器人装配画布、素材栏、右侧检查器、动作按钮和 Blockly 图形化程序面板；素材栏可一键收缩为组件、插件、硬件图标栏，收起后画布优先扩展，右侧检查器保持稳定宽度；可见文案通过 `robotText` 兜底，避免 `robotAssembly.*` key 泄漏，并将结构检查里的内部 ID 和英文校验消息压缩成更适合操作员阅读的提示；图形化程序保存为 `RobotProgram`，首版固定在 PC/浏览器端编译成 `WorkflowDefinition` 后执行。
 - `web/src/platform/*`：平台模型、命令、执行器、事件、插件注册、设备拓扑、状态快照和 UI schema helper。
 - `web/src/platform/architecture.ts`：三层架构纯模型，包括驱动库派生、设备目录、插件实例、组件、机器人、面板布局、唯一占用校验和旧驱动 profile 兼容桥。
 - `web/src/plugins/builtin/*`：内置能力、驱动、传输和设备面板 schema，包括舵机、电机、摄像头、机械臂、树莓派和固件刷写。
-- `web/src/lib/*`：稳定业务能力，包括协议、存储、底盘混控、舵机平滑、安全保护、2D 机械臂运动学/调参、树莓派远控、固件助手和数据服务客户端。
+- `web/src/adapters/*`：外部接口与持久化适配器，包括硬件协议、WebSerial、树莓派远控、固件助手和数据服务客户端。
 - `web/src/styles/*`：按页面和能力拆分的样式入口，由 `web/src/App.css` 聚合。
-- `web/scripts/*`：本地数据服务、三层资产 SQLite schema、固件刷写助手、树莓派 SSH helper 和文档同步检查。
-- `web/scripts/health-check.mjs`：只读项目健康检查，汇总最大源码文件、`any` 使用量、测试声明数、构建 chunk 体积、UTF-8 文档状态和常见乱码片段。
+- `web/local-services/*`：本地数据服务、三层资产 SQLite schema、固件刷写助手、树莓派 SSH helper 和文档同步检查。
+- `web/local-services/health-check.mjs`：只读项目健康检查，汇总最大源码文件、`any` 使用量、测试声明数、构建 chunk 体积、UTF-8 文档状态和常见乱码片段。
 - `firmware/`：ESP32/PlatformIO 固件，负责 JSON 控制器、PWM 电机和 Feetech 总线桥接能力。
 - `docs/`：协议和设备接线说明。
 
@@ -165,7 +168,7 @@ flowchart LR
 
 ## 文档同步规则
 
-任何代码、脚本、固件、配置或协议变更，都必须同步更新本 README，并更新上方 Mermaid 架构图。`npm.cmd test` 会运行 `web/scripts/check-doc-sync.mjs`；当发现非 README 的 tracked 变更但 README 或架构图区块未同步变化时会失败。
+任何代码、脚本、固件、配置或协议变更，都必须同步更新本 README，并更新上方 Mermaid 架构图。`npm.cmd test` 会运行 `web/local-services/check-doc-sync.mjs`；当发现非 README 的 tracked 变更但 README 或架构图区块未同步变化时会失败。
 
 ## 硬件默认链路
 

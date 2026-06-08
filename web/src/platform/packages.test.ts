@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_PLATFORM_PLUGINS, BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "./builtinPlugins";
-import { flattenPlatformPlugins, flattenUiPanels, validatePluginPackages } from "./packages";
+import { BUILTIN_PLATFORM_PLUGINS, BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "@platform/builtinPlugins";
+import { flattenPlatformPlugins, flattenUiPanels, validatePluginPackages } from "@platform/packages";
 
 describe("platform plugin packages", () => {
   it("keeps built-in package manifest ids unique", () => {

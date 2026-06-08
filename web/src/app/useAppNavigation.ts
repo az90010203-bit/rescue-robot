@@ -1,6 +1,6 @@
 import type { ChangeEvent } from "react";
 import { isSupportedLanguage, type SupportedLanguage } from "../i18n/languages";
-import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ConnectionMode, type LogEntry, type LogValues, type TestPanel } from "./appModel";
+import { isServoBusModule, type ActiveModule, type AppSection, type ArchitectureSection, type ConnectionMode, type LogEntry, type LogValues, type TestPanel } from "@app/appModel";
 
 interface UseAppNavigationOptions {
   activeModule: ActiveModule;

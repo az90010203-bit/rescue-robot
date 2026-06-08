@@ -5,14 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "data-service": "node scripts/data-service.mjs",
-    "firmware-helper": "node scripts/firmware-helper.mjs",
-    "pi-helper": "node scripts/pi-helper.mjs",
-    "check:docs": "node scripts/check-doc-sync.mjs",
-    "health": "node scripts/health-check.mjs",
+    "data-service": "node local-services/data-service.mjs",
+    "firmware-helper": "node local-services/firmware-helper.mjs",
+    "pi-helper": "node local-services/pi-helper.mjs",
+    "check:docs": "node local-services/check-doc-sync.mjs",
+    "health": "node local-services/health-check.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "npm.cmd run check:docs && vitest run && node --test scripts/data-store.node-test.mjs scripts/local-http-helper.node-test.mjs scripts/pi-helper.node-test.mjs"
+    "test": "npm.cmd run check:docs && vitest run && node --test local-services/data-store.node-test.mjs local-services/local-http-helper.node-test.mjs local-services/pi-helper.node-test.mjs"
   },
   "dependencies": {
     "blockly": "^12.5.1",

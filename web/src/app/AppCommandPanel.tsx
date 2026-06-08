@@ -1,12 +1,12 @@
 import { Gauge, SlidersHorizontal } from "lucide-react";
-import { InputMappingCommandPanel } from "../features/drive/InputMappingPanels";
-import { MotorCommandPanel } from "../features/motor/MotorCommandPanel";
-import { ServoCommandPanel } from "../features/servo/ServoCommandPanel";
-import { ArmJointEditor } from "../features/arm/ArmPanels";
-import { ArmKinematicsPanel } from "../features/arm/ArmKinematicsPanel";
-import { ArmTeachPanel } from "../features/arm/ArmTeachPanel";
-import { PanelTitle } from "../shared/ui/AppChrome";
-import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+import { InputMappingCommandPanel } from "@domains/drive/InputMappingPanels";
+import { MotorCommandPanel } from "@domains/motor/MotorCommandPanel";
+import { ServoCommandPanel } from "@domains/servo/ServoCommandPanel";
+import { ArmJointEditor } from "@domains/arm/ArmPanels";
+import { ArmKinematicsPanel } from "@domains/arm/ArmKinematicsPanel";
+import { ArmTeachPanel } from "@domains/arm/ArmTeachPanel";
+import { PanelTitle } from "@shared/ui/AppChrome";
+import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
 interface AppCommandPanelProps {
   ctx: AppWorkspaceContext;

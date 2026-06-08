@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createRobotProjectTemplateFromDevices, summarizeRobotProjectTemplate, validateRobotProjectTemplate } from "./topology";
-import { DeviceDescriptor } from "./types";
+import { createRobotProjectTemplateFromDevices, summarizeRobotProjectTemplate, validateRobotProjectTemplate } from "@platform/topology";
+import { DeviceDescriptor } from "@platform/types";
 
 const devices: DeviceDescriptor[] = [
   {

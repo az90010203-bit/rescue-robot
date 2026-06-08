@@ -1,10 +1,10 @@
 import { ListPlus } from "lucide-react";
-import { InputMappingSettingsPanel } from "../features/drive/InputMappingPanels";
-import { MotorLibraryPanel } from "../features/motor/MotorLibraryPanel";
-import { ServoLibraryPanel } from "../features/servo/ServoLibraryPanel";
-import { ArmLibrary } from "../features/arm/ArmPanels";
-import { PanelTitle } from "../shared/ui/AppChrome";
-import type { AppWorkspaceContext } from "./useAppWorkspaceContext";
+import { InputMappingSettingsPanel } from "@domains/drive/InputMappingPanels";
+import { MotorLibraryPanel } from "@domains/motor/MotorLibraryPanel";
+import { ServoLibraryPanel } from "@domains/servo/ServoLibraryPanel";
+import { ArmLibrary } from "@domains/arm/ArmPanels";
+import { PanelTitle } from "@shared/ui/AppChrome";
+import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
 interface AppLibraryPanelProps {
   ctx: AppWorkspaceContext;

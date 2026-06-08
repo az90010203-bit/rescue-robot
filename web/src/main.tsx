@@ -4,7 +4,7 @@ import App from "./App";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./App.css";
-import "./i18n";
+import "./i18n/index";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

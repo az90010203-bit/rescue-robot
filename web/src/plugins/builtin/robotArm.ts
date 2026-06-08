@@ -1,4 +1,4 @@
-import { PlatformPluginPackage } from "../../platform/types";
+import { PlatformPluginPackage } from "@platform/types";
 
 export const robotArmPackage: PlatformPluginPackage = {
   manifest: {

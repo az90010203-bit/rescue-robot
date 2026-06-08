@@ -1,3 +1,3 @@
-import AppShell from "./app/AppShell";
+import AppShell from "@app/AppShell";
 
 export default AppShell;

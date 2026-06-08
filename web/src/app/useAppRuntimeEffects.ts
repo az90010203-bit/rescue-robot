@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { buildMotorSetCommand, type MotorProfile, type MotorStopMode, type MotorTarget, type PcCommand, type ServoProfile } from "../lib/protocol";
+import { buildMotorSetCommand, type MotorProfile, type MotorStopMode, type MotorTarget, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
 import {
   normalizeArmConfig,
   normalizeMotorLinkageGroups,
@@ -7,15 +7,15 @@ import {
   type ArmConfig,
   type MotorLinkageGroup,
   type ServoLinkageGroup
-} from "../lib/storage";
+} from "@adapters/persistence/storage";
 import {
   clampServoCommandStateToLimits,
   createDefaultServoCommandState,
   type ActiveModule,
   type ServoCommandStateMap,
   type ServoSafetyStatusMap
-} from "./appModel";
-import type { ServoSafetyPreset } from "../lib/servoSafety";
+} from "@app/appModel";
+import type { ServoSafetyPreset } from "@domains/servo/servoSafety";
 
 export function stableRuntimeSignature(value: unknown): string {
   if (Array.isArray(value)) {

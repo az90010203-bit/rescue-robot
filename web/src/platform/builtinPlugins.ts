@@ -14,4 +14,4 @@ export {
   robotArmPackage,
   secondaryCameraPackage,
   tb6618MotorPackage
-} from "../plugins/builtin";
+} from "@plugins/builtin/index";

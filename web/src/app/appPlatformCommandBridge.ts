@@ -1,10 +1,10 @@
-import type { ArmTeachTrack } from "../lib/armTeach";
-import type { ServoProfile } from "../lib/protocol";
-import type { ArmConfig, CameraConfig, CameraVideoSource } from "../lib/storage";
-import { armConfigFromCommandPayload, servoProfilesFromCommandPayload } from "../features/arm/armCommandPayload";
-import { cameraSourceForDevice } from "../features/drive/cameraSources";
-import type { PlatformCommand, PlatformCommandResult, PlatformCommandStatus } from "../platform/commands";
-import type { ArmTeachStatus, PiRemoteForm } from "./appModel";
+import type { ArmTeachTrack } from "@domains/arm/armTeach";
+import type { ServoProfile } from "@adapters/hardware/protocol";
+import type { ArmConfig, CameraConfig, CameraVideoSource } from "@adapters/persistence/storage";
+import { armConfigFromCommandPayload, servoProfilesFromCommandPayload } from "@domains/arm/armCommandPayload";
+import { cameraSourceForDevice } from "@domains/camera/cameraSources";
+import type { PlatformCommand, PlatformCommandResult, PlatformCommandStatus } from "@platform/commands";
+import type { ArmTeachStatus, PiRemoteForm } from "@app/appModel";
 
 interface AppPlatformCommandBridgeOptions {
   activeCameraSource: CameraVideoSource;
