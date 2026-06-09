@@ -10,6 +10,8 @@ import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage
 import type { PanelLayoutItem } from "@platform/panelLayoutCore";
 import type { WorkflowDefinition } from "@platform/workflow";
 import { findPlatformUiPanelForDevice } from "@platform/ui";
+import { validateMecanumDriveComponentConfig } from "@domains/drive/mecanumComponent";
+import { validateCanServoGroupComponentConfig } from "@domains/can-servo/canServoGroupComponent";
 export {
   defaultPanelLayoutItems,
   mergePanelLayoutItems,
@@ -20,7 +22,7 @@ export type { PanelLayoutItem, PanelLayoutTarget } from "@platform/panelLayoutCo
 
 export type DeviceConfigValue = string | number | boolean | null;
 export type DeviceConfig = Record<string, DeviceConfigValue>;
-export type ComponentKind = "custom" | "robot-arm";
+export type ComponentKind = "custom" | "robot-arm" | "mecanum-drive" | "can-servo-group";
 export type ComponentConfig = Record<string, unknown>;
 export type DeviceConfigFieldKind = "text" | "number" | "select" | "toggle";
 
@@ -86,7 +88,7 @@ export interface ComponentDefinition {
 
 export type RobotAssemblyNodeSourceType = "component" | "plugin" | "hardware";
 export type RobotAssemblyHardwareKind = "esp32" | "robomaster-a" | "raspberry-pi" | "tb6612" | "tb6618" | "power-module";
-export type RobotAssemblyVisualKind = "component" | "plugin" | "robot-arm" | "tracked-base" | "hardware-board" | "motor-driver" | "power-module";
+export type RobotAssemblyVisualKind = "component" | "plugin" | "robot-arm" | "tracked-base" | "mecanum-drive" | "hardware-board" | "motor-driver" | "power-module";
 export type RobotAssemblyPortKind = "uart-tx" | "uart-rx" | "uart" | "can" | "pwm" | "gpio" | "power" | "ground" | "usb" | "servo-bus" | "signal";
 export type RobotAssemblyPortDirection = "in" | "out" | "bidirectional" | "power";
 
@@ -349,6 +351,17 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
     capabilities: [{ id: "servo", features: ["position_control", "feedback", "current_config", "pid_config", "id_config", "can1"] }],
     configSchema: [
       { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
+      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
+      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
+      {
+        id: "direction",
+        label: "Direction",
+        kind: "select",
+        options: [
+          { label: "Normal", value: 1 },
+          { label: "Reverse", value: -1 }
+        ]
+      },
       {
         id: "bitrateKbps",
         label: "CAN Bitrate",
@@ -366,7 +379,7 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
         options: [{ label: "RoboMaster A CAN1", value: "CAN1" }]
       }
     ],
-    defaultConfig: { servoId: 1, bitrateKbps: 250, canBus: "CAN1" },
+    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
     tags: ["servo", "can", "asme", "asmg-md", "robomaster-a"]
   },
   {
@@ -410,7 +423,7 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
       { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
       { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
     ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
+    defaultConfig: { channel: "M1", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", sensorPin: "", encoderAPin: "PE4", encoderBPin: "PF0" },
     tags: ["motor", "wheeltec", "pwm", "encoder"]
   },
   {
@@ -515,6 +528,24 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
     ],
     defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
     tags: ["camera", "browser", "local", "usb", "webcam"]
+  },
+  {
+    id: "catalog.local.ai-vision",
+    type: "ai-vision",
+    brand: "Local",
+    model: "AI Vision Helper",
+    displayName: "Local AI Vision Helper",
+    driverId: "driver.ai-vision-helper",
+    transportId: "transport.local-helper",
+    capabilities: [{ id: "ai-vision", features: ["mjpeg_stream_analysis", "competition_mannequin", "sample_capture", "external_helper"] }],
+    configSchema: [
+      { id: "sourceId", label: "Source ID", kind: "text", required: true },
+      { id: "streamUrl", label: "Stream URL", kind: "text", required: true },
+      { id: "label", label: "Label", kind: "text" },
+      { id: "helperUrl", label: "Helper URL", kind: "text" }
+    ],
+    defaultConfig: { sourceId: "main", streamUrl: "http://192.168.55.220:8080/stream", label: "competition_mannequin", helperUrl: "http://127.0.0.1:17353" },
+    tags: ["ai", "vision", "local-helper", "competition_mannequin"]
   }
 ];
 
@@ -723,8 +754,8 @@ export function validateComponentDefinition(component: ComponentDefinition, plug
   if (!component.id.trim() || !component.name.trim()) {
     return "component requires id and name";
   }
-  if (component.kind !== "custom" && component.kind !== "robot-arm") {
-    return "component kind must be custom or robot-arm";
+  if (component.kind !== "custom" && component.kind !== "robot-arm" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
+    return "component kind must be custom, robot-arm, mecanum-drive, or can-servo-group";
   }
   const pluginById = new Map(pluginInstances.map((plugin) => [plugin.id, plugin]));
   const used = new Set<string>();
@@ -736,12 +767,18 @@ export function validateComponentDefinition(component: ComponentDefinition, plug
     if (component.kind === "robot-arm" && (plugin.type !== "servo" || plugin.driverId !== "driver.feetech-servo")) {
       return `robot-arm component requires Feetech servo plugin instances: ${pluginId}`;
     }
+    if (component.kind === "mecanum-drive" && plugin.type !== "motor") {
+      return `mecanum-drive component requires motor plugin instances: ${pluginId}`;
+    }
+    if (component.kind === "can-servo-group" && (plugin.type !== "servo" || plugin.driverId !== "driver.asme-can-servo")) {
+      return `can-servo-group component requires ASME CAN servo plugin instances: ${pluginId}`;
+    }
     if (used.has(pluginId)) {
       return `component references duplicate plugin instance: ${pluginId}`;
     }
     used.add(pluginId);
   }
-  return null;
+  return validateMecanumDriveComponentConfig(component, pluginInstances) ?? validateCanServoGroupComponentConfig(component, pluginInstances);
 }
 
 export function validateRobotDefinition(robot: RobotDefinition, components: ComponentDefinition[], pluginInstances: PluginInstance[]): string | null {
@@ -1002,6 +1039,7 @@ function driverPackageSourceFile(packageId: string): string {
     "builtin.asme-can-servo": "plugins/builtin/asmeCanServo.ts",
     "builtin.feetech-servo": "plugins/builtin/feetechServo.ts",
     "builtin.firmware-upload": "plugins/builtin/firmwareUpload.ts",
+    "builtin.ai-vision": "plugins/builtin/aiVision.ts",
     "builtin.browser-gamepad": "plugins/builtin/browserGamepad.ts",
     "builtin.browser-camera": "plugins/builtin/browserCamera.ts",
     "builtin.raspberry-pi": "plugins/builtin/raspberryPi.ts",

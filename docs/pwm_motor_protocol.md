@@ -205,20 +205,25 @@ STM32 HAL、RoboMaster A 板或其他平台也保持同样的 `apply()` 语义�
 
 ## 6. RoboMaster Type A quadrature encoder path
 
-For the current RoboMaster Type A board single-motor test, ST-Link is used only
-for flashing and debugging. Runtime feedback goes through the Raspberry Pi GPIO
-UART and the HTTP serial bridge.
+For the current RoboMaster Type A four-wheel WHEELTEC G513XL setup, ST-Link is
+used only for flashing and debugging. Runtime feedback goes through the
+Raspberry Pi GPIO UART and the HTTP serial bridge. The four PWM outputs use
+TIM5 channels on `PA0-PA3`; encoder inputs are opened as GPIO pull-up inputs
+and counted in firmware.
 
-Fixed Type A wiring:
+Fixed Type A motor wiring:
+
+| Channel | Wheel | PWM | IN1 | IN2 | STBY | Encoder A | Encoder B |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M1 | A 左前轮 | PA0 | PB0 | PE12 | PD12 | PE4 | PF0 |
+| M2 | B 左后轮 | PA1 | PC2 | PE6 | PD12 | PE5 | PF1 |
+| M3 | C 右后轮 | PA2 | PA4 | PC1 | PD12 | PC0 | PB1 |
+| M4 | D 右前轮 | PA3 | PA5 | PC5 | PD12 | PC4 | PC3 |
+
+Fixed Type A bridge wiring:
 
 | Type A pin | Role | Connects to |
 | --- | --- | --- |
-| PD12 / TIM4_CH1 | PWM | TB6612 PWM |
-| PA2 | Direction | TB6612 AIN1 |
-| PA3 | Direction | TB6612 AIN2 |
-| PI5 | Standby | TB6612 STBY |
-| PA0 / TIM2_CH1 | Quadrature A | Encoder E1A |
-| PA1 / TIM2_CH2 | Quadrature B | Encoder E1B |
 | PD5 / USART2_TX | UART TX | Raspberry Pi GPIO13/RXD5, physical pin 33 |
 | PD6 / USART2_RX | UART RX | Raspberry Pi GPIO12/TXD5, physical pin 32 |
 | PGND | Ground | Raspberry Pi GND, physical pin 30 |
@@ -233,31 +238,48 @@ legacy single `sensor` pin:
   "channel": "M1",
   "driver": "tb6618",
   "pins": {
-    "pwm": "PD12",
-    "in1": "PA2",
-    "in2": "PA3",
-    "enable": "PI5",
-    "sensor": "PA0",
-    "encoderA": "PA0",
-    "encoderB": "PA1"
+    "pwm": "PA0",
+    "in1": "PB0",
+    "in2": "PE12",
+    "enable": "PD12",
+    "sensor": "PE4",
+    "encoderA": "PE4",
+    "encoderB": "PF0"
   }
 }
 ```
 
 `motor.feedback` uses the existing optional fields:
 
-- `encoderTicks`: signed TIM2 quadrature counter value.
+- `encoderTicks`: signed quadrature counter value for the configured channel.
 - `pulseHz`: absolute encoder tick delta per second since the previous feedback
   sample.
-- `encoderA` / `encoderB`: raw PA0/PA1 input levels, `0` or `1`.
+- `encoderA` / `encoderB`: raw configured encoder input levels, `0` or `1`.
 - `encoderDelta`: signed tick change since the previous feedback sample.
 - `encoderDirection`: `forward`, `reverse`, or `stopped`, derived from
   `encoderDelta`.
 - `sampleMs`: A board millisecond uptime at the feedback sample.
 - `speedRpm`: estimated motor-shaft RPM. The current Type A firmware defaults
-  to a 13 PPR Hall encoder with TIM2 encoder mode x4, so
+  to a 13 PPR Hall encoder with quadrature x4 counting, so
   `encoderTicksPerRev = 52`. `motor.config.encoderTicksPerRev` may override
   this calibration value.
+- `closedLoop`: the current Type A firmware enables closed-loop control by
+  default on the four-channel GPIO encoder path. Override it with
+  `motor.config` or `mecanum.config` only for debugging or saved calibration,
+  not during live drive control.
+
+Type A semantic runtime commands:
+
+- Use `motor.target` for a single motor target. It has the same key fields as
+  `motor.set`, but it enters the firmware latest-wins motion scheduler.
+- Use `mecanum.target` for chassis velocity:
+  `{ seq, forward, strafe, turn, speedLimitPercent, stopMode }`. The firmware
+  maps `frontLeft=M1`, `rearLeft=M2`, `rearRight=M3`, `frontRight=M4`, mixes
+  the four wheel targets, and applies closed-loop control internally.
+- Use `mecanum.stop` or `motor.stop` for safety stops. These clear pending
+  motion targets before applying the stop.
+- Live PC/Web code must not expand one mecanum action into repeated
+  `motor.config + motor.set` messages.
 
 Raspberry Pi bridge:
 
@@ -267,13 +289,19 @@ Raspberry Pi bridge:
   `pin 30 GND`, `pin 32 GPIO12/TXD5 -> Type A PD6/RX`, and
   `pin 33 GPIO13/RXD5 <- Type A PD5/TX`.
 - Enable Pi UART5 with `dtoverlay=uart5` in `/boot/firmware/config.txt`, then
-  reboot. The web "Install/Start Persistent A Board Bridge" action also appends
-  this line if it is missing, but the Pi still needs one reboot before
-  `/dev/ttyAMA5` appears.
-- Run `web/local-services/a-board-serial-bridge.py` on the Pi; it listens on
-  `http://0.0.0.0:17353`.
-- `GET /health` reports the UART bridge state.
+  reboot. The Pi image initializer `pi-image/install-rescue-pi.sh` appends this
+  line and installs `a-board-serial-bridge.service`; the web upgrade/repair
+  action is a manual SSH fallback.
+- Run `web/local-services/a-board-serial-bridge.py` on the Pi; the image
+  initializer installs it under `/opt/rescue-robot/bridges/`, enables
+  `Restart=always`, and listens on `http://0.0.0.0:17353`.
+- `GET /health` reports the UART bridge state and includes optional
+  `{ service, version, queueDepth, inFlight, motionPending, latestMotionSeq, droppedMotionCount }`
+  metadata. `ok: false` with
+  service metadata means the daemon is reachable but `/dev/ttyAMA5` is not
+  available yet.
 - `POST /command` writes one JSON command to `/dev/ttyAMA5 @ 115200` and
-  returns the A board JSON response messages.
+  returns the A board JSON response messages. The normal runtime path sends
+  one semantic command per intent, such as `mecanum.target` or `motor.target`.
 
 Pinout reference: [RoboMaster Type A board user manual, page 31](https://cdn-hz.robomaster.com/tem/RoboMaster%E5%BC%80%E5%8F%91%E7%89%88%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C.pdf#page=31).

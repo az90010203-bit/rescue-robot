@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASMG_MD_POSITION_STEPS_PER_TURN,
   ASMG_MD_HOST_EXTENDED_ID,
+  asmgMdDegreesToPositionRaw,
+  asmgMdLogicalAngleToPhysicalDegrees,
+  asmgMdLogicalAngleToPositionRaw,
+  asmgMdPositionRawToLogicalDegrees,
+  asmgMdPositionRawToDegrees,
   buildAsmgMdCanConfigCommand,
   buildAsmgMdCanReadCommand,
   buildAsmgMdFactoryResetCommand,
@@ -18,41 +24,54 @@ import {
   parseAsmgMdCanFrame,
   parseAsmgMdDataHex
 } from "@adapters/hardware/asmgMdCanServo";
-import type { PcCommand } from "@adapters/hardware/protocol";
-
-function dataBytes(command: PcCommand): number[] {
-  return [command.b0, command.b1, command.b2, command.b3, command.b4, command.b5, command.b6, command.b7] as number[];
-}
 
 describe("ASMG-MD CAN servo protocol", () => {
-  it("builds the A-board CAN config and raw read commands", () => {
-    expect(buildAsmgMdCanConfigCommand(1)).toEqual({ type: "can.config", seq: 1, bitrateKbps: 250 });
-    expect(buildAsmgMdCanConfigCommand(2, 500)).toEqual({ type: "can.config", seq: 2, bitrateKbps: 500 });
-    expect(buildAsmgMdCanReadCommand(3)).toEqual({ type: "can.read", seq: 3 });
+  it("builds semantic A-board CAN servo config and read commands", () => {
+    expect(buildAsmgMdCanConfigCommand(1)).toEqual({ type: "can_servo.config", seq: 1, bitrateKbps: 250 });
+    expect(buildAsmgMdCanConfigCommand(2, 500)).toEqual({ type: "can_servo.config", seq: 2, bitrateKbps: 500 });
+    expect(buildAsmgMdCanReadCommand(3)).toEqual({ type: "can_servo.read", seq: 3, request: "frames" });
   });
 
-  it("builds position and speed control frames", () => {
+  it("builds semantic position and speed control commands", () => {
     const command = buildAsmgMdMoveCommand(10, { id: 1, position: 0x1234, speed: 0x0500 });
 
-    expect(command).toMatchObject({ type: "can.send", seq: 10, id: ASMG_MD_HOST_EXTENDED_ID, extended: true, dlc: 8 });
-    expect(dataBytes(command)).toEqual([0x01, 0x01, 0x12, 0x34, 0x05, 0x00, 0x00, 0x00]);
+    expect(command).toEqual({ type: "can_servo.move", seq: 10, id: 1, position: 0x1234, speed: 0x0500 });
   });
 
-  it("builds read and configuration frames", () => {
-    expect(dataBytes(buildAsmgMdReadPositionCommand(1, 1))).toEqual([0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdSetCurrentCommand(2, { id: 1, current: 0x0032 }))).toEqual([0x01, 0x03, 0x00, 0x32, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdReadCurrentCommand(3, 1))).toEqual([0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdSetPidCommand(4, { id: 1, p: 0x0102, i: 0x0304, d: 0x0506 }))).toEqual([0x01, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06]);
-    expect(dataBytes(buildAsmgMdReadPidCommand(5, 1))).toEqual([0x01, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdReadPositionCurrentCommand(6, 1))).toEqual([0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdSaveCenterCommand(7, { id: 1, ratio: 0x03e8 }))).toEqual([0x01, 0x08, 0x03, 0xe8, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdSetBaudCommand(8, { id: 1, baudKbps: 1000 }))).toEqual([0x01, 0x09, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdFactoryResetCommand(9, 1))).toEqual([0x01, 0xfc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  it("maps full-turn angles to ASMG-MD 15-bit position units", () => {
+    expect(ASMG_MD_POSITION_STEPS_PER_TURN).toBe(0x8000);
+    expect(asmgMdDegreesToPositionRaw(0)).toBe(0x0000);
+    expect(asmgMdDegreesToPositionRaw(90)).toBe(0x2000);
+    expect(asmgMdDegreesToPositionRaw(180)).toBe(0x4000);
+    expect(asmgMdDegreesToPositionRaw(360)).toBe(0x7fff);
+    expect(asmgMdPositionRawToDegrees(0x2000)).toBe(90);
+    expect(asmgMdPositionRawToDegrees(0x4000)).toBe(180);
+    expect(asmgMdPositionRawToDegrees(0x7fff)).toBe(360);
   });
 
-  it("builds ID read and ID change frames", () => {
-    expect(dataBytes(buildAsmgMdReadIdCommand(1))).toEqual([0xfe, 0xfd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expect(dataBytes(buildAsmgMdSetIdCommand(2, 1))).toEqual([0x01, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  it("maps logical CAN servo angles through plugin limits and reverse direction", () => {
+    const profile = { id: 2, name: "J2", minDeg: 20, maxDeg: 120, direction: -1 as const, bitrateKbps: 250 as const };
+
+    expect(asmgMdLogicalAngleToPhysicalDegrees(profile, 30)).toBe(90);
+    expect(asmgMdLogicalAngleToPositionRaw(profile, 30)).toBe(asmgMdDegreesToPositionRaw(90));
+    expect(asmgMdPositionRawToLogicalDegrees(profile, asmgMdDegreesToPositionRaw(90))).toBe(30);
+  });
+
+  it("builds semantic read and configuration commands", () => {
+    expect(buildAsmgMdReadPositionCommand(1, 1)).toEqual({ type: "can_servo.read", seq: 1, id: 1, request: "position" });
+    expect(buildAsmgMdSetCurrentCommand(2, { id: 1, current: 0x0032 })).toEqual({ type: "can_servo.set_current", seq: 2, id: 1, current: 0x0032 });
+    expect(buildAsmgMdReadCurrentCommand(3, 1)).toEqual({ type: "can_servo.read", seq: 3, id: 1, request: "current" });
+    expect(buildAsmgMdSetPidCommand(4, { id: 1, p: 0x0102, i: 0x0304, d: 0x0506 })).toEqual({ type: "can_servo.pid", seq: 4, id: 1, p: 0x0102, i: 0x0304, d: 0x0506 });
+    expect(buildAsmgMdReadPidCommand(5, 1)).toEqual({ type: "can_servo.pid", seq: 5, id: 1, read: true });
+    expect(buildAsmgMdReadPositionCurrentCommand(6, 1)).toEqual({ type: "can_servo.read", seq: 6, id: 1, request: "position_current" });
+    expect(buildAsmgMdSaveCenterCommand(7, { id: 1, ratio: 0x03e8 })).toEqual({ type: "can_servo.save_center", seq: 7, id: 1, ratio: 0x03e8 });
+    expect(buildAsmgMdSetBaudCommand(8, { id: 1, baudKbps: 1000 })).toEqual({ type: "can_servo.config", seq: 8, id: 1, baudKbps: 1000, applyToServo: true });
+    expect(buildAsmgMdFactoryResetCommand(9, 1)).toEqual({ type: "can_servo.factory_reset", seq: 9, id: 1 });
+  });
+
+  it("builds semantic ID read and ID change commands", () => {
+    expect(buildAsmgMdReadIdCommand(1)).toEqual({ type: "can_servo.read", seq: 1, request: "id" });
+    expect(buildAsmgMdSetIdCommand(2, 1)).toEqual({ type: "can_servo.set_id", seq: 2, newId: 1 });
     expect(() => buildAsmgMdSetIdCommand(3, 0xfe)).toThrow(RangeError);
   });
 

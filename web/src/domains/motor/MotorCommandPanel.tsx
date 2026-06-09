@@ -156,6 +156,7 @@ export function MotorCommandPanel({
   const isRoboMasterA = motorTestBoard === "robomaster-a";
   const motorActionsDisabled = !motorControllerReady || !selectedMotor;
   const selectedMotorFeedback = selectedMotor ? motorFeedback[selectedMotor.channel] : undefined;
+  const selectedMotorPinSummary = useMemo(() => formatMotorPinSummary(selectedMotor), [selectedMotor]);
   const [encoderAutoRefresh, setEncoderAutoRefresh] = useState(true);
   const [lastEncoderFeedbackAt, setLastEncoderFeedbackAt] = useState<number | null>(null);
   const [encoderObservation, setEncoderObservation] = useState<EncoderObservation>(() => createEncoderObservation(""));
@@ -285,7 +286,7 @@ export function MotorCommandPanel({
           <div className="preview-grid motor-debug-status-grid">
             <Metric label={t("metrics.aBoardBridge")} value={aBoardBridgeLabel} tone={aBoardBridgeTone} />
             <Metric className="frame-preview" code label={t("metrics.aBoardBridgeDetail")} value={aBoardBridgeDetail || "--"} />
-            <Metric className="frame-preview" code label={t("metrics.aBoardPins")} value="PD12 PWM / PA2 AIN1 / PA3 AIN2 / PI5 STBY / PA0 PA1 ENC / Pi 30/32/33 UART5" />
+            <Metric className="frame-preview" code label={t("metrics.aBoardPins")} value={selectedMotorPinSummary} />
           </div>
           {aBoardBridgeError && <p className="form-error">{aBoardBridgeError}</p>}
           <div className="encoder-diagnostic-panel">
@@ -534,6 +535,22 @@ function describeEncoderFeedback(feedback: MotorFeedback | undefined, observatio
 
 function formatEncoderLevel(value: number | undefined) {
   return value === undefined ? undefined : value ? "HIGH" : "LOW";
+}
+
+function formatMotorPinSummary(motor: MotorProfile | undefined): string {
+  if (!motor) {
+    return "--";
+  }
+
+  return [
+    `${motor.channel} ${motor.name}`,
+    `PWM ${motor.pwmPin || "--"}`,
+    `IN1 ${motor.in1Pin || "--"}`,
+    `IN2 ${motor.in2Pin || "--"}`,
+    `STBY ${motor.enablePin || "--"}`,
+    `ENC ${motor.encoderAPin || "--"}/${motor.encoderBPin || "--"}`,
+    "UART5 Pi 30/32/33"
+  ].join(" / ");
 }
 
 interface MotorMappingInputProps {

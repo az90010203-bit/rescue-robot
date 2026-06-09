@@ -108,19 +108,21 @@ export const ROBOT_ASSEMBLY_HARDWARE_TEMPLATES: HardwareTemplate[] = [
     id: "hardware.robomaster-a",
     kind: "robomaster-a",
     name: "RoboMaster Type A",
-    subtitle: "STM32 / UART5 / CAN1 / PWM",
+    subtitle: "STM32 / UART5 / 4x G513XL PWM",
     visualKind: "hardware-board",
-    w: 248,
-    h: 176,
+    w: 268,
+    h: 224,
     ports: [
       port("PD5_TX", "PD5 USART2_TX", "uart-tx", "out", "left", 0, 42),
       port("PD6_RX", "PD6 USART2_RX", "uart-rx", "in", "left", 0, 76),
       port("CAN1", "CAN1", "can", "bidirectional", "left", 0, 112),
-      port("PGND", "PGND", "ground", "power", "bottom", 56, 176, "0V", true),
-      port("PD12_PWM", "PD12 PWM", "pwm", "out", "right", 248, 42),
-      port("PA2_DIR", "PA2 DIR", "gpio", "out", "right", 248, 76),
-      port("PA3_DIR", "PA3 DIR", "gpio", "out", "right", 248, 110),
-      port("PI5_STBY", "PI5 STBY", "gpio", "out", "right", 248, 144)
+      port("PGND", "PGND", "ground", "power", "bottom", 56, 224, "0V", true),
+      port("M1_A", "A M1 PA0/PB0/PE12", "pwm", "out", "right", 268, 36),
+      port("M2_B", "B M2 PA1/PC2/PE6", "pwm", "out", "right", 268, 68),
+      port("M3_C", "C M3 PA2/PA4/PC1", "pwm", "out", "right", 268, 100),
+      port("M4_D", "D M4 PA3/PA5/PC5", "pwm", "out", "right", 268, 132),
+      port("PD12_STBY", "PD12 STBY", "gpio", "out", "right", 268, 164),
+      port("ENCODERS", "ENC PE4/PF0 PE5/PF1 PC0/PB1 PC4/PC3", "signal", "in", "right", 268, 196)
     ]
   },
   {
@@ -408,6 +410,9 @@ export function inferRobotAssemblyVisualKind(source: RobotAssemblySource, contex
   if (component.kind === "robot-arm") {
     return "robot-arm";
   }
+  if (component.kind === "mecanum-drive") {
+    return "mecanum-drive";
+  }
   return isTrackedBaseComponent(component, context.pluginInstances) ? "tracked-base" : "component";
 }
 
@@ -602,7 +607,7 @@ export function createDefaultActionButton(pluginInstances: PluginInstance[]): Ro
       label: "Move first servo",
       pluginInstanceId: firstServo.id,
       angleDeg: 90,
-      speedRaw: 600,
+      speedRaw: 300,
       acc: 30
     });
   }
@@ -707,8 +712,8 @@ function createNode(source: RobotAssemblySource, x: number, y: number, context: 
   }
   const visualKind = inferRobotAssemblyVisualKind(source, context);
   const template = source.sourceType === "hardware" ? hardwareTemplate(source.sourceId) : null;
-  const w = template?.w ?? (visualKind === "tracked-base" ? 240 : visualKind === "robot-arm" ? 230 : ROBOT_ASSEMBLY_NODE_WIDTH);
-  const h = template?.h ?? (visualKind === "tracked-base" ? 148 : ROBOT_ASSEMBLY_NODE_HEIGHT);
+  const w = template?.w ?? (visualKind === "tracked-base" || visualKind === "mecanum-drive" ? 240 : visualKind === "robot-arm" ? 230 : ROBOT_ASSEMBLY_NODE_WIDTH);
+  const h = template?.h ?? (visualKind === "tracked-base" || visualKind === "mecanum-drive" ? 148 : ROBOT_ASSEMBLY_NODE_HEIGHT);
   return {
     id,
     sourceType: source.sourceType,
@@ -738,8 +743,8 @@ function normalizeNode(
   }
   const template = sourceType === "hardware" ? hardwareTemplate(sourceId) : null;
   const visualKind = normalizeVisualKind(value.visualKind, inferRobotAssemblyVisualKind({ sourceType, sourceId }, context));
-  const w = clampInteger(value.w, 132, 340, template?.w ?? (visualKind === "tracked-base" ? 240 : ROBOT_ASSEMBLY_NODE_WIDTH));
-  const h = clampInteger(value.h, 88, 240, template?.h ?? (visualKind === "tracked-base" ? 148 : ROBOT_ASSEMBLY_NODE_HEIGHT));
+  const w = clampInteger(value.w, 132, 340, template?.w ?? (visualKind === "tracked-base" || visualKind === "mecanum-drive" ? 240 : ROBOT_ASSEMBLY_NODE_WIDTH));
+  const h = clampInteger(value.h, 88, 240, template?.h ?? (visualKind === "tracked-base" || visualKind === "mecanum-drive" ? 148 : ROBOT_ASSEMBLY_NODE_HEIGHT));
   const id = uniqueNodeId(cleanText(value.id, sourceNodeId(sourceType, sourceId)), seenNodeIds);
   return {
     id,
@@ -1058,7 +1063,7 @@ function defaultEdgeLabel(kind: string, from: RobotAssemblyPort, to: RobotAssemb
 }
 
 function normalizeVisualKind(value: unknown, fallback: RobotAssemblyVisualKind): RobotAssemblyVisualKind {
-  return value === "component" || value === "plugin" || value === "robot-arm" || value === "tracked-base" || value === "hardware-board" || value === "motor-driver" || value === "power-module" ? value : fallback;
+  return value === "component" || value === "plugin" || value === "robot-arm" || value === "tracked-base" || value === "mecanum-drive" || value === "hardware-board" || value === "motor-driver" || value === "power-module" ? value : fallback;
 }
 
 function normalizeHardwareKind(value: unknown, fallback?: RobotAssemblyHardwareKind): RobotAssemblyHardwareKind | undefined {

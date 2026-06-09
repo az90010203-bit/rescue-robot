@@ -162,6 +162,7 @@ export interface ArmLinkShapeSegment {
 }
 
 export interface ArmConfig {
+  baseDirectionDeg?: number;
   joints: ArmJointConfig[];
   liveDragEnabled: boolean;
   selectedJointId: string | null;
@@ -222,10 +223,10 @@ export type ValidationErrorKey =
 export const DEFAULT_SERVOS: ServoProfile[] = [normalizeServoProfile({ id: 22, name: "ID22" })];
 
 export const DEFAULT_MOTORS: MotorProfile[] = [
-  { channel: "M1", name: "RoboMaster A M1", pwmPin: "PD12", in1Pin: "PA2", in2Pin: "PA3", enablePin: "PI5", encoderAPin: "PA0", encoderBPin: "PA1" },
-  { channel: "M2", name: "Right Track", pwmPin: "D6", in1Pin: "D8", in2Pin: "D9", enablePin: "D10" },
-  { channel: "M3", name: "Mecanum Front Left" },
-  { channel: "M4", name: "Mecanum Front Right" },
+  { channel: "M1", name: "A 左前轮 WHEELTEC G513XL", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", encoderAPin: "PE4", encoderBPin: "PF0" },
+  { channel: "M2", name: "B 左后轮 WHEELTEC G513XL", pwmPin: "PA1", in1Pin: "PC2", in2Pin: "PE6", enablePin: "PD12", encoderAPin: "PE5", encoderBPin: "PF1" },
+  { channel: "M3", name: "C 右后轮 WHEELTEC G513XL", pwmPin: "PA2", in1Pin: "PA4", in2Pin: "PC1", enablePin: "PD12", encoderAPin: "PC0", encoderBPin: "PB1" },
+  { channel: "M4", name: "D 右前轮 WHEELTEC G513XL", pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", enablePin: "PD12", encoderAPin: "PC4", encoderBPin: "PC3" },
   { channel: "M5", name: "Mecanum Rear Left" },
   { channel: "M6", name: "Mecanum Rear Right" }
 ];
@@ -276,11 +277,11 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   panAngleDeg: 90,
   tiltAngleDeg: 90,
   stepDeg: 5,
-  speedRaw: 800,
+  speedRaw: 300,
   acc: 30
 };
 
-export const DEFAULT_LINKAGE_MEMBER_SPEED_RAW = 800;
+export const DEFAULT_LINKAGE_MEMBER_SPEED_RAW = 300;
 export const DEFAULT_LINKAGE_MEMBER_ACC = 30;
 export const DEFAULT_LINKAGE_WHEEL_TURNS_TARGET = 1;
 export const DEFAULT_ARM_JOINT_LENGTH_PX = 88;
@@ -419,6 +420,7 @@ export function saveServoLinkageGroups(groups: ServoLinkageGroup[], servos: Serv
 export function createDefaultArmConfig(servos: ServoProfile[]): ArmConfig {
   const joints = servos.slice(0, 3).map((servo, index) => createDefaultArmJoint(servo, index));
   return {
+    baseDirectionDeg: 0,
     joints,
     liveDragEnabled: false,
     selectedJointId: joints[0]?.id ?? null
@@ -468,11 +470,11 @@ export function armJointLocalEndDirectionDeg(joint: ArmJointConfig): number {
   return normalizeDegrees(radiansToDegrees(Math.atan2(-offset.y, offset.x)));
 }
 
-export function calculateArmSegmentPoses(joints: ArmJointConfig[], origin: ArmPoint = { x: 300, y: 250 }): ArmSegmentPose[] {
+export function calculateArmSegmentPoses(joints: ArmJointConfig[], origin: ArmPoint = { x: 300, y: 250 }, baseDirectionDeg = 0): ArmSegmentPose[] {
   const poses: ArmSegmentPose[] = [];
   let startX = origin.x;
   let startY = origin.y;
-  let parentFrameDeg = 0;
+  let parentFrameDeg = normalizeSignedDegrees(baseDirectionDeg);
 
   for (const joint of joints) {
     const relativeDeg = joint.angleDeg - joint.neutralDeg;
@@ -543,13 +545,11 @@ export function calculateArmDragAngle(options: {
   const baseAngleDeg = rawGlobalDeg - options.parentGlobalDeg - (options.localEndDirectionDeg ?? 0) + options.neutralDeg;
   const span = clamp(Number.isFinite(options.servoSpanDeg) ? options.servoSpanDeg : 0, 0, 360);
   const currentAngle = clamp(Number.isFinite(options.currentAngleDeg) ? options.currentAngleDeg! : options.neutralDeg, 0, span);
+  const clampedBaseAngle = clamp(baseAngleDeg, 0, span);
   const candidates = [-720, -360, 0, 360, 720]
     .map((offset) => baseAngleDeg + offset)
     .filter((angle) => angle >= 0 && angle <= span);
-
-  if (candidates.length === 0) {
-    return clamp(baseAngleDeg, 0, span);
-  }
+  candidates.push(clampedBaseAngle);
 
   return candidates.reduce((best, candidate) =>
     Math.abs(candidate - currentAngle) < Math.abs(best - currentAngle) ? candidate : best
@@ -847,6 +847,7 @@ export function normalizeArmConfig(value: unknown, servos: ServoProfile[]): ArmC
       : joints[0]?.id ?? null;
 
   return {
+    baseDirectionDeg: normalizeSignedDegrees(numberOrDefault(draft.baseDirectionDeg, 0)),
     joints,
     liveDragEnabled: draft.liveDragEnabled === true,
     selectedJointId

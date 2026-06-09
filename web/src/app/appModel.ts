@@ -46,7 +46,7 @@ export type TestPanel = "servo" | "motor" | "arm" | "arm3d" | "driveCamera" | "p
 export type ConnectionMode = "servo-bus" | "controller";
 export type ServoControlMode = "position" | "wheel";
 export type MotorTestBoard = "arduino" | "robomaster-a";
-export type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused";
+export type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused" | "unreachable";
 export type ServoSafetyDisplayState = "idle" | "monitoring" | "stopped";
 export type ArmTeachStatus = "idle" | "preparing" | "recording" | "stopped" | "playing" | "error";
 export type DatabaseSaveStatus = "loading" | "saving" | "saved" | "error" | "offline";
@@ -194,7 +194,7 @@ export const PI_SETUP_PROFILE_STORAGE_KEY = "rescue-robot.piSetupProfile.v1";
 export const defaultServoCommandState: ServoCommandState = {
   mode: "position",
   angleDeg: "90",
-  speedRaw: "800",
+  speedRaw: "300",
   acc: "30",
   liveDragEnabled: true,
   reverse: false,
@@ -221,6 +221,9 @@ export function servoMotionStatusLabel(status: ServoMotionDisplayStatus): string
   }
   if (status === "paused") {
     return "急停后空闲";
+  }
+  if (status === "unreachable") {
+    return "无响应";
   }
   return "空闲";
 }

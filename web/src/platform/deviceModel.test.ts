@@ -23,7 +23,7 @@ describe("platform device model", () => {
       firmwareBoard: "arduino-uno"
     });
 
-    expect(devices.map((device) => device.id)).toEqual(["servo:22", "motor:M1", "camera:main", "camera:secondary", "robot-arm:main", "pi:main", "firmware:local", "gamepad:active"]);
+    expect(devices.map((device) => device.id)).toEqual(["servo:22", "motor:M1", "camera:main", "camera:secondary", "robot-arm:main", "pi:main", "firmware:local", "gamepad:active", "ai-vision:local"]);
     expect(devices[0]).toMatchObject({
       type: "servo",
       driverId: "driver.feetech-servo",
@@ -56,6 +56,12 @@ describe("platform device model", () => {
       status: "offline",
       driverId: "driver.browser-gamepad",
       transportId: "transport.browser-gamepad-api"
+    });
+    expect(devices.find((device) => device.id === "ai-vision:local")).toMatchObject({
+      type: "ai-vision",
+      status: "offline",
+      driverId: "driver.ai-vision-helper",
+      transportId: "transport.local-helper"
     });
   });
 
@@ -102,5 +108,6 @@ describe("platform device model", () => {
         stop: true
       }
     });
+    expect(devices.find((device) => device.id === "ai-vision:local")?.status).toBe("offline");
   });
 });

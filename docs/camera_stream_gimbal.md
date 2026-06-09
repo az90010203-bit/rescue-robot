@@ -18,7 +18,9 @@ Browser UI
   -> pan/tilt servos
 ```
 
-The video stream and motion control are intentionally separate. Video frames never travel over USB serial. The Raspberry Pi only needs to expose MJPEG URLs on the same LAN as the browser.
+The video stream and motion control are intentionally separate. Video frames never travel over USB serial or through the local Pi helper. The Raspberry Pi only needs to expose MJPEG URLs on the same LAN as the browser.
+
+`pi-image/install-rescue-pi.sh` installs the persistent Pi HTTP bridges during image provisioning or first boot. `pi-helper.mjs` is only the SSH/SFTP management plane for setup, upload, camera start/stop/check, and manual bridge upgrade/repair. It schedules operations by resource so Pi management is serialized per host, camera management is serialized per host/port, and repeated pending camera checks keep the newest request. Real-time motor and servo traffic uses the persistent Pi HTTP bridges instead of SSH. A-board motor/mecanum/CAN-servo control goes through `http://<pi-host>:17353/command` as semantic JSON; the Type A firmware handles closed loop, mecanum mixing, CAN frame details, and latest-wins motion dropping.
 
 ## Browser Configuration
 

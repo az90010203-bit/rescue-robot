@@ -1,6 +1,5 @@
 
 @media (max-width: 620px) {
-  .system-strip,
   .servo-command-grid,
   .arm-editor-grid,
   .arm-status-strip,
@@ -141,10 +140,17 @@
 
   .context-tabs {
     flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .context-test-actions {
+    flex-wrap: wrap;
   }
 
   .context-tabs .module-tab {
     min-width: min(100%, 142px);
+    min-height: 36px;
+    flex: 1 1 142px;
   }
 
   .drive-page-panel .camera-viewer {

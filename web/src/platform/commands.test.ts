@@ -11,8 +11,11 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("servo.ping", "servo:22"))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("servo.set_torque", "servo:22", { enabled: true }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 23, confirmSingleServo: true }))).toBeNull();
-    expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 45, stopMode: "brake" }))).toBeNull();
-    expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 45, stopMode: "brake", closedLoop: true, targetRpm: 1200 }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 0.4, strafe: 0.2, turn: -0.1, speedLimitPercent: 70, stopMode: "brake" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.stop", "mecanum-drive:base", { stopMode: "brake" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90, servo2: 45 }, speedRaw: 300 }))).toBeNull();
   });
 
   it("rejects unknown targets and missing payload", () => {
@@ -30,6 +33,10 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 22, confirmSingleServo: true }))).toBe("servo.set_id newId must be different from current ID");
     expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 23 }))).toBe("servo.set_id requires confirming only one servo is connected");
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 101 }))).toBe("motor.set_speed speedPercent must be from -100 to 100");
+    expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 10, targetRpm: 0 }))).toBe("motor.set_speed targetRpm must be an integer from 1 to 30000");
+    expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", encoderTicksPerRev: -1 }))).toBe("motor.configure encoderTicksPerRev must be an integer from 1 to 100000");
+    expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 2, strafe: 0, turn: 0 }))).toBe("mecanum-drive.set_velocity forward must be from -1 to 1");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 400 } }))).toBe("can-servo-group.set_positions servo1 must be from 0 to 360");
   });
 
   it("resolves target capability from device id", () => {
@@ -45,6 +52,18 @@ describe("platform commands", () => {
       deviceId: "firmware:local",
       capability: "firmware"
     });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("ai-vision.helper.check", "ai-vision:local"))).toEqual({
+      deviceId: "ai-vision:local",
+      capability: "ai-vision"
+    });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("mecanum-drive.stop", "mecanum-drive:base"))).toEqual({
+      deviceId: "mecanum-drive:base",
+      capability: "mecanum-drive"
+    });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90 } }))).toEqual({
+      deviceId: "can-servo-group:claw",
+      capability: "can-servo-group"
+    });
   });
 
   it("accepts platform commands for camera, arm, raspberry pi, and firmware", () => {
@@ -52,6 +71,9 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("robot-arm.set_pose", "robot-arm:main", { joints: [] }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("pi.exec", "pi:main", { command: "python3 main.py" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("firmware.upload", "firmware:local", { port: "COM6" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("ai-vision.helper.check", "ai-vision:local"))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("ai-vision.analyze", "ai-vision:local", { sourceId: "main", streamUrl: "http://127.0.0.1:8080/stream" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("ai-vision.samples.capture", "ai-vision:local", { sourceId: "main", streamUrl: "http://127.0.0.1:8080/stream", label: "competition_mannequin" }))).toBeNull();
   });
 
   it("rejects incomplete platform commands for new capabilities", () => {
@@ -59,6 +81,9 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("robot-arm.set_pose", "robot-arm:main"))).toBe("robot-arm.set_pose requires joints");
     expect(validatePlatformCommand(createPlatformCommand("pi.upload_file", "pi:main"))).toBe("pi.upload_file requires file");
     expect(validatePlatformCommand(createPlatformCommand("firmware.upload", "firmware:local"))).toBe("firmware.upload requires port");
+    expect(validatePlatformCommand(createPlatformCommand("ai-vision.analyze", "ai-vision:local", { sourceId: "main" }))).toBe("ai-vision.analyze requires streamUrl");
+    expect(validatePlatformCommand(createPlatformCommand("ai-vision.samples.capture", "ai-vision:local", { sourceId: "main", streamUrl: "http://127.0.0.1:8080/stream", label: "" }))).toBe("ai-vision.samples.capture label must be a non-empty string");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw"))).toBe("can-servo-group.set_positions requires positions");
   });
 
   it("generates stable command event names", () => {

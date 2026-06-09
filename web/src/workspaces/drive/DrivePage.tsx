@@ -15,11 +15,14 @@ import {
 } from "@adapters/persistence/storage";
 import { CameraFeeds } from "@domains/camera/CameraFeeds";
 import type { CameraSourceRuntimeStatus } from "@domains/camera/cameraSources";
+import { AiVisionPanel } from "@domains/ai-vision/AiVisionPanel";
+import type { useAiVisionRuntime } from "@domains/ai-vision/useAiVisionRuntime";
 
 interface DrivePageProps {
   activeDriveBase: "tracked" | "mecanum";
   activeCameraSource: CameraVideoSource;
   activeGamepad: { index: number } | null;
+  aiVision: ReturnType<typeof useAiVisionRuntime>;
   cameraCanCommand: boolean;
   cameraConfig: CameraConfig;
   cameraConfigError: string | null;
@@ -64,6 +67,7 @@ export function DrivePage({
   activeDriveBase,
   activeCameraSource,
   activeGamepad,
+  aiVision,
   cameraCanCommand,
   cameraConfig,
   cameraConfigError,
@@ -160,6 +164,13 @@ export function DrivePage({
             updateCameraVideoLayout={updateCameraVideoLayout}
           />
           <PiCameraCard activeCameraSource={activeCameraSource} cameraStreamUrl={cameraStreamUrl} runtime={piRemote} t={t} />
+          <AiVisionPanel
+            activeCameraSource={activeCameraSource}
+            cameraVideoSources={cameraVideoSources}
+            runtime={aiVision}
+            t={t}
+            updateCameraActiveSource={updateCameraActiveSource}
+          />
         </section>
 
         <section className="drive-page-controller" aria-labelledby="drive-controller-title">

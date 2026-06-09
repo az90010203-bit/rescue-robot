@@ -2,6 +2,7 @@ export {
   BUILTIN_PLATFORM_PLUGINS,
   BUILTIN_PLUGIN_PACKAGES,
   BUILTIN_UI_PANELS,
+  aiVisionPackage,
   asmeCanServoPackage,
   browserCameraPackage,
   browserGamepadPackage,

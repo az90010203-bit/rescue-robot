@@ -1,0 +1,207 @@
+.console-diagnostic-layout {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
+.console-diagnostic-layout .console-page-panel {
+  grid-column: auto;
+}
+
+.console-diagnostic-agent {
+  position: sticky;
+  top: 16px;
+}
+
+.diagnostic-agent-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostic-agent-panel.collapsed {
+  padding-bottom: 12px;
+}
+
+.diagnostic-agent-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 10px;
+  align-items: center;
+}
+
+.diagnostic-agent-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diagnostic-agent-status span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: var(--slate);
+  background: var(--panel-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.diagnostic-agent-status span.online {
+  color: var(--green);
+  border-color: rgba(27, 166, 115, 0.24);
+  background: var(--green-soft);
+}
+
+.diagnostic-agent-status span.warning {
+  color: var(--orange);
+  border-color: rgba(201, 119, 0, 0.24);
+  background: var(--orange-soft);
+}
+
+.diagnostic-agent-toolbar,
+.diagnostic-agent-compose {
+  display: flex;
+  gap: 8px;
+}
+
+.diagnostic-agent-toolbar .icon-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.diagnostic-agent-thread {
+  max-height: 430px;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.diagnostic-agent-message {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.diagnostic-agent-message.user {
+  border-color: rgba(20, 86, 240, 0.22);
+  background: #f8fbff;
+}
+
+.diagnostic-agent-message p {
+  margin: 0;
+  color: var(--slate);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.diagnostic-agent-issues,
+.diagnostic-agent-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostic-agent-issue,
+.diagnostic-agent-action {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px;
+  background: var(--panel-soft);
+}
+
+.diagnostic-agent-issue.danger {
+  border-color: rgba(212, 86, 86, 0.24);
+  background: var(--red-soft);
+}
+
+.diagnostic-agent-issue.warning {
+  border-color: rgba(201, 119, 0, 0.24);
+  background: var(--orange-soft);
+}
+
+.diagnostic-agent-issue.info {
+  border-color: rgba(27, 166, 115, 0.22);
+  background: var(--green-soft);
+}
+
+.diagnostic-agent-issue strong,
+.diagnostic-agent-action strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.diagnostic-agent-issue span,
+.diagnostic-agent-action span {
+  color: var(--steel);
+  font-size: 0.78rem;
+  line-height: 1.38;
+}
+
+.diagnostic-agent-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.diagnostic-agent-evidence code {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 5px;
+  color: var(--charcoal);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-agent-action {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.diagnostic-agent-action.low {
+  border-color: rgba(20, 86, 240, 0.18);
+}
+
+.diagnostic-agent-action.confirm,
+.diagnostic-agent-action.blocked {
+  opacity: 0.86;
+}
+
+.diagnostic-agent-action .icon-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.78rem;
+}
+
+.diagnostic-agent-compose textarea {
+  min-height: 46px;
+  resize: vertical;
+}
+
+.diagnostic-agent-compose .icon-only {
+  align-self: stretch;
+}
+
+@media (max-width: 1180px) {
+  .console-diagnostic-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .console-diagnostic-agent {
+    position: static;
+  }
+}

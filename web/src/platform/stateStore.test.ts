@@ -42,6 +42,13 @@ describe("platform state store", () => {
       selectedFirmwarePort: "COM6",
       firmwareStatus: "compiled",
       firmwareHexSizeBytes: 1024,
+      aiVisionHelperReady: true,
+      aiVisionMode: "sample-only",
+      aiVisionDetectionCount: 1,
+      aiVisionLastLabel: "competition_mannequin",
+      aiVisionLastConfidence: 0.72,
+      aiVisionLastCapturePath: "C:/samples/main.jpg",
+      aiVisionSourceId: "main",
       activeGamepad: {
         index: 0,
         id: "Xbox Wireless Controller",
@@ -115,6 +122,18 @@ describe("platform state store", () => {
         stop: false
       }
     });
+    expect(state["ai-vision:local"]).toMatchObject({
+      status: "online",
+      values: {
+        helperReady: true,
+        mode: "sample-only",
+        sourceId: "main",
+        detectionCount: 1,
+        lastLabel: "competition_mannequin",
+        lastConfidence: 0.72,
+        lastCapturePath: "C:/samples/main.jpg"
+      }
+    });
   });
 
   it("includes serial connection state even without telemetry", () => {
@@ -145,5 +164,6 @@ describe("platform state store", () => {
         id: null
       }
     });
+    expect(state["ai-vision:local"].status).toBe("offline");
   });
 });

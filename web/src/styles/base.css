@@ -191,7 +191,7 @@ h2 {
 .topbar-status-area {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 0.76fr) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: stretch;
 }
@@ -199,7 +199,7 @@ h2 {
 .header-connection-strip {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
 }
 
@@ -275,12 +275,6 @@ h2 {
   padding: 6px 8px;
   font-size: 0.74rem;
   font-weight: 720;
-}
-
-.system-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
 }
 
 .status-card {

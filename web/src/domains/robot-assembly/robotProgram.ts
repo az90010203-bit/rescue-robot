@@ -82,6 +82,7 @@ export interface RobotProgramBlockOptions {
   motors: RobotProgramBlockOption[];
   servos: RobotProgramBlockOption[];
   armComponents: RobotProgramBlockOption[];
+  mecanumDrives: RobotProgramBlockOption[];
   cameras: RobotProgramBlockOption[];
   conditionDevices: RobotProgramBlockOption[];
 }
@@ -89,6 +90,7 @@ export interface RobotProgramBlockOptions {
 export const ROBOT_PROGRAM_BLOCK_FIELDS: Record<string, string[]> = {
   robot_motor_set: ["PLUGIN", "SPEED", "STOP_MODE"],
   robot_motor_stop: ["PLUGIN", "STOP_MODE"],
+  robot_mecanum_drive: ["COMPONENT", "FORWARD", "STRAFE", "TURN", "SPEED", "DURATION", "STOP_MODE"],
   robot_servo_move: ["PLUGIN", "ANGLE", "SPEED", "ACC"],
   robot_arm_pose: ["COMPONENT"],
   robot_camera_gimbal: ["TARGET", "PAN", "TILT"],
@@ -149,6 +151,10 @@ export function createRobotProgramBlockOptions(context: RobotAssemblyContext): R
     .map((componentId) => context.components.find((component) => component.id === componentId))
     .filter((component): component is ComponentDefinition => Boolean(component && component.kind === "robot-arm"))
     .map((component) => option(component.name, component.id));
+  const mecanumDrives = context.robot.componentIds
+    .map((componentId) => context.components.find((component) => component.id === componentId))
+    .filter((component): component is ComponentDefinition => Boolean(component && component.kind === "mecanum-drive"))
+    .map((component) => option(component.name, component.id));
   const cameras = effectivePlugins
     .filter((plugin) => plugin.type === "camera")
     .map((plugin) => option(plugin.name, "camera:main"));
@@ -156,6 +162,7 @@ export function createRobotProgramBlockOptions(context: RobotAssemblyContext): R
     ...motors.map((item) => option(`Motor ${item.label}`, deviceIdForPluginValue(item.value, context.pluginInstances))),
     ...servos.map((item) => option(`Servo ${item.label}`, deviceIdForPluginValue(item.value, context.pluginInstances))),
     ...armComponents.map((item) => option(`Arm ${item.label}`, `robot-arm:${item.value}`)),
+    ...mecanumDrives.map((item) => option(`Mecanum ${item.label}`, `mecanum-drive:${item.value}`)),
     option("Raspberry Pi", "pi:main"),
     option("Main camera", "camera:main")
   ].filter((item) => item.value.trim());
@@ -164,6 +171,7 @@ export function createRobotProgramBlockOptions(context: RobotAssemblyContext): R
     motors: withEmptyOption(motors, "No motor"),
     servos: withEmptyOption(servos, "No servo"),
     armComponents: withEmptyOption(armComponents, "No robot arm"),
+    mecanumDrives: withEmptyOption(mecanumDrives, "No mecanum drive"),
     cameras: withEmptyOption(dedupeOptions(cameras.length > 0 ? cameras : [option("Main camera", "camera:main")]), "No camera"),
     conditionDevices: withEmptyOption(dedupeOptions(conditionDevices), "No device")
   };
@@ -244,6 +252,15 @@ export function createRobotProgramRuntimeState(context: RobotAssemblyContext, st
         status: "standby",
         values: {
           jointCount: currentArmConfigForComponent(component, context.pluginInstances).joints.length
+        },
+        updatedAt
+      };
+    } else if (component?.kind === "mecanum-drive") {
+      state[`mecanum-drive:${component.id}`] = {
+        deviceId: `mecanum-drive:${component.id}`,
+        status: "standby",
+        values: {
+          motorCount: component.pluginInstanceIds.length
         },
         updatedAt
       };
@@ -389,6 +406,42 @@ function compileBlock(
     const stopMode = stopModeField(block);
     return [commandInstruction(block, `${plugin.name} stop ${stopMode}`, createPlatformCommand("motor.stop", pluginInstanceDeviceId(plugin), { stopMode }))];
   }
+  if (block.type === "robot_mecanum_drive") {
+    const component = mecanumComponentById(context, stringField(block.fields?.COMPONENT, ""));
+    if (!component) {
+      issues.push({ severity: "error", message: "Mecanum drive block requires a valid mecanum-drive component.", blockId: block.id });
+      return [];
+    }
+    const forward = clamp(numberField(block, "FORWARD", 0), -1, 1);
+    const strafe = clamp(numberField(block, "STRAFE", 0), -1, 1);
+    const turn = clamp(numberField(block, "TURN", 0), -1, 1);
+    const speedLimitPercent = clamp(Math.round(numberField(block, "SPEED", 60)), 0, 100);
+    const durationMs = clampInteger(numberField(block, "DURATION", 0), 0, 60_000, 0);
+    const stopMode = stopModeField(block);
+    const setVelocity = commandInstruction(
+      block,
+      `${component.name} mecanum f${forward} s${strafe} r${turn} @ ${speedLimitPercent}%`,
+      createPlatformCommand("mecanum-drive.set_velocity", `mecanum-drive:${component.id}`, {
+        forward,
+        strafe,
+        turn,
+        speedLimitPercent,
+        stopMode
+      })
+    );
+    if (durationMs <= 0) {
+      return [setVelocity];
+    }
+    return [
+      setVelocity,
+      { id: `${block.id}:duration`, kind: "delay", label: `Wait ${durationMs} ms`, ms: durationMs },
+      commandInstruction(
+        { id: `${block.id}:stop` },
+        `${component.name} mecanum stop ${stopMode}`,
+        createPlatformCommand("mecanum-drive.stop", `mecanum-drive:${component.id}`, { stopMode })
+      )
+    ];
+  }
   if (block.type === "robot_servo_move") {
     const plugin = pluginById(context, stringField(block.fields?.PLUGIN, ""), "servo");
     if (!plugin) {
@@ -508,6 +561,14 @@ function emergencyStopCommands(block: RobotProgramBlockSnapshot, context: RobotA
         createPlatformCommand("robot-arm.pause", `robot-arm:${component.id}`, { joints: config.joints, servos })
       ));
     }
+    const mecanumComponent = mecanumComponentById(context, componentId);
+    if (mecanumComponent) {
+      instructions.push(commandInstruction(
+        { ...block, id: `${block.id}:mecanum:${mecanumComponent.id}` },
+        `${mecanumComponent.name} emergency stop`,
+        createPlatformCommand("mecanum-drive.stop", `mecanum-drive:${mecanumComponent.id}`, { stopMode: "brake" })
+      ));
+    }
   }
   return instructions;
 }
@@ -558,6 +619,11 @@ function pluginById(context: RobotAssemblyContext, pluginId: string, type: Plugi
 function armComponentById(context: RobotAssemblyContext, componentId: string): ComponentDefinition | null {
   const component = context.components.find((item) => item.id === componentId && context.robot.componentIds.includes(item.id));
   return component?.kind === "robot-arm" ? component : null;
+}
+
+function mecanumComponentById(context: RobotAssemblyContext, componentId: string): ComponentDefinition | null {
+  const component = context.components.find((item) => item.id === componentId && context.robot.componentIds.includes(item.id));
+  return component?.kind === "mecanum-drive" ? component : null;
 }
 
 function deviceIdForPluginValue(pluginId: string, pluginInstances: PluginInstance[]): string {

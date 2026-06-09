@@ -157,7 +157,7 @@ export const DEFAULT_SERVO_SAFETY_SETTINGS: ServoSafetySettings = {
 const DEFAULT_SERVO_COMMAND_STATE: PersistedServoCommandState = {
   mode: "position",
   angleDeg: "90",
-  speedRaw: "800",
+  speedRaw: "300",
   acc: "30",
   liveDragEnabled: true,
   reverse: false,

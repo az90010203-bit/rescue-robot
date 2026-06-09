@@ -159,7 +159,7 @@ export function PlatformPanels({
                 </label>
                 <label>
                   <span>{t("platform.labels.speed")}</span>
-                  <input type="number" min={0} max={4095} step={1} value={String(selectedPlatformControlDraft.speedRaw ?? 800)} onChange={(event) => updatePlatformControlDraft(device.id, "speedRaw", event.target.value)} />
+                  <input type="number" min={0} max={4095} step={1} value={String(selectedPlatformControlDraft.speedRaw ?? 300)} onChange={(event) => updatePlatformControlDraft(device.id, "speedRaw", event.target.value)} />
                 </label>
                 <label className="checkbox-field platform-control-toggle">
                   <input type="checkbox" checked={Boolean(selectedPlatformControlDraft.enabled ?? true)} onChange={(event) => updatePlatformControlDraft(device.id, "enabled", event.target.checked)} />

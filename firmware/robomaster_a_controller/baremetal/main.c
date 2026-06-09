@@ -9,13 +9,13 @@
 
 #define GPIOA_BASE 0x40020000u
 #define GPIOB_BASE 0x40020400u
+#define GPIOC_BASE 0x40020800u
 #define GPIOD_BASE 0x40020C00u
 #define GPIOE_BASE 0x40021000u
 #define GPIOF_BASE 0x40021400u
 #define GPIOG_BASE 0x40021800u
 #define GPIOI_BASE 0x40022000u
-#define TIM2_BASE 0x40000000u
-#define TIM4_BASE 0x40000800u
+#define TIM5_BASE 0x40000C00u
 #define CAN1_BASE 0x40006400u
 #define USART2_BASE 0x40004400u
 #define SPI5_BASE 0x40015000u
@@ -33,11 +33,15 @@
 #define TIM_SMCR(base) (*(volatile uint32_t *)((base) + 0x08u))
 #define TIM_EGR(base) (*(volatile uint32_t *)((base) + 0x14u))
 #define TIM_CCMR1(base) (*(volatile uint32_t *)((base) + 0x18u))
+#define TIM_CCMR2(base) (*(volatile uint32_t *)((base) + 0x1Cu))
 #define TIM_CCER(base) (*(volatile uint32_t *)((base) + 0x20u))
 #define TIM_CNT(base) (*(volatile uint32_t *)((base) + 0x24u))
 #define TIM_PSC(base) (*(volatile uint32_t *)((base) + 0x28u))
 #define TIM_ARR(base) (*(volatile uint32_t *)((base) + 0x2Cu))
 #define TIM_CCR1(base) (*(volatile uint32_t *)((base) + 0x34u))
+#define TIM_CCR2(base) (*(volatile uint32_t *)((base) + 0x38u))
+#define TIM_CCR3(base) (*(volatile uint32_t *)((base) + 0x3Cu))
+#define TIM_CCR4(base) (*(volatile uint32_t *)((base) + 0x40u))
 
 #define USART_SR(base) (*(volatile uint32_t *)((base) + 0x00u))
 #define USART_DR(base) (*(volatile uint32_t *)((base) + 0x04u))
@@ -75,6 +79,7 @@
 #define SYST_CVR (*(volatile uint32_t *)0xE000E018u)
 
 #define PWM_PERIOD_COUNTS 799u
+#define MOTOR_COUNT 4u
 #define ENCODER_PPR 13u
 #define ENCODER_QUADRATURE_MULTIPLIER 4u
 #define ENCODER_TICKS_PER_REV_DEFAULT (ENCODER_PPR * ENCODER_QUADRATURE_MULTIPLIER)
@@ -92,6 +97,18 @@
 #define CAN_MAX_DLC 8u
 #define CAN_TX_TIMEOUT_MS 30u
 #define CAN_STATUS_RX_DRAIN_MAX 8u
+#define MOTION_APPLY_INTERVAL_MS 20u
+#define ASMG_MD_HOST_EXTENDED_ID 0x18EF0201u
+#define ASMG_MD_BROADCAST_ID 0xFEu
+#define ASMG_MD_POSITION_MIN 0x0000
+#define ASMG_MD_POSITION_MAX 0x7FFF
+#define ASMG_MD_SPEED_MIN 0x0000
+#define ASMG_MD_SPEED_MAX 0x0500
+#define ASMG_MD_CENTER_RATIO_MIN 0x0000
+#define ASMG_MD_CENTER_RATIO_MAX 0x03E8
+#define ASMG_MD_BAUD_250_CODE 0u
+#define ASMG_MD_BAUD_500_CODE 1u
+#define ASMG_MD_BAUD_1000_CODE 2u
 #define MPU_WHO_AM_I_REG 0x75u
 #define MPU_PWR_MGMT_1_REG 0x6Bu
 #define MPU_CONFIG_REG 0x1Au
@@ -131,13 +148,94 @@ typedef struct {
   uint32_t sample_ms;
 } ImuSample;
 
+typedef struct {
+  const char *channel;
+  uint32_t pwm_channel;
+  uintptr_t in1_port;
+  uint32_t in1_pin;
+  uintptr_t in2_port;
+  uint32_t in2_pin;
+  uintptr_t encoder_a_port;
+  uint32_t encoder_a_pin;
+  uintptr_t encoder_b_port;
+  uint32_t encoder_b_pin;
+} MotorPins;
+
+typedef struct {
+  uint32_t configured;
+  int32_t commanded_speed_percent;
+  uint32_t duty_percent;
+  const char *direction;
+  const char *stop_mode;
+  uint32_t encoder_sample_valid;
+  int32_t last_encoder_ticks;
+  uint32_t last_encoder_ms;
+  uint32_t pulse_hz;
+  int32_t encoder_delta;
+  const char *encoder_direction;
+  uint32_t encoder_ticks_per_rev;
+  uint32_t speed_rpm;
+  uint32_t closed_loop_enabled;
+  uint32_t closed_loop_max_rpm;
+  uint32_t closed_loop_last_ms;
+  int32_t target_rpm;
+  int32_t control_error_rpm;
+  int32_t control_integral_rpm;
+  uint32_t control_duty_percent;
+  int32_t encoder_ticks;
+  uint32_t encoder_last_state;
+} MotorRuntime;
+
+typedef enum {
+  MOTION_NONE = 0,
+  MOTION_MOTOR_TARGET = 1,
+  MOTION_MECANUM_TARGET = 2,
+  MOTION_CAN_SERVO_MOVE = 3
+} PendingMotionKind;
+
+typedef struct {
+  PendingMotionKind kind;
+  int32_t seq;
+  int32_t motor_index;
+  int32_t speed_percent;
+  char stop_mode[8];
+  uint32_t closed_loop;
+  uint32_t closed_loop_set;
+  int32_t target_rpm;
+  int32_t forward_milli;
+  int32_t strafe_milli;
+  int32_t turn_milli;
+  int32_t speed_limit_percent;
+  int32_t can_servo_id;
+  int32_t can_servo_position;
+  int32_t can_servo_speed;
+} PendingMotion;
+
 static volatile uint32_t g_ms;
 
+static const MotorPins motor_pins[MOTOR_COUNT] = {
+  { "M1", 1u, GPIOB_BASE, 0u, GPIOE_BASE, 12u, GPIOE_BASE, 4u, GPIOF_BASE, 0u },
+  { "M2", 2u, GPIOC_BASE, 2u, GPIOE_BASE, 6u, GPIOE_BASE, 5u, GPIOF_BASE, 1u },
+  { "M3", 3u, GPIOA_BASE, 4u, GPIOC_BASE, 1u, GPIOC_BASE, 0u, GPIOB_BASE, 1u },
+  { "M4", 4u, GPIOA_BASE, 5u, GPIOC_BASE, 5u, GPIOC_BASE, 4u, GPIOC_BASE, 3u }
+};
+
+static MotorRuntime motors[MOTOR_COUNT];
+static PendingMotion pending_motion;
+static uint32_t motion_pending;
+static uint32_t dropped_motion_count;
+static int32_t latest_motion_seq = -1;
+static uint32_t last_motion_apply_ms;
+static const char *active_command = "idle";
+static int32_t mecanum_direction[MOTOR_COUNT] = { 1, 1, 1, 1 };
+static uint32_t mecanum_closed_loop = 1;
+static uint32_t mecanum_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
+static uint32_t mecanum_encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
+static const uint32_t mecanum_channel_map[MOTOR_COUNT] = { 0, 1, 2, 3 };
 static uint32_t system_core_hz = 16000000u;
-static uint32_t configured;
 static uint32_t debug_enabled;
 static uint32_t can_ready;
-static uint32_t can_bitrate_kbps = 1000;
+static uint32_t can_bitrate_kbps = 250;
 static uint32_t can_tx_ok;
 static uint32_t can_tx_error;
 static uint32_t can_tx_timeout;
@@ -145,25 +243,6 @@ static uint32_t imu_initialized;
 static uint32_t imu_ready;
 static uint32_t imu_mpu_whoami;
 static uint32_t imu_ist_whoami;
-static int32_t commanded_speed_percent;
-static uint32_t duty_percent;
-static const char *direction = "stopped";
-static const char *stop_mode = "coast";
-static uint32_t encoder_sample_valid;
-static int32_t last_encoder_ticks;
-static uint32_t last_encoder_ms;
-static uint32_t pulse_hz;
-static int32_t encoder_delta;
-static const char *encoder_direction = "stopped";
-static uint32_t encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
-static uint32_t speed_rpm;
-static uint32_t closed_loop_enabled = 1;
-static uint32_t closed_loop_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
-static uint32_t closed_loop_last_ms;
-static int32_t target_rpm;
-static int32_t control_error_rpm;
-static int32_t control_integral_rpm;
-static uint32_t control_duty_percent;
 
 void SysTick_Handler(void) {
   g_ms++;
@@ -208,6 +287,12 @@ static void gpio_output(uintptr_t port, uint32_t pin) {
   GPIO_OTYPER(port) &= ~(1u << pin);
   GPIO_OSPEEDR(port) = (GPIO_OSPEEDR(port) & ~(3u << shift)) | (2u << shift);
   GPIO_PUPDR(port) &= ~(3u << shift);
+}
+
+static void gpio_input_pullup(uintptr_t port, uint32_t pin) {
+  const uint32_t shift = pin * 2u;
+  GPIO_MODER(port) &= ~(3u << shift);
+  GPIO_PUPDR(port) = (GPIO_PUPDR(port) & ~(3u << shift)) | (1u << shift);
 }
 
 static void gpio_alt(uintptr_t port, uint32_t pin, uint32_t af, uint32_t pull) {
@@ -611,6 +696,20 @@ static int32_t clamp_i32(int32_t value, int32_t min, int32_t max) {
   return value;
 }
 
+static int32_t abs_i32(int32_t value) {
+  return value < 0 ? -value : value;
+}
+
+static int32_t divide_round_i32(int32_t numerator, int32_t denominator) {
+  if (denominator <= 0) {
+    return 0;
+  }
+  if (numerator >= 0) {
+    return (numerator + denominator / 2) / denominator;
+  }
+  return -((-numerator + denominator / 2) / denominator);
+}
+
 static uint32_t json_int_or(const char *json, const char *key, int32_t *out, int32_t fallback) {
   if (json_int(json, key, out)) {
     return 1;
@@ -619,54 +718,143 @@ static uint32_t json_int_or(const char *json, const char *key, int32_t *out, int
   return 0;
 }
 
-static uint32_t channel_is_m1(const char *json) {
-  char channel[8];
-  if (!json_string(json, "channel", channel, sizeof(channel))) {
+static uint32_t json_milli_or(const char *json, const char *key, int32_t *out, int32_t fallback) {
+  const char *value = find_key(json, key);
+  int32_t sign = 1;
+  int32_t whole = 0;
+  int32_t frac = 0;
+  int32_t scale = 100;
+  uint32_t found = 0;
+  if (!value) {
+    *out = fallback;
     return 0;
   }
-  return str_eq(channel, "M1") || str_eq(channel, "m1");
+  if (*value == '-') {
+    sign = -1;
+    value++;
+  }
+  while (*value >= '0' && *value <= '9') {
+    whole = whole * 10 + (*value - '0');
+    found = 1;
+    value++;
+  }
+  if (*value == '.') {
+    value++;
+    while (*value >= '0' && *value <= '9' && scale > 0) {
+      frac += (*value - '0') * scale;
+      scale /= 10;
+      found = 1;
+      value++;
+    }
+  }
+  if (!found) {
+    *out = fallback;
+    return 0;
+  }
+  *out = sign * ((whole * 1000) + frac);
+  return 1;
 }
 
-static void motor_pwm(uint32_t duty_counts) {
+static int32_t motor_index_from_channel(const char *channel) {
+  if ((channel[0] == 'M' || channel[0] == 'm') && channel[1] >= '1' && channel[1] <= '4' && channel[2] == 0) {
+    return (int32_t)(channel[1] - '1');
+  }
+  return -1;
+}
+
+static int32_t motor_index_from_json(const char *json) {
+  char channel[8];
+  if (!json_string(json, "channel", channel, sizeof(channel))) {
+    return -1;
+  }
+  return motor_index_from_channel(channel);
+}
+
+static void motor_pwm(uint32_t index, uint32_t duty_counts) {
+  if (index >= MOTOR_COUNT) {
+    return;
+  }
   if (duty_counts > PWM_PERIOD_COUNTS) {
     duty_counts = PWM_PERIOD_COUNTS;
   }
-  TIM_CCR1(TIM4_BASE) = duty_counts;
+  switch (motor_pins[index].pwm_channel) {
+    case 1u:
+      TIM_CCR1(TIM5_BASE) = duty_counts;
+      break;
+    case 2u:
+      TIM_CCR2(TIM5_BASE) = duty_counts;
+      break;
+    case 3u:
+      TIM_CCR3(TIM5_BASE) = duty_counts;
+      break;
+    case 4u:
+      TIM_CCR4(TIM5_BASE) = duty_counts;
+      break;
+    default:
+      break;
+  }
 }
 
-static void motor_pwm_percent(uint32_t percent) {
+static void motor_pwm_percent(uint32_t index, uint32_t percent) {
   if (percent > 100u) {
     percent = 100u;
   }
-  duty_percent = percent;
-  control_duty_percent = percent;
-  motor_pwm((percent * PWM_PERIOD_COUNTS + 50u) / 100u);
+  motors[index].duty_percent = percent;
+  motors[index].control_duty_percent = percent;
+  motor_pwm(index, (percent * PWM_PERIOD_COUNTS + 50u) / 100u);
 }
 
-static void apply_motor_stop(const char *mode) {
-  duty_percent = 0;
-  control_duty_percent = 0;
-  commanded_speed_percent = 0;
-  target_rpm = 0;
-  control_error_rpm = 0;
-  control_integral_rpm = 0;
-  closed_loop_last_ms = 0;
-  direction = "stopped";
-  stop_mode = str_eq(mode, "brake") ? "brake" : "coast";
-  gpio_high(GPIOI_BASE, 5);
-  motor_pwm(0);
-  if (str_eq(stop_mode, "brake")) {
-    gpio_high(GPIOA_BASE, 2);
-    gpio_high(GPIOA_BASE, 3);
-  } else {
-    gpio_low(GPIOA_BASE, 2);
-    gpio_low(GPIOA_BASE, 3);
+static void update_motor_leds(void) {
+  uint32_t forward = 0;
+  uint32_t reverse = 0;
+  for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+    if (motors[index].commanded_speed_percent > 0) {
+      forward = 1;
+    } else if (motors[index].commanded_speed_percent < 0) {
+      reverse = 1;
+    }
   }
-  led_green(0);
-  led_red(0);
+  led_green(forward);
+  led_red(reverse);
 }
 
-static void apply_motor_speed(int32_t speed, const char *mode) {
+static void apply_motor_stop(uint32_t index, const char *mode) {
+  MotorRuntime *state;
+  const MotorPins *pins;
+  if (index >= MOTOR_COUNT) {
+    return;
+  }
+  state = &motors[index];
+  pins = &motor_pins[index];
+  state->duty_percent = 0;
+  state->control_duty_percent = 0;
+  state->commanded_speed_percent = 0;
+  state->target_rpm = 0;
+  state->control_error_rpm = 0;
+  state->control_integral_rpm = 0;
+  state->closed_loop_last_ms = 0;
+  state->direction = "stopped";
+  state->stop_mode = str_eq(mode, "brake") ? "brake" : "coast";
+  gpio_high(GPIOD_BASE, 12);
+  motor_pwm(index, 0);
+  if (str_eq(state->stop_mode, "brake")) {
+    gpio_high(pins->in1_port, pins->in1_pin);
+    gpio_high(pins->in2_port, pins->in2_pin);
+  } else {
+    gpio_low(pins->in1_port, pins->in1_pin);
+    gpio_low(pins->in2_port, pins->in2_pin);
+  }
+  update_motor_leds();
+}
+
+static void apply_motor_speed(uint32_t index, int32_t speed, const char *mode) {
+  MotorRuntime *state;
+  const MotorPins *pins;
+  if (index >= MOTOR_COUNT) {
+    return;
+  }
+  state = &motors[index];
+  pins = &motor_pins[index];
   if (speed > 100) {
     speed = 100;
   }
@@ -674,99 +862,142 @@ static void apply_motor_speed(int32_t speed, const char *mode) {
     speed = -100;
   }
   if (speed == 0) {
-    apply_motor_stop(mode);
+    apply_motor_stop(index, mode);
     return;
   }
 
-  commanded_speed_percent = speed;
-  stop_mode = str_eq(mode, "brake") ? "brake" : "coast";
-  target_rpm = (int32_t)(((uint32_t)(speed < 0 ? -speed : speed) * closed_loop_max_rpm + 50u) / 100u);
-  control_error_rpm = 0;
-  control_integral_rpm = 0;
-  closed_loop_last_ms = 0;
-  gpio_high(GPIOI_BASE, 5);
+  state->commanded_speed_percent = speed;
+  state->stop_mode = str_eq(mode, "brake") ? "brake" : "coast";
+  state->target_rpm = (int32_t)(((uint32_t)(speed < 0 ? -speed : speed) * state->closed_loop_max_rpm + 50u) / 100u);
+  state->control_error_rpm = 0;
+  state->control_integral_rpm = 0;
+  state->closed_loop_last_ms = 0;
+  gpio_high(GPIOD_BASE, 12);
   if (speed > 0) {
-    direction = "forward";
-    gpio_high(GPIOA_BASE, 2);
-    gpio_low(GPIOA_BASE, 3);
-    led_green(1);
-    led_red(0);
+    state->direction = "forward";
+    gpio_high(pins->in1_port, pins->in1_pin);
+    gpio_low(pins->in2_port, pins->in2_pin);
   } else {
-    direction = "reverse";
-    gpio_low(GPIOA_BASE, 2);
-    gpio_high(GPIOA_BASE, 3);
-    led_green(0);
-    led_red(1);
+    state->direction = "reverse";
+    gpio_low(pins->in1_port, pins->in1_pin);
+    gpio_high(pins->in2_port, pins->in2_pin);
   }
-  motor_pwm_percent((uint32_t)(speed < 0 ? -speed : speed));
+  motor_pwm_percent(index, (uint32_t)(speed < 0 ? -speed : speed));
+  update_motor_leds();
 }
 
-static int32_t encoder_ticks(void) {
-  return (int32_t)TIM_CNT(TIM2_BASE);
+static uint32_t encoder_level(uint32_t index, uint32_t encoder_b) {
+  const MotorPins *pins = &motor_pins[index];
+  const uintptr_t port = encoder_b ? pins->encoder_b_port : pins->encoder_a_port;
+  const uint32_t pin = encoder_b ? pins->encoder_b_pin : pins->encoder_a_pin;
+  return (GPIO_IDR(port) >> pin) & 1u;
 }
 
-static uint32_t encoder_level(uint32_t pin) {
-  return (GPIO_IDR(GPIOA_BASE) >> pin) & 1u;
+static uint32_t encoder_state(uint32_t index) {
+  return (encoder_level(index, 0) << 1) | encoder_level(index, 1);
 }
 
-static void update_encoder_metrics(void) {
+static void poll_motor_encoder(uint32_t index) {
+  static const int8_t transitions[16] = {
+    0, 1, -1, 0,
+    -1, 0, 0, 1,
+    1, 0, 0, -1,
+    0, -1, 1, 0
+  };
+  MotorRuntime *state = &motors[index];
+  const uint32_t next = encoder_state(index);
+  const uint32_t previous = state->encoder_last_state & 3u;
+  if (next != previous) {
+    state->encoder_ticks += transitions[(previous << 2) | next];
+    state->encoder_last_state = next;
+  }
+}
+
+static void poll_all_motor_encoders(void) {
+  for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+    poll_motor_encoder(index);
+  }
+}
+
+static int32_t encoder_ticks(uint32_t index) {
+  poll_motor_encoder(index);
+  return motors[index].encoder_ticks;
+}
+
+static void reset_motor_encoder(uint32_t index) {
+  motors[index].encoder_ticks = 0;
+  motors[index].encoder_last_state = encoder_state(index);
+  motors[index].encoder_sample_valid = 0;
+  motors[index].last_encoder_ticks = 0;
+  motors[index].last_encoder_ms = millis();
+  motors[index].pulse_hz = 0;
+  motors[index].encoder_delta = 0;
+  motors[index].encoder_direction = "stopped";
+  motors[index].speed_rpm = 0;
+}
+
+static void update_encoder_metrics(uint32_t index) {
+  MotorRuntime *state = &motors[index];
   const uint32_t now = millis();
-  const int32_t ticks = encoder_ticks();
+  const int32_t ticks = encoder_ticks(index);
   uint32_t abs_delta;
-  if (!encoder_sample_valid) {
-    encoder_sample_valid = 1;
-    last_encoder_ticks = ticks;
-    last_encoder_ms = now;
-    encoder_delta = 0;
-    encoder_direction = "stopped";
-    pulse_hz = 0;
-    speed_rpm = 0;
+  if (!state->encoder_sample_valid) {
+    state->encoder_sample_valid = 1;
+    state->last_encoder_ticks = ticks;
+    state->last_encoder_ms = now;
+    state->encoder_delta = 0;
+    state->encoder_direction = "stopped";
+    state->pulse_hz = 0;
+    state->speed_rpm = 0;
     return;
   }
-  const uint32_t elapsed = now - last_encoder_ms;
+  const uint32_t elapsed = now - state->last_encoder_ms;
   if (elapsed < ENCODER_MIN_SAMPLE_MS) {
     return;
   }
-  encoder_delta = ticks - last_encoder_ticks;
-  encoder_direction = encoder_delta > 0 ? "forward" : encoder_delta < 0 ? "reverse" : "stopped";
-  abs_delta = encoder_delta < 0 ? (uint32_t)(-encoder_delta) : (uint32_t)encoder_delta;
-  pulse_hz = (uint32_t)(((uint64_t)abs_delta * 1000u) / elapsed);
-  speed_rpm = (uint32_t)(((uint64_t)abs_delta * 60000u) / ((uint64_t)elapsed * encoder_ticks_per_rev));
-  last_encoder_ticks = ticks;
-  last_encoder_ms = now;
+  state->encoder_delta = ticks - state->last_encoder_ticks;
+  state->encoder_direction = state->encoder_delta > 0 ? "forward" : state->encoder_delta < 0 ? "reverse" : "stopped";
+  abs_delta = state->encoder_delta < 0 ? (uint32_t)(-state->encoder_delta) : (uint32_t)state->encoder_delta;
+  state->pulse_hz = (uint32_t)(((uint64_t)abs_delta * 1000u) / elapsed);
+  state->speed_rpm = (uint32_t)(((uint64_t)abs_delta * 60000u) / ((uint64_t)elapsed * state->encoder_ticks_per_rev));
+  state->last_encoder_ticks = ticks;
+  state->last_encoder_ms = now;
 }
 
 static void update_closed_loop_control(void) {
   const uint32_t now = millis();
-  int32_t error;
-  int32_t correction;
-  int32_t output;
-  int32_t base_duty;
+  for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+    MotorRuntime *state = &motors[index];
+    int32_t error;
+    int32_t correction;
+    int32_t output;
+    int32_t base_duty;
 
-  if (!configured || !closed_loop_enabled || commanded_speed_percent == 0 || target_rpm <= 0) {
-    return;
-  }
-  if (closed_loop_last_ms == 0u) {
-    closed_loop_last_ms = now;
-    return;
-  }
-  if ((uint32_t)(now - closed_loop_last_ms) < CLOSED_LOOP_UPDATE_MS) {
-    return;
-  }
-  closed_loop_last_ms = now;
+    if (!state->configured || !state->closed_loop_enabled || state->commanded_speed_percent == 0 || state->target_rpm <= 0) {
+      continue;
+    }
+    if (state->closed_loop_last_ms == 0u) {
+      state->closed_loop_last_ms = now;
+      continue;
+    }
+    if ((uint32_t)(now - state->closed_loop_last_ms) < CLOSED_LOOP_UPDATE_MS) {
+      continue;
+    }
+    state->closed_loop_last_ms = now;
 
-  update_encoder_metrics();
-  error = target_rpm - (int32_t)speed_rpm;
-  if (error > -CLOSED_LOOP_RPM_DEADBAND && error < CLOSED_LOOP_RPM_DEADBAND) {
-    error = 0;
-  }
-  control_error_rpm = error;
-  control_integral_rpm = clamp_i32(control_integral_rpm + error, -CLOSED_LOOP_INTEGRAL_LIMIT_RPM, CLOSED_LOOP_INTEGRAL_LIMIT_RPM);
+    update_encoder_metrics(index);
+    error = state->target_rpm - (int32_t)state->speed_rpm;
+    if (error > -CLOSED_LOOP_RPM_DEADBAND && error < CLOSED_LOOP_RPM_DEADBAND) {
+      error = 0;
+    }
+    state->control_error_rpm = error;
+    state->control_integral_rpm = clamp_i32(state->control_integral_rpm + error, -CLOSED_LOOP_INTEGRAL_LIMIT_RPM, CLOSED_LOOP_INTEGRAL_LIMIT_RPM);
 
-  base_duty = commanded_speed_percent < 0 ? -commanded_speed_percent : commanded_speed_percent;
-  correction = (error / CLOSED_LOOP_KP_DIV) + (control_integral_rpm / CLOSED_LOOP_KI_DIV);
-  output = clamp_i32(base_duty + correction, 0, 100);
-  motor_pwm_percent((uint32_t)output);
+    base_duty = state->commanded_speed_percent < 0 ? -state->commanded_speed_percent : state->commanded_speed_percent;
+    correction = (error / CLOSED_LOOP_KP_DIV) + (state->control_integral_rpm / CLOSED_LOOP_KI_DIV);
+    output = clamp_i32(base_duty + correction, 0, 100);
+    motor_pwm_percent(index, (uint32_t)output);
+  }
 }
 
 static uint32_t wait_can_init_state(uint32_t in_init, uint32_t timeout_ms) {
@@ -968,40 +1199,47 @@ static void send_error(int32_t seq, const char *command, const char *code, const
   uart_write_str("\"}\n");
 }
 
-static void send_feedback(int32_t seq) {
-  update_encoder_metrics();
+static void send_feedback(int32_t seq, uint32_t index) {
+  MotorRuntime *state;
+  if (index >= MOTOR_COUNT) {
+    return;
+  }
+  state = &motors[index];
+  update_encoder_metrics(index);
   uart_write_str("{\"type\":\"motor.feedback\",\"seq\":");
   uart_write_i32(seq);
-  uart_write_str(",\"channel\":\"M1\",\"commandedSpeedPercent\":");
-  uart_write_i32(commanded_speed_percent);
+  uart_write_str(",\"channel\":\"");
+  uart_write_str(motor_pins[index].channel);
+  uart_write_str("\",\"commandedSpeedPercent\":");
+  uart_write_i32(state->commanded_speed_percent);
   uart_write_str(",\"dutyPercent\":");
-  uart_write_u32(duty_percent);
+  uart_write_u32(state->duty_percent);
   uart_write_str(",\"direction\":\"");
-  uart_write_str(direction);
+  uart_write_str(state->direction);
   uart_write_str("\",\"stopMode\":\"");
-  uart_write_str(stop_mode);
+  uart_write_str(state->stop_mode);
   uart_write_str("\",\"closedLoop\":");
-  uart_write_str(closed_loop_enabled ? "true" : "false");
+  uart_write_str(state->closed_loop_enabled ? "true" : "false");
   uart_write_str(",\"targetRpm\":");
-  uart_write_i32(target_rpm);
+  uart_write_i32(state->target_rpm);
   uart_write_str(",\"controlDutyPercent\":");
-  uart_write_u32(control_duty_percent);
+  uart_write_u32(state->control_duty_percent);
   uart_write_str(",\"controlErrorRpm\":");
-  uart_write_i32(control_error_rpm);
+  uart_write_i32(state->control_error_rpm);
   uart_write_str(",\"speedRpm\":");
-  uart_write_u32(speed_rpm);
+  uart_write_u32(state->speed_rpm);
   uart_write_str(",\"encoderTicks\":");
-  uart_write_i32(encoder_ticks());
+  uart_write_i32(encoder_ticks(index));
   uart_write_str(",\"pulseHz\":");
-  uart_write_u32(pulse_hz);
+  uart_write_u32(state->pulse_hz);
   uart_write_str(",\"encoderA\":");
-  uart_write_u32(encoder_level(0));
+  uart_write_u32(encoder_level(index, 0));
   uart_write_str(",\"encoderB\":");
-  uart_write_u32(encoder_level(1));
+  uart_write_u32(encoder_level(index, 1));
   uart_write_str(",\"encoderDelta\":");
-  uart_write_i32(encoder_delta);
+  uart_write_i32(state->encoder_delta);
   uart_write_str(",\"encoderDirection\":\"");
-  uart_write_str(encoder_direction);
+  uart_write_str(state->encoder_direction);
   uart_write_str("\",\"sampleMs\":");
   uart_write_u32(millis());
   uart_write_str("}\n");
@@ -1020,6 +1258,176 @@ static void send_can_feedback(int32_t seq, const char *command, uint32_t ok) {
   uart_write_u32(can_bitrate_kbps);
   uart_write_str(",\"clockHz\":");
   uart_write_u32(system_core_hz);
+  uart_write_str(",\"txOk\":");
+  uart_write_u32(can_tx_ok);
+  uart_write_str(",\"txError\":");
+  uart_write_u32(can_tx_error);
+  uart_write_str(",\"txTimeout\":");
+  uart_write_u32(can_tx_timeout);
+  uart_write_str(",\"rxPending\":");
+  uart_write_u32(can_rx_pending());
+  uart_write_str(",\"esr\":");
+  uart_write_u32(CAN_ESR(CAN1_BASE));
+  uart_write_str("}\n");
+}
+
+static void send_scheduler_feedback(int32_t seq, const char *command, uint32_t accepted, const char *message) {
+  uart_write_str("{\"type\":\"scheduler.feedback\",\"seq\":");
+  uart_write_i32(seq);
+  uart_write_str(",\"command\":\"");
+  uart_write_str(command);
+  uart_write_str("\",\"accepted\":");
+  uart_write_str(accepted ? "true" : "false");
+  uart_write_str(",\"motionPending\":");
+  uart_write_str(motion_pending ? "true" : "false");
+  uart_write_str(",\"latestMotionSeq\":");
+  uart_write_i32(latest_motion_seq);
+  uart_write_str(",\"droppedMotionCount\":");
+  uart_write_u32(dropped_motion_count);
+  uart_write_str(",\"activeCommand\":\"");
+  uart_write_str(active_command);
+  uart_write_str("\"");
+  if (message) {
+    uart_write_str(",\"message\":\"");
+    uart_write_str(message);
+    uart_write_str("\"");
+  }
+  uart_write_str("}\n");
+}
+
+static void send_mecanum_feedback(
+  int32_t seq,
+  int32_t forward_milli,
+  int32_t strafe_milli,
+  int32_t turn_milli,
+  int32_t speed_limit_percent,
+  const char *stop_mode,
+  int32_t front_left,
+  int32_t front_right,
+  int32_t rear_left,
+  int32_t rear_right
+) {
+  uart_write_str("{\"type\":\"mecanum.feedback\",\"seq\":");
+  uart_write_i32(seq);
+  uart_write_str(",\"forward\":");
+  uart_write_i32(forward_milli);
+  uart_write_str(",\"strafe\":");
+  uart_write_i32(strafe_milli);
+  uart_write_str(",\"turn\":");
+  uart_write_i32(turn_milli);
+  uart_write_str(",\"speedLimitPercent\":");
+  uart_write_i32(speed_limit_percent);
+  uart_write_str(",\"stopMode\":\"");
+  uart_write_str(stop_mode);
+  uart_write_str("\",\"frontLeft\":");
+  uart_write_i32(front_left);
+  uart_write_str(",\"frontRight\":");
+  uart_write_i32(front_right);
+  uart_write_str(",\"rearLeft\":");
+  uart_write_i32(rear_left);
+  uart_write_str(",\"rearRight\":");
+  uart_write_i32(rear_right);
+  uart_write_str(",\"droppedMotionCount\":");
+  uart_write_u32(dropped_motion_count);
+  uart_write_str(",\"sampleMs\":");
+  uart_write_u32(millis());
+  uart_write_str("}\n");
+}
+
+static uint32_t asmg_baud_code_to_kbps(uint32_t code) {
+  if (code == ASMG_MD_BAUD_500_CODE) {
+    return 500u;
+  }
+  if (code == ASMG_MD_BAUD_1000_CODE) {
+    return 1000u;
+  }
+  return 250u;
+}
+
+static uint32_t asmg_baud_kbps_to_code(int32_t baud_kbps) {
+  if (baud_kbps == 500) {
+    return ASMG_MD_BAUD_500_CODE;
+  }
+  if (baud_kbps == 1000) {
+    return ASMG_MD_BAUD_1000_CODE;
+  }
+  return ASMG_MD_BAUD_250_CODE;
+}
+
+static uint32_t asmg_u16(const uint8_t *data, uint32_t index) {
+  return (((uint32_t)data[index]) << 8) | (uint32_t)data[index + 1u];
+}
+
+static void send_can_servo_feedback(int32_t seq, const char *command, uint32_t ok, const uint8_t *data, uint32_t dlc) {
+  const uint32_t asmg_command = dlc >= 2u ? data[1] : 0u;
+  uart_write_str("{\"type\":\"can_servo.feedback\",\"seq\":");
+  uart_write_i32(seq);
+  uart_write_str(",\"command\":\"");
+  uart_write_str(command);
+  uart_write_str("\",\"ok\":");
+  uart_write_str(ok ? "true" : "false");
+  uart_write_str(",\"ready\":");
+  uart_write_str(can_ready ? "true" : "false");
+  if (dlc >= 1u) {
+    uart_write_str(",\"servoId\":");
+    uart_write_u32(data[0]);
+  }
+  if (dlc >= 2u) {
+    uart_write_str(",\"asmgCommand\":");
+    uart_write_u32(asmg_command);
+  }
+  uart_write_str(",\"rawDataHex\":\"");
+  for (uint32_t i = 0; i < dlc; ++i) {
+    if (i > 0u) {
+      uart_write_char(' ');
+    }
+    uart_write_hex_byte(data[i]);
+  }
+  uart_write_str("\"");
+  if (asmg_command == 0x01u && dlc >= 6u) {
+    uart_write_str(",\"position\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"speed\":");
+    uart_write_u32(asmg_u16(data, 4));
+  } else if (asmg_command == 0x02u && dlc >= 6u) {
+    uart_write_str(",\"currentPosition\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"commandPosition\":");
+    uart_write_u32(asmg_u16(data, 4));
+  } else if (asmg_command == 0x03u && dlc >= 6u) {
+    uart_write_str(",\"currentTorque\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"setCurrent\":");
+    uart_write_u32(asmg_u16(data, 4));
+  } else if (asmg_command == 0x05u && dlc >= 8u) {
+    uart_write_str(",\"p\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"i\":");
+    uart_write_u32(asmg_u16(data, 4));
+    uart_write_str(",\"d\":");
+    uart_write_u32(asmg_u16(data, 6));
+  } else if (asmg_command == 0x06u && dlc >= 8u) {
+    uart_write_str(",\"p\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"i\":");
+    uart_write_u32(asmg_u16(data, 4));
+    uart_write_str(",\"d\":");
+    uart_write_u32(asmg_u16(data, 6));
+  } else if (asmg_command == 0x07u && dlc >= 6u) {
+    uart_write_str(",\"currentPosition\":");
+    uart_write_u32(asmg_u16(data, 2));
+    uart_write_str(",\"current\":");
+    uart_write_u32(asmg_u16(data, 4));
+  } else if (asmg_command == 0x08u && dlc >= 4u) {
+    uart_write_str(",\"centerRatio\":");
+    uart_write_u32(asmg_u16(data, 2));
+  } else if (asmg_command == 0x09u && dlc >= 3u) {
+    uart_write_str(",\"baudKbps\":");
+    uart_write_u32(asmg_baud_code_to_kbps(data[2]));
+  } else if (asmg_command == 0xFEu && dlc >= 1u) {
+    uart_write_str(",\"newId\":");
+    uart_write_u32(data[0]);
+  }
   uart_write_str(",\"txOk\":");
   uart_write_u32(can_tx_ok);
   uart_write_str(",\"txError\":");
@@ -1117,6 +1525,215 @@ static uint32_t drain_can_rx(int32_t seq, uint32_t max_frames) {
     count++;
   }
   return count;
+}
+
+static void read_can_servo_frame(int32_t seq, const char *command) {
+  const uint32_t rir = CAN_RIR(CAN1_BASE);
+  const uint32_t rdtr = CAN_RDTR(CAN1_BASE);
+  const uint32_t low = CAN_RDLR(CAN1_BASE);
+  const uint32_t high = CAN_RDHR(CAN1_BASE);
+  uint32_t dlc = rdtr & 0xFu;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (dlc > CAN_MAX_DLC) {
+    dlc = CAN_MAX_DLC;
+  }
+  (void)rir;
+  for (uint32_t i = 0; i < dlc; ++i) {
+    data[i] = (uint8_t)(i < 4u ? ((low >> (i * 8u)) & 0xFFu) : ((high >> ((i - 4u) * 8u)) & 0xFFu));
+  }
+  send_can_servo_feedback(seq, command, 1, data, dlc);
+  CAN_RF0R(CAN1_BASE) = (1u << 5);
+}
+
+static uint32_t drain_can_servo_rx(int32_t seq, const char *command, uint32_t max_frames) {
+  uint32_t count = 0;
+  while (can_rx_pending() && count < max_frames) {
+    read_can_servo_frame(seq, command);
+    count++;
+  }
+  return count;
+}
+
+static uint32_t can_send_asmg(int32_t seq, const char *command, const uint8_t *data, uint32_t read_after) {
+  uint8_t local[CAN_MAX_DLC] = { 0 };
+  uint32_t ok;
+  for (uint32_t i = 0; i < CAN_MAX_DLC; ++i) {
+    local[i] = data[i];
+  }
+  ok = can_send_frame(ASMG_MD_HOST_EXTENDED_ID, 1, local, CAN_MAX_DLC, CAN_TX_TIMEOUT_MS);
+  if (!ok) {
+    send_can_servo_feedback(seq, command, 0, local, CAN_MAX_DLC);
+    return 0;
+  }
+  if (read_after) {
+    delay_ms(2);
+    if (drain_can_servo_rx(seq, command, CAN_STATUS_RX_DRAIN_MAX) == 0u) {
+      send_can_servo_feedback(seq, command, 1, local, CAN_MAX_DLC);
+    }
+  } else {
+    send_can_servo_feedback(seq, command, 1, local, CAN_MAX_DLC);
+  }
+  return 1;
+}
+
+static void build_asmg_move(uint8_t *data, int32_t id, int32_t position, int32_t speed) {
+  const uint32_t pos = (uint32_t)clamp_i32(position, ASMG_MD_POSITION_MIN, ASMG_MD_POSITION_MAX);
+  const uint32_t spd = (uint32_t)clamp_i32(speed, ASMG_MD_SPEED_MIN, ASMG_MD_SPEED_MAX);
+  data[0] = (uint8_t)clamp_i32(id, 0, 253);
+  data[1] = 0x01u;
+  data[2] = (uint8_t)((pos >> 8) & 0xFFu);
+  data[3] = (uint8_t)(pos & 0xFFu);
+  data[4] = (uint8_t)((spd >> 8) & 0xFFu);
+  data[5] = (uint8_t)(spd & 0xFFu);
+}
+
+static void build_asmg_read(uint8_t *data, int32_t id, uint32_t command) {
+  data[0] = (uint8_t)clamp_i32(id, 0, 254);
+  data[1] = (uint8_t)(command & 0xFFu);
+}
+
+static void build_asmg_u16_command(uint8_t *data, int32_t id, uint32_t command, int32_t value) {
+  const uint32_t word = (uint32_t)clamp_i32(value, 0, 0xFFFF);
+  data[0] = (uint8_t)clamp_i32(id, 0, 253);
+  data[1] = (uint8_t)(command & 0xFFu);
+  data[2] = (uint8_t)((word >> 8) & 0xFFu);
+  data[3] = (uint8_t)(word & 0xFFu);
+}
+
+static void build_asmg_pid(uint8_t *data, int32_t id, int32_t p, int32_t i, int32_t d) {
+  const uint32_t kp = (uint32_t)clamp_i32(p, 0, 0xFFFF);
+  const uint32_t ki = (uint32_t)clamp_i32(i, 0, 0xFFFF);
+  const uint32_t kd = (uint32_t)clamp_i32(d, 0, 0xFFFF);
+  data[0] = (uint8_t)clamp_i32(id, 0, 253);
+  data[1] = 0x05u;
+  data[2] = (uint8_t)((kp >> 8) & 0xFFu);
+  data[3] = (uint8_t)(kp & 0xFFu);
+  data[4] = (uint8_t)((ki >> 8) & 0xFFu);
+  data[5] = (uint8_t)(ki & 0xFFu);
+  data[6] = (uint8_t)((kd >> 8) & 0xFFu);
+  data[7] = (uint8_t)(kd & 0xFFu);
+}
+
+static void copy_stop_mode(char *out, const char *mode) {
+  if (str_eq(mode, "brake")) {
+    out[0] = 'b';
+    out[1] = 'r';
+    out[2] = 'a';
+    out[3] = 'k';
+    out[4] = 'e';
+    out[5] = 0;
+    return;
+  }
+  out[0] = 'c';
+  out[1] = 'o';
+  out[2] = 'a';
+  out[3] = 's';
+  out[4] = 't';
+  out[5] = 0;
+}
+
+static void clear_pending_motion(const char *reason) {
+  if (motion_pending) {
+    motion_pending = 0;
+    dropped_motion_count++;
+    send_scheduler_feedback(pending_motion.seq, "motion.clear", 0, reason);
+  }
+  pending_motion.kind = MOTION_NONE;
+}
+
+static void queue_motion(PendingMotion motion, const char *command) {
+  if (motion_pending) {
+    dropped_motion_count++;
+  }
+  pending_motion = motion;
+  motion_pending = 1;
+  latest_motion_seq = motion.seq;
+  send_ack(motion.seq, command);
+  send_scheduler_feedback(motion.seq, command, 1, "queued latest motion target");
+}
+
+static void apply_motor_target_motion(const PendingMotion *motion) {
+  MotorRuntime *state;
+  if (motion->motor_index < 0 || motion->motor_index >= (int32_t)MOTOR_COUNT) {
+    send_error(motion->seq, "motor.target", "unsupported_channel", "A board firmware supports M1-M4");
+    return;
+  }
+  state = &motors[(uint32_t)motion->motor_index];
+  if (motion->closed_loop_set) {
+    state->closed_loop_enabled = motion->closed_loop;
+  }
+  apply_motor_speed((uint32_t)motion->motor_index, motion->speed_percent, motion->stop_mode);
+  if (state->commanded_speed_percent != 0 && motion->target_rpm > 0) {
+    state->target_rpm = clamp_i32(motion->target_rpm, 1, (int32_t)CLOSED_LOOP_MAX_RPM_LIMIT);
+  }
+  send_feedback(motion->seq, (uint32_t)motion->motor_index);
+}
+
+static int32_t mecanum_speed_percent(int32_t raw, int32_t max_magnitude, int32_t speed_limit_percent, int32_t direction) {
+  int32_t value = divide_round_i32(raw * clamp_i32(speed_limit_percent, 0, 100), max_magnitude);
+  value *= direction;
+  return clamp_i32(value, -100, 100);
+}
+
+static void apply_mecanum_target_motion(const PendingMotion *motion) {
+  const int32_t fl_raw = motion->forward_milli + motion->strafe_milli + motion->turn_milli;
+  const int32_t fr_raw = motion->forward_milli - motion->strafe_milli - motion->turn_milli;
+  const int32_t rl_raw = motion->forward_milli - motion->strafe_milli + motion->turn_milli;
+  const int32_t rr_raw = motion->forward_milli + motion->strafe_milli - motion->turn_milli;
+  int32_t max_magnitude = 1000;
+  int32_t fl;
+  int32_t fr;
+  int32_t rl;
+  int32_t rr;
+  if (abs_i32(fl_raw) > max_magnitude) max_magnitude = abs_i32(fl_raw);
+  if (abs_i32(fr_raw) > max_magnitude) max_magnitude = abs_i32(fr_raw);
+  if (abs_i32(rl_raw) > max_magnitude) max_magnitude = abs_i32(rl_raw);
+  if (abs_i32(rr_raw) > max_magnitude) max_magnitude = abs_i32(rr_raw);
+  fl = mecanum_speed_percent(fl_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[0]);
+  fr = mecanum_speed_percent(fr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[3]);
+  rl = mecanum_speed_percent(rl_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[1]);
+  rr = mecanum_speed_percent(rr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[2]);
+  for (uint32_t index = 0; index < MOTOR_COUNT; ++index) {
+    motors[index].closed_loop_enabled = mecanum_closed_loop;
+    motors[index].closed_loop_max_rpm = mecanum_max_rpm;
+    motors[index].encoder_ticks_per_rev = mecanum_encoder_ticks_per_rev;
+  }
+  apply_motor_speed(mecanum_channel_map[0], fl, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[3], fr, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[1], rl, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[2], rr, motion->stop_mode);
+  send_mecanum_feedback(motion->seq, motion->forward_milli, motion->strafe_milli, motion->turn_milli, motion->speed_limit_percent, motion->stop_mode, fl, fr, rl, rr);
+}
+
+static void apply_can_servo_move_motion(const PendingMotion *motion) {
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  build_asmg_move(data, motion->can_servo_id, motion->can_servo_position, motion->can_servo_speed);
+  (void)can_send_asmg(motion->seq, "can_servo.move", data, 0);
+}
+
+static void apply_pending_motion(void) {
+  PendingMotion motion;
+  if (!motion_pending) {
+    return;
+  }
+  if ((uint32_t)(millis() - last_motion_apply_ms) < MOTION_APPLY_INTERVAL_MS) {
+    return;
+  }
+  motion = pending_motion;
+  motion_pending = 0;
+  pending_motion.kind = MOTION_NONE;
+  last_motion_apply_ms = millis();
+  if (motion.kind == MOTION_MOTOR_TARGET) {
+    active_command = "motor.target";
+    apply_motor_target_motion(&motion);
+  } else if (motion.kind == MOTION_MECANUM_TARGET) {
+    active_command = "mecanum.target";
+    apply_mecanum_target_motion(&motion);
+  } else if (motion.kind == MOTION_CAN_SERVO_MOVE) {
+    active_command = "can_servo.move";
+    apply_can_servo_move_motion(&motion);
+  }
+  active_command = "idle";
 }
 
 static void handle_can_config(const char *line, int32_t seq) {
@@ -1260,6 +1877,219 @@ static void handle_robomaster_stop(const char *line, int32_t seq) {
   send_can_feedback(seq, "can.robomaster.stop", can_send_standard((uint32_t)control_id, data, CAN_MAX_DLC, CAN_TX_TIMEOUT_MS));
 }
 
+static void handle_motor_target(const char *line, int32_t seq) {
+  PendingMotion motion;
+  char mode[8] = "coast";
+  int32_t speed = 0;
+  uint32_t closed_loop = 0;
+  motion.kind = MOTION_MOTOR_TARGET;
+  motion.seq = seq;
+  motion.motor_index = motor_index_from_json(line);
+  motion.target_rpm = 0;
+  motion.closed_loop = 0;
+  motion.closed_loop_set = 0;
+  if (motion.motor_index < 0) {
+    send_error(seq, "motor.target", "unsupported_channel", "A board firmware supports M1-M4");
+    return;
+  }
+  if (!json_int(line, "speedPercent", &speed)) {
+    send_error(seq, "motor.target", "invalid_speed", "speedPercent is required");
+    return;
+  }
+  (void)json_string(line, "stopMode", mode, sizeof(mode));
+  motion.speed_percent = clamp_i32(speed, -100, 100);
+  copy_stop_mode(motion.stop_mode, mode);
+  if (json_bool(line, "closedLoop", &closed_loop)) {
+    motion.closed_loop = closed_loop;
+    motion.closed_loop_set = 1;
+  }
+  (void)json_int_or(line, "targetRpm", &motion.target_rpm, 0);
+  queue_motion(motion, "motor.target");
+}
+
+static void handle_mecanum_config(const char *line, int32_t seq) {
+  int32_t value = 0;
+  uint32_t closed_loop = 0;
+  if (json_bool(line, "closedLoop", &closed_loop)) {
+    mecanum_closed_loop = closed_loop;
+  }
+  if (json_int(line, "maxRpm", &value) && value > 0) {
+    mecanum_max_rpm = (uint32_t)clamp_i32(value, 1, CLOSED_LOOP_MAX_RPM_LIMIT);
+  }
+  if (json_int(line, "encoderTicksPerRev", &value) && value > 0) {
+    mecanum_encoder_ticks_per_rev = (uint32_t)clamp_i32(value, 1, 100000);
+  }
+  if (json_int(line, "frontLeftDirection", &value)) mecanum_direction[0] = value < 0 ? -1 : 1;
+  if (json_int(line, "rearLeftDirection", &value)) mecanum_direction[1] = value < 0 ? -1 : 1;
+  if (json_int(line, "rearRightDirection", &value)) mecanum_direction[2] = value < 0 ? -1 : 1;
+  if (json_int(line, "frontRightDirection", &value)) mecanum_direction[3] = value < 0 ? -1 : 1;
+  send_ack(seq, "mecanum.config");
+  send_scheduler_feedback(seq, "mecanum.config", 1, "mecanum config updated");
+}
+
+static void handle_mecanum_target(const char *line, int32_t seq) {
+  PendingMotion motion;
+  char mode[8] = "brake";
+  motion.kind = MOTION_MECANUM_TARGET;
+  motion.seq = seq;
+  (void)json_milli_or(line, "forward", &motion.forward_milli, 0);
+  (void)json_milli_or(line, "strafe", &motion.strafe_milli, 0);
+  (void)json_milli_or(line, "turn", &motion.turn_milli, 0);
+  (void)json_int_or(line, "speedLimitPercent", &motion.speed_limit_percent, 100);
+  (void)json_string(line, "stopMode", mode, sizeof(mode));
+  motion.forward_milli = clamp_i32(motion.forward_milli, -1000, 1000);
+  motion.strafe_milli = clamp_i32(motion.strafe_milli, -1000, 1000);
+  motion.turn_milli = clamp_i32(motion.turn_milli, -1000, 1000);
+  motion.speed_limit_percent = clamp_i32(motion.speed_limit_percent, 0, 100);
+  copy_stop_mode(motion.stop_mode, mode);
+  queue_motion(motion, "mecanum.target");
+}
+
+static void handle_mecanum_stop(const char *line, int32_t seq) {
+  char requested_mode[8] = "brake";
+  char mode[8] = "brake";
+  (void)json_string(line, "stopMode", requested_mode, sizeof(requested_mode));
+  clear_pending_motion("cleared by mecanum.stop");
+  copy_stop_mode(mode, requested_mode);
+  for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+    apply_motor_stop(index, mode);
+  }
+  send_ack(seq, "mecanum.stop");
+  send_mecanum_feedback(seq, 0, 0, 0, 0, mode, 0, 0, 0, 0);
+}
+
+static void handle_can_servo_config(const char *line, int32_t seq) {
+  int32_t bitrate_kbps = 250;
+  int32_t id = -1;
+  uint32_t apply_to_servo = 0;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  (void)json_int_or(line, "bitrateKbps", &bitrate_kbps, 250);
+  (void)json_bool(line, "applyToServo", &apply_to_servo);
+  if (apply_to_servo && json_int(line, "id", &id)) {
+    data[0] = (uint8_t)clamp_i32(id, 0, 253);
+    data[1] = 0x09u;
+    data[2] = (uint8_t)asmg_baud_kbps_to_code(bitrate_kbps);
+    (void)can_send_asmg(seq, "can_servo.config", data, 1);
+    return;
+  }
+  if (bitrate_kbps < 10 || bitrate_kbps > 1000) {
+    send_error(seq, "can_servo.config", "invalid_bitrate", "bitrateKbps must be 10-1000");
+    return;
+  }
+  send_can_feedback(seq, "can_servo.config", init_can1_pd0_pd1((uint32_t)bitrate_kbps));
+}
+
+static void handle_can_servo_read(const char *line, int32_t seq) {
+  char request[24] = "position_current";
+  int32_t id = ASMG_MD_BROADCAST_ID;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  (void)json_string(line, "request", request, sizeof(request));
+  (void)json_int_or(line, "id", &id, ASMG_MD_BROADCAST_ID);
+  if (str_eq(request, "frames")) {
+    if (drain_can_servo_rx(seq, "can_servo.read", CAN_STATUS_RX_DRAIN_MAX) == 0u) {
+      send_can_servo_feedback(seq, "can_servo.read", 1, data, 0);
+    }
+    return;
+  }
+  if (str_eq(request, "id")) {
+    build_asmg_read(data, ASMG_MD_BROADCAST_ID, 0xFDu);
+  } else if (str_eq(request, "position")) {
+    build_asmg_read(data, id, 0x02u);
+  } else if (str_eq(request, "current")) {
+    build_asmg_read(data, id, 0x04u);
+  } else {
+    build_asmg_read(data, id, 0x07u);
+  }
+  (void)can_send_asmg(seq, "can_servo.read", data, 1);
+}
+
+static void handle_can_servo_set_current(const char *line, int32_t seq) {
+  int32_t id = -1;
+  int32_t current = 0;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (!json_int(line, "id", &id) || !json_int(line, "current", &current)) {
+    send_error(seq, "can_servo.set_current", "invalid_argument", "id and current are required");
+    return;
+  }
+  build_asmg_u16_command(data, id, 0x03u, current);
+  (void)can_send_asmg(seq, "can_servo.set_current", data, 1);
+}
+
+static void handle_can_servo_pid(const char *line, int32_t seq) {
+  int32_t id = -1;
+  int32_t p = 0;
+  int32_t i = 0;
+  int32_t d = 0;
+  uint32_t read = 0;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (!json_int(line, "id", &id)) {
+    send_error(seq, "can_servo.pid", "invalid_argument", "id is required");
+    return;
+  }
+  (void)json_bool(line, "read", &read);
+  if (read) {
+    build_asmg_read(data, id, 0x06u);
+  } else {
+    if (!json_int(line, "p", &p) || !json_int(line, "i", &i) || !json_int(line, "d", &d)) {
+      send_error(seq, "can_servo.pid", "invalid_argument", "p, i and d are required");
+      return;
+    }
+    build_asmg_pid(data, id, p, i, d);
+  }
+  (void)can_send_asmg(seq, "can_servo.pid", data, 1);
+}
+
+static void handle_can_servo_set_id(const char *line, int32_t seq) {
+  int32_t new_id = -1;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (!json_int(line, "newId", &new_id)) {
+    send_error(seq, "can_servo.set_id", "invalid_argument", "newId is required");
+    return;
+  }
+  data[0] = (uint8_t)clamp_i32(new_id, 0, 253);
+  data[1] = 0xFEu;
+  (void)can_send_asmg(seq, "can_servo.set_id", data, 1);
+}
+
+static void handle_can_servo_save_center(const char *line, int32_t seq) {
+  int32_t id = -1;
+  int32_t ratio = 0;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (!json_int(line, "id", &id) || !json_int(line, "ratio", &ratio)) {
+    send_error(seq, "can_servo.save_center", "invalid_argument", "id and ratio are required");
+    return;
+  }
+  build_asmg_u16_command(data, id, 0x08u, clamp_i32(ratio, ASMG_MD_CENTER_RATIO_MIN, ASMG_MD_CENTER_RATIO_MAX));
+  (void)can_send_asmg(seq, "can_servo.save_center", data, 1);
+}
+
+static void handle_can_servo_factory_reset(const char *line, int32_t seq) {
+  int32_t id = -1;
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (!json_int(line, "id", &id)) {
+    send_error(seq, "can_servo.factory_reset", "invalid_argument", "id is required");
+    return;
+  }
+  build_asmg_read(data, id, 0xFCu);
+  (void)can_send_asmg(seq, "can_servo.factory_reset", data, 1);
+}
+
+static void handle_can_servo_move(const char *line, int32_t seq) {
+  PendingMotion motion;
+  motion.kind = MOTION_CAN_SERVO_MOVE;
+  motion.seq = seq;
+  if (!json_int(line, "id", &motion.can_servo_id) ||
+      !json_int(line, "position", &motion.can_servo_position) ||
+      !json_int(line, "speed", &motion.can_servo_speed)) {
+    send_error(seq, "can_servo.move", "invalid_argument", "id, position and speed are required");
+    return;
+  }
+  motion.can_servo_id = clamp_i32(motion.can_servo_id, 0, 253);
+  motion.can_servo_position = clamp_i32(motion.can_servo_position, ASMG_MD_POSITION_MIN, ASMG_MD_POSITION_MAX);
+  motion.can_servo_speed = clamp_i32(motion.can_servo_speed, ASMG_MD_SPEED_MIN, ASMG_MD_SPEED_MAX);
+  queue_motion(motion, "can_servo.move");
+}
+
 static void handle_command(const char *line) {
   char type[24];
   char mode[8] = "coast";
@@ -1279,36 +2109,101 @@ static void handle_command(const char *line) {
   }
 
   if (str_eq(type, "motor.config")) {
+    const int32_t motor_index = motor_index_from_json(line);
+    MotorRuntime *state;
     int32_t ticks_per_rev = 0;
     int32_t max_rpm = 0;
-    uint32_t closed_loop = 1;
-    if (!channel_is_m1(line)) {
-      send_error(seq, "motor.config", "unsupported_channel", "A board firmware only supports M1");
+    uint32_t closed_loop = 0;
+    if (motor_index < 0) {
+      send_error(seq, "motor.config", "unsupported_channel", "A board firmware supports M1-M4");
       return;
     }
-    encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
+    state = &motors[(uint32_t)motor_index];
+    if (state->encoder_ticks_per_rev == 0u) {
+      state->encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
+    }
     if (json_int(line, "encoderTicksPerRev", &ticks_per_rev) && ticks_per_rev > 0) {
-      encoder_ticks_per_rev = (uint32_t)ticks_per_rev;
+      state->encoder_ticks_per_rev = (uint32_t)ticks_per_rev;
     }
-    closed_loop_enabled = 1;
     if (json_bool(line, "closedLoop", &closed_loop)) {
-      closed_loop_enabled = closed_loop;
+      state->closed_loop_enabled = closed_loop;
     }
-    closed_loop_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
+    if (state->closed_loop_max_rpm == 0u) {
+      state->closed_loop_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
+    }
     if (json_int(line, "maxRpm", &max_rpm) && max_rpm > 0) {
-      closed_loop_max_rpm = (uint32_t)clamp_i32(max_rpm, 1, CLOSED_LOOP_MAX_RPM_LIMIT);
+      state->closed_loop_max_rpm = (uint32_t)clamp_i32(max_rpm, 1, CLOSED_LOOP_MAX_RPM_LIMIT);
     }
-    configured = 1;
-    TIM_CNT(TIM2_BASE) = 0;
-    encoder_sample_valid = 0;
-    apply_motor_stop("coast");
+    state->configured = 1;
+    reset_motor_encoder((uint32_t)motor_index);
+    apply_motor_stop((uint32_t)motor_index, "coast");
     send_ack(seq, "motor.config");
-    send_feedback(seq);
+    send_feedback(seq, (uint32_t)motor_index);
+    return;
+  }
+
+  if (str_eq(type, "motor.target")) {
+    handle_motor_target(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "mecanum.config")) {
+    handle_mecanum_config(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "mecanum.target")) {
+    handle_mecanum_target(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "mecanum.stop")) {
+    handle_mecanum_stop(line, seq);
     return;
   }
 
   if (str_eq(type, "can.config")) {
     handle_can_config(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.config")) {
+    handle_can_servo_config(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.move")) {
+    handle_can_servo_move(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.read")) {
+    handle_can_servo_read(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.set_current")) {
+    handle_can_servo_set_current(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.pid")) {
+    handle_can_servo_pid(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.set_id")) {
+    handle_can_servo_set_id(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.save_center")) {
+    handle_can_servo_save_center(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.factory_reset")) {
+    handle_can_servo_factory_reset(line, seq);
     return;
   }
 
@@ -1337,55 +2232,82 @@ static void handle_command(const char *line) {
     return;
   }
 
-  if (!configured) {
-    send_error(seq, type, "unconfigured_channel", "send motor.config before motor commands");
-    return;
-  }
-
   if (str_eq(type, "motor.set")) {
+    const int32_t motor_index = motor_index_from_json(line);
+    MotorRuntime *state;
     int32_t speed = 0;
     int32_t requested_target_rpm = 0;
-    uint32_t requested_closed_loop = closed_loop_enabled;
-    if (!channel_is_m1(line)) {
-      send_error(seq, "motor.set", "unsupported_channel", "A board firmware only supports M1");
+    uint32_t requested_closed_loop;
+    if (motor_index < 0) {
+      send_error(seq, "motor.set", "unsupported_channel", "A board firmware supports M1-M4");
+      return;
+    }
+    state = &motors[(uint32_t)motor_index];
+    if (!state->configured) {
+      send_error(seq, "motor.set", "unconfigured_channel", "send motor.config before motor commands");
       return;
     }
     if (!json_int(line, "speedPercent", &speed)) {
       send_error(seq, "motor.set", "invalid_speed", "speedPercent is required");
       return;
     }
+    requested_closed_loop = state->closed_loop_enabled;
     (void)json_string(line, "stopMode", mode, sizeof(mode));
     if (json_bool(line, "closedLoop", &requested_closed_loop)) {
-      closed_loop_enabled = requested_closed_loop;
+      state->closed_loop_enabled = requested_closed_loop;
     }
-    apply_motor_speed(speed, mode);
-    if (commanded_speed_percent != 0 && json_int(line, "targetRpm", &requested_target_rpm) && requested_target_rpm > 0) {
-      target_rpm = clamp_i32(requested_target_rpm, 1, (int32_t)CLOSED_LOOP_MAX_RPM_LIMIT);
+    apply_motor_speed((uint32_t)motor_index, speed, mode);
+    if (state->commanded_speed_percent != 0 && json_int(line, "targetRpm", &requested_target_rpm) && requested_target_rpm > 0) {
+      state->target_rpm = clamp_i32(requested_target_rpm, 1, (int32_t)CLOSED_LOOP_MAX_RPM_LIMIT);
     }
     send_ack(seq, "motor.set");
-    send_feedback(seq);
+    send_feedback(seq, (uint32_t)motor_index);
     return;
   }
 
   if (str_eq(type, "motor.stop")) {
     char channel[8];
-    if (json_string(line, "channel", channel, sizeof(channel)) && !(str_eq(channel, "M1") || str_eq(channel, "m1"))) {
-      send_error(seq, "motor.stop", "unsupported_channel", "A board firmware only supports M1");
+    uint32_t all = 0;
+    int32_t motor_index = -1;
+    clear_pending_motion("cleared by motor.stop");
+    (void)json_string(line, "stopMode", mode, sizeof(mode));
+    if (json_bool(line, "all", &all) && all) {
+      for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+        apply_motor_stop(index, mode);
+      }
+      send_ack(seq, "motor.stop");
+      for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+        send_feedback(seq, index);
+      }
       return;
     }
-    (void)json_string(line, "stopMode", mode, sizeof(mode));
-    apply_motor_stop(mode);
+    if (json_string(line, "channel", channel, sizeof(channel))) {
+      motor_index = motor_index_from_channel(channel);
+    }
+    if (motor_index < 0) {
+      send_error(seq, "motor.stop", "unsupported_channel", "A board firmware supports M1-M4");
+      return;
+    }
+    apply_motor_stop((uint32_t)motor_index, mode);
     send_ack(seq, "motor.stop");
-    send_feedback(seq);
+    send_feedback(seq, (uint32_t)motor_index);
     return;
   }
 
   if (str_eq(type, "motor.read")) {
-    if (!channel_is_m1(line)) {
-      send_error(seq, "motor.read", "unsupported_channel", "A board firmware only supports M1");
+    const int32_t motor_index = motor_index_from_json(line);
+    uint32_t all = 0;
+    if (json_bool(line, "all", &all) && all) {
+      for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+        send_feedback(seq, index);
+      }
       return;
     }
-    send_feedback(seq);
+    if (motor_index < 0) {
+      send_error(seq, "motor.read", "unsupported_channel", "A board firmware supports M1-M4");
+      return;
+    }
+    send_feedback(seq, (uint32_t)motor_index);
     return;
   }
 
@@ -1398,35 +2320,58 @@ static void init_systick(void) {
   SYST_CSR = (1u << 2) | (1u << 1) | 1u;
 }
 
-static void init_pwm_pd12_tim4_ch1(void) {
-  RCC_APB1ENR |= (1u << 2);
+static void init_pwm_pa0_pa3_tim5(void) {
+  RCC_APB1ENR |= (1u << 3);
   (void)RCC_APB1ENR;
-  gpio_alt(GPIOD_BASE, 12, 2, 0);
+  gpio_alt(GPIOA_BASE, 0, 2, 0);
+  gpio_alt(GPIOA_BASE, 1, 2, 0);
+  gpio_alt(GPIOA_BASE, 2, 2, 0);
+  gpio_alt(GPIOA_BASE, 3, 2, 0);
 
-  TIM_CR1(TIM4_BASE) = 0;
-  TIM_PSC(TIM4_BASE) = 0;
-  TIM_ARR(TIM4_BASE) = PWM_PERIOD_COUNTS;
-  TIM_CCR1(TIM4_BASE) = 0;
-  TIM_CCMR1(TIM4_BASE) = (6u << 4) | (1u << 3);
-  TIM_CCER(TIM4_BASE) = 1u;
-  TIM_EGR(TIM4_BASE) = 1u;
-  TIM_CR1(TIM4_BASE) = (1u << 7) | 1u;
+  TIM_CR1(TIM5_BASE) = 0;
+  TIM_PSC(TIM5_BASE) = 0;
+  TIM_ARR(TIM5_BASE) = PWM_PERIOD_COUNTS;
+  TIM_CCR1(TIM5_BASE) = 0;
+  TIM_CCR2(TIM5_BASE) = 0;
+  TIM_CCR3(TIM5_BASE) = 0;
+  TIM_CCR4(TIM5_BASE) = 0;
+  TIM_CCMR1(TIM5_BASE) = (6u << 4) | (1u << 3) | (6u << 12) | (1u << 11);
+  TIM_CCMR2(TIM5_BASE) = (6u << 4) | (1u << 3) | (6u << 12) | (1u << 11);
+  TIM_CCER(TIM5_BASE) = 1u | (1u << 4) | (1u << 8) | (1u << 12);
+  TIM_EGR(TIM5_BASE) = 1u;
+  TIM_CR1(TIM5_BASE) = (1u << 7) | 1u;
 }
 
-static void init_encoder_pa0_pa1_tim2(void) {
-  RCC_APB1ENR |= 1u;
-  (void)RCC_APB1ENR;
-  gpio_alt(GPIOA_BASE, 0, 1, 1);
-  gpio_alt(GPIOA_BASE, 1, 1, 1);
+static void init_motor_runtime(uint32_t index) {
+  MotorRuntime *state = &motors[index];
+  state->configured = 1;
+  state->commanded_speed_percent = 0;
+  state->duty_percent = 0;
+  state->direction = "stopped";
+  state->stop_mode = "coast";
+  state->encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
+  state->closed_loop_enabled = 1;
+  state->closed_loop_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
+  state->target_rpm = 0;
+  state->control_error_rpm = 0;
+  state->control_integral_rpm = 0;
+  state->control_duty_percent = 0;
+  reset_motor_encoder(index);
+}
 
-  TIM_CR1(TIM2_BASE) = 0;
-  TIM_PSC(TIM2_BASE) = 0;
-  TIM_ARR(TIM2_BASE) = 0xFFFFFFFFu;
-  TIM_CNT(TIM2_BASE) = 0;
-  TIM_CCMR1(TIM2_BASE) = 1u | (1u << 8);
-  TIM_CCER(TIM2_BASE) = 0;
-  TIM_SMCR(TIM2_BASE) = 3u;
-  TIM_CR1(TIM2_BASE) = 1u;
+static void init_motor_io(void) {
+  gpio_output(GPIOD_BASE, 12);
+  gpio_high(GPIOD_BASE, 12);
+
+  for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+    const MotorPins *pins = &motor_pins[index];
+    gpio_output(pins->in1_port, pins->in1_pin);
+    gpio_output(pins->in2_port, pins->in2_pin);
+    gpio_input_pullup(pins->encoder_a_port, pins->encoder_a_pin);
+    gpio_input_pullup(pins->encoder_b_port, pins->encoder_b_pin);
+    init_motor_runtime(index);
+    apply_motor_stop(index, "coast");
+  }
 }
 
 static void init_usart2_pd5_pd6(void) {
@@ -1446,23 +2391,17 @@ int main(void) {
 
   init_hse_clock_12mhz();
 
-  RCC_AHB1ENR |= (1u << 0) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 8);
+  RCC_AHB1ENR |= (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 8);
   (void)RCC_AHB1ENR;
 
-  gpio_output(GPIOA_BASE, 2);
-  gpio_output(GPIOA_BASE, 3);
-  gpio_output(GPIOI_BASE, 5);
   gpio_output(GPIOE_BASE, 11);
   gpio_output(GPIOF_BASE, 14);
 
   init_systick();
-  init_pwm_pd12_tim4_ch1();
-  init_encoder_pa0_pa1_tim2();
+  init_pwm_pa0_pa3_tim5();
+  init_motor_io();
   init_usart2_pd5_pd6();
-  init_can1_pd0_pd1(1000);
-
-  gpio_low(GPIOI_BASE, 5);
-  apply_motor_stop("coast");
+  init_can1_pd0_pd1(250);
 
   led_green(1);
   delay_ms(80);
@@ -1474,6 +2413,8 @@ int main(void) {
   uart_write_str("{\"type\":\"log\",\"message\":\"RoboMaster A motor/CAN controller ready\"}\n");
 
   while (1) {
+    poll_all_motor_encoders();
+    apply_pending_motion();
     update_closed_loop_control();
     const int32_t value = uart_read_char();
     if (value < 0) {

@@ -248,9 +248,12 @@ Web UI
   -> Feetech STS/SCS servo bus
 ```
 
-The bridge script is `web/local-services/pi-servo-serial-bridge.py`. The web
-"Install/Start Pi Servo Bridge" action uploads it to the Pi and installs
-`pi-servo-serial-bridge.service` with `Restart=always`.
+The bridge script is `web/local-services/pi-servo-serial-bridge.py`. The Pi
+image initializer `pi-image/install-rescue-pi.sh` installs it under
+`/opt/rescue-robot/bridges/` and enables `pi-servo-serial-bridge.service` with
+`Restart=always`. The web "Upgrade/Repair Pi Servo Bridge" action is a manual
+SSH recovery path that re-uploads the same script and service through
+`pi-helper`.
 
 The Waveshare HAT must be running its ESP32 transparent transmission firmware
 for raw Feetech frames to pass between the Pi UART and the servo bus. If
@@ -260,7 +263,9 @@ orientation, and shared ground.
 
 Bridge endpoints:
 
-- `GET /health` returns `{ ok, serialPort, baudRate }`.
+- `GET /health` returns `{ ok, service, version, serialPort, baudRate,
+  queueDepth, inFlight }`. `ok: false` with service metadata means the bridge
+  daemon is reachable but `/dev/serial0` is not available yet.
 - `POST /frame` accepts `{ frame: number[], waitMs?: number }`, writes the raw
   Feetech binary frame to `/dev/serial0`, then returns received bytes and a
   parsed status packet when available.
@@ -272,10 +277,14 @@ Important chain split:
   WebSerial direct Feetech adapters still use `1000000`.
 - RoboMaster Type A: Pi pins `30/32/33`, `/dev/ttyAMA5`, HTTP port `17353`,
   baud `115200`.
+- ASMG-MD CAN servos are not on the Feetech HAT bridge. PC/Web sends
+  `can_servo.*` semantic commands to the A-board bridge on `17353`; the Type A
+  firmware builds/parses CAN frames and applies latest-wins scheduling for
+  `can_servo.move`.
 
-The Pi servo bridge install command enables `enable_uart=1` and stops the Linux
-serial console on `/dev/serial0`. If an older A board service was still bound to
-`/dev/serial0`, the install command disables that legacy service so the servo
-bus owns pins 8/10 cleanly.
+The Pi image initializer enables `enable_uart=1` and stops the Linux serial
+console on `/dev/serial0`. If an older A board service was still bound to
+`/dev/serial0`, the web repair command disables that legacy service so the
+servo bus owns pins 8/10 cleanly.
 
 Hardware reference: https://www.waveshare.com/wiki/Bus_Servo_Driver_HAT_%28A%29

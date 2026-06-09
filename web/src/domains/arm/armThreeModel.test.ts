@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { calculateArmSegmentPoses, type ArmConfig, type ArmJointConfig } from "@adapters/persistence/storage";
-import { buildArmThreeModel } from "@domains/arm/armThreeModel";
+import { solvePlanarIk } from "@domains/arm/armKinematics";
+import { armPointToThreePoint, buildArmThreeModel, threePointToArmPoint } from "@domains/arm/armThreeModel";
 
 function joint(partial: Partial<ArmJointConfig> = {}): ArmJointConfig {
   return {
@@ -21,6 +22,36 @@ function joint(partial: Partial<ArmJointConfig> = {}): ArmJointConfig {
 }
 
 describe("buildArmThreeModel", () => {
+  it("round-trips arm plane points through the 3D coordinate helper", () => {
+    const armPoint = { x: 120, y: -80 };
+    const options = { origin: { x: 0, y: 0 }, scale: 0.02 };
+
+    const threePoint = armPointToThreePoint(armPoint, options);
+    const roundTrip = threePointToArmPoint(threePoint, options);
+
+    expect(threePoint).toEqual({ x: 2.4, y: 1.6, z: 0 });
+    expect(roundTrip.x).toBeCloseTo(armPoint.x, 5);
+    expect(roundTrip.y).toBeCloseTo(armPoint.y, 5);
+  });
+
+  it("feeds a converted 3D drag target into IK and moves multiple enabled joints", () => {
+    const armConfig: ArmConfig = {
+      joints: [
+        joint({ id: "base", servoId: 1, lengthPx: 100, angleDeg: 90, neutralDeg: 90 }),
+        joint({ id: "elbow", servoId: 2, lengthPx: 80, angleDeg: 90, neutralDeg: 90 })
+      ],
+      liveDragEnabled: false,
+      selectedJointId: "base"
+    };
+    const options = { origin: { x: 0, y: 0 }, scale: 0.01 };
+    const dragTarget = threePointToArmPoint(armPointToThreePoint({ x: 100, y: -80 }, options), options);
+
+    const solution = solvePlanarIk(armConfig, dragTarget, { origin: options.origin, tolerancePx: 1 });
+
+    expect(solution.converged).toBe(true);
+    expect(solution.movedJointIds).toEqual(expect.arrayContaining(["base", "elbow"]));
+  });
+
   it("maps 2D arm shape segments into scaled 3D links", () => {
     const armConfig: ArmConfig = {
       joints: [

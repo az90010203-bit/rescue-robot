@@ -36,8 +36,8 @@ interface ServoCommandPanelProps {
   formatLinkageMemberDirection: (reverse: boolean) => string;
   formatWheelSliderDirectionLabel: (direction: WheelSliderDirection) => string;
   handleAngleSliderChange: (servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) => void;
-  handleLiveDragToggle: (id: number, enabled: boolean) => void;
-  handleServoModeChange: (id: number, mode: ServoControlMode) => void;
+  handleLiveDragToggle: (servo: ServoProfile, state: ServoCommandState, enabled: boolean) => void;
+  handleServoModeChange: (servo: ServoProfile, mode: ServoControlMode) => void;
   handleWheelSliderChange: (servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) => void;
   linkageWheelDirectionByGroup: Record<string, ServoLinkageWheelDirection | "paused">;
   pauseServo: (servo: ServoProfile, state: ServoCommandState) => void;

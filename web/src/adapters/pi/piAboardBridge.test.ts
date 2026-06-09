@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildAboardBridgeBaseUrl, buildAboardBridgeServiceCommand, checkAboardBridge, sendAboardBridgeCommand } from "@adapters/pi/piAboardBridge";
+import { buildAboardBridgeBaseUrl, buildAboardBridgeServiceCommand, checkAboardBridge, requestAboardBridgeDiagnostics, sendAboardBridgeCommand } from "@adapters/pi/piAboardBridge";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -15,14 +15,113 @@ describe("A board Raspberry Pi serial bridge client", () => {
   });
 
   it("checks bridge health", async () => {
-    const fetcher = vi.fn(async () => jsonResponse({ ok: true, serialPort: "/dev/ttyAMA5", baudRate: 115200 }));
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: true,
+        service: "a-board-serial-bridge",
+        version: "0.1.0",
+        serialPort: "/dev/ttyAMA5",
+        baudRate: 115200,
+        queueDepth: 0,
+        inFlight: false,
+        motionPending: false,
+        latestMotionSeq: 18,
+        droppedMotionCount: 3,
+        activeCommand: null,
+        canServoReady: true,
+        mecanumReady: true,
+        serialOpen: true,
+        deviceExists: true,
+        lastSerialEvent: { kind: "opened", deviceExists: true },
+        consecutiveOpenFailures: 0,
+        diagnosticsPath: "/diagnostics"
+      })
+    );
 
     await expect(checkAboardBridge("pi.local", { fetcher: fetcher as unknown as typeof fetch })).resolves.toEqual({
       ok: true,
       serialPort: "/dev/ttyAMA5",
-      baudRate: 115200
+      baudRate: 115200,
+      service: "a-board-serial-bridge",
+      version: "0.1.0",
+      queueDepth: 0,
+      inFlight: false,
+      busy: false,
+      motionPending: false,
+      latestMotionSeq: 18,
+      droppedMotionCount: 3,
+      activeCommand: null,
+      canServoReady: true,
+      mecanumReady: true,
+      serialOpen: true,
+      deviceExists: true,
+      lastSerialEvent: { kind: "opened", deviceExists: true },
+      consecutiveOpenFailures: 0,
+      diagnosticsPath: "/diagnostics"
     });
     expect(fetcher).toHaveBeenCalledWith("http://pi.local:17353/health", undefined);
+  });
+
+  it("reads serial diagnostics events", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: true,
+        service: "a-board-serial-bridge",
+        serialPort: "/dev/ttyAMA5",
+        baudRate: 115200,
+        serialOpen: false,
+        busy: false,
+        deviceExists: true,
+        lastCloseReason: "request_failed",
+        lastException: { type: "OSError", errno: 5, message: "Input/output error" },
+        consecutiveOpenFailures: 1,
+        device: { path: "/dev/ttyAMA5", exists: true, realpath: "/dev/ttyAMA5" },
+        events: [
+          { kind: "no_matching_response", requestId: 4, seq: 18, commandType: "imu.read" },
+          { kind: "closed", reason: "request_failed" }
+        ]
+      })
+    );
+
+    await expect(requestAboardBridgeDiagnostics("pi.local", { fetcher: fetcher as unknown as typeof fetch })).resolves.toMatchObject({
+      ok: true,
+      serialPort: "/dev/ttyAMA5",
+      serialOpen: false,
+      busy: false,
+      deviceExists: true,
+      lastCloseReason: "request_failed",
+      lastException: { type: "OSError", errno: 5 },
+      consecutiveOpenFailures: 1,
+      device: { exists: true },
+      events: [
+        { kind: "no_matching_response", requestId: 4, seq: 18 },
+        { kind: "closed", reason: "request_failed" }
+      ]
+    });
+    expect(fetcher).toHaveBeenCalledWith("http://pi.local:17353/diagnostics", undefined);
+  });
+
+  it("keeps health metadata when the Pi service is online but UART5 is unavailable", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: false,
+        service: "a-board-serial-bridge",
+        version: "0.1.0",
+        serialPort: "/dev/ttyAMA5",
+        baudRate: 115200,
+        serialOpen: false
+      })
+    );
+
+    await expect(checkAboardBridge("pi.local", { fetcher: fetcher as unknown as typeof fetch })).resolves.toEqual({
+      ok: false,
+      service: "a-board-serial-bridge",
+      version: "0.1.0",
+      serialPort: "/dev/ttyAMA5",
+      baudRate: 115200,
+      busy: false,
+      serialOpen: false
+    });
   });
 
   it("rejects the old serial0 A board bridge because the servo HAT owns pins 6/8/10", async () => {
@@ -82,6 +181,40 @@ describe("A board Raspberry Pi serial bridge client", () => {
     const init = (fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1];
     expect(fetcher).toHaveBeenCalledWith("http://pi.local:17353/command", expect.objectContaining({ method: "POST" }));
     expect(JSON.parse(String(init.body))).toEqual({ command: { type: "motor.read", seq: 42, channel: "M1" } });
+  });
+
+  it("preserves busy command responses and sends request timeout metadata", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: false,
+        busy: true,
+        accepted: false,
+        messages: [],
+        serialPort: "/dev/ttyAMA5",
+        baudRate: 115200,
+        queueDepth: 1,
+        inFlight: true
+      })
+    );
+
+    await expect(
+      sendAboardBridgeCommand("pi.local", { type: "motor.set", seq: 43, channel: "M1", speedPercent: 20 }, { fetcher: fetcher as unknown as typeof fetch, timeoutMs: 700 })
+    ).resolves.toEqual({
+      ok: false,
+      messages: [],
+      busy: true,
+      accepted: false,
+      queueDepth: 1,
+      inFlight: true,
+      serialPort: "/dev/ttyAMA5",
+      baudRate: 115200
+    });
+
+    const init = (fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1];
+    expect(JSON.parse(String(init.body))).toEqual({
+      command: { type: "motor.set", seq: 43, channel: "M1", speedPercent: 20 },
+      timeoutMs: 700
+    });
   });
 
   it("sends IMU commands and preserves attitude sensor feedback", async () => {

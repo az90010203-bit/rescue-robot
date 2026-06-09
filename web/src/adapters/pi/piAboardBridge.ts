@@ -1,4 +1,6 @@
 import type { InboundMessage, PcCommand } from "@adapters/hardware/protocol";
+import aBoardSerialBridgeScript from "../../../local-services/a-board-serial-bridge.py?raw";
+import type { PiBridgeExceptionDetail, PiBridgeSerialDeviceSnapshot, PiBridgeSerialEvent } from "@adapters/pi/piServoBridge";
 import {
   execPiCommand,
   PiConnectionRequest,
@@ -22,11 +24,48 @@ export interface AboardBridgeHealth {
   ok: boolean;
   serialPort: string;
   baudRate: number;
+  service?: string;
+  version?: string;
+  busy?: boolean;
+  queueDepth?: number;
+  inFlight?: boolean;
+  serialOpen?: boolean;
+  reconnectCount?: number;
+  lastReconnectAt?: number | null;
+  reconnectIntervalSec?: number;
+  deviceExists?: boolean;
+  lastSerialEvent?: PiBridgeSerialEvent | null;
+  lastCloseReason?: string | null;
+  lastException?: PiBridgeExceptionDetail | null;
+  consecutiveOpenFailures?: number;
+  diagnosticsPath?: string;
+  motionPending?: boolean;
+  latestMotionSeq?: number | null;
+  droppedMotionCount?: number;
+  activeCommand?: string | null;
+  canServoReady?: boolean;
+  mecanumReady?: boolean;
+}
+
+export interface AboardBridgeDiagnostics extends AboardBridgeHealth {
+  device?: PiBridgeSerialDeviceSnapshot;
+  inFlightRequestId?: number | null;
+  requestCount?: number;
+  failureCount?: number;
+  lastError?: string | null;
+  events: PiBridgeSerialEvent[];
+  uptimeSec?: number;
 }
 
 export interface AboardBridgeCommandResult {
   ok: boolean;
   messages: InboundMessage[];
+  busy?: boolean;
+  accepted?: boolean;
+  dropped?: boolean;
+  queueDepth?: number;
+  inFlight?: boolean;
+  error?: string;
   serialPort?: string;
   baudRate?: number;
 }
@@ -44,6 +83,7 @@ export interface AboardBridgeStartResult {
 
 interface AboardBridgeRequestOptions {
   fetcher?: typeof fetch;
+  timeoutMs?: number;
 }
 
 export function buildAboardBridgeBaseUrl(host: string): string {
@@ -56,7 +96,7 @@ export function buildAboardBridgeBaseUrl(host: string): string {
 
 export async function checkAboardBridge(host: string, options: AboardBridgeRequestOptions = {}): Promise<AboardBridgeHealth> {
   const value = await requestAboardBridgeJson<unknown>(host, "/health", undefined, options);
-  if (!isRecord(value) || value.ok !== true) {
+  if (!isRecord(value)) {
     throw new PiRemoteError("invalidResponse", "A board serial bridge returned an invalid health response");
   }
   const serialPort = typeof value.serialPort === "string" ? value.serialPort : A_BOARD_BRIDGE_SERIAL_PORT;
@@ -66,10 +106,49 @@ export async function checkAboardBridge(host: string, options: AboardBridgeReque
       `A board bridge is using ${serialPort}; expected ${A_BOARD_BRIDGE_SERIAL_PORT} for Raspberry Pi pins 30/32/33. Install/start the persistent A board bridge after enabling UART5.`
     );
   }
-  return {
-    ok: true,
+  const health: AboardBridgeHealth = {
+    ok: value.ok === true,
     serialPort,
     baudRate: typeof value.baudRate === "number" ? value.baudRate : A_BOARD_BRIDGE_BAUD_RATE
+  };
+  if (typeof value.service === "string") health.service = value.service;
+  if (typeof value.version === "string") health.version = value.version;
+  if (typeof value.queueDepth === "number") health.queueDepth = value.queueDepth;
+  if (typeof value.inFlight === "boolean") health.inFlight = value.inFlight;
+  health.busy = typeof value.busy === "boolean" ? value.busy : Boolean((health.queueDepth ?? 0) > 0 || health.inFlight);
+  if (typeof value.serialOpen === "boolean") health.serialOpen = value.serialOpen;
+  if (typeof value.reconnectCount === "number") health.reconnectCount = value.reconnectCount;
+  if (typeof value.lastReconnectAt === "number" || value.lastReconnectAt === null) health.lastReconnectAt = value.lastReconnectAt;
+  if (typeof value.reconnectIntervalSec === "number") health.reconnectIntervalSec = value.reconnectIntervalSec;
+  if (typeof value.deviceExists === "boolean") health.deviceExists = value.deviceExists;
+  if (isPiBridgeSerialEvent(value.lastSerialEvent) || value.lastSerialEvent === null) health.lastSerialEvent = value.lastSerialEvent;
+  if (typeof value.lastCloseReason === "string" || value.lastCloseReason === null) health.lastCloseReason = value.lastCloseReason;
+  if (isPiBridgeExceptionDetail(value.lastException) || value.lastException === null) health.lastException = value.lastException;
+  if (typeof value.consecutiveOpenFailures === "number") health.consecutiveOpenFailures = value.consecutiveOpenFailures;
+  if (typeof value.diagnosticsPath === "string") health.diagnosticsPath = value.diagnosticsPath;
+  if (typeof value.motionPending === "boolean") health.motionPending = value.motionPending;
+  if (typeof value.latestMotionSeq === "number" || value.latestMotionSeq === null) health.latestMotionSeq = value.latestMotionSeq;
+  if (typeof value.droppedMotionCount === "number") health.droppedMotionCount = value.droppedMotionCount;
+  if (typeof value.activeCommand === "string" || value.activeCommand === null) health.activeCommand = value.activeCommand;
+  if (typeof value.canServoReady === "boolean") health.canServoReady = value.canServoReady;
+  if (typeof value.mecanumReady === "boolean") health.mecanumReady = value.mecanumReady;
+  return health;
+}
+
+export async function requestAboardBridgeDiagnostics(host: string, options: AboardBridgeRequestOptions = {}): Promise<AboardBridgeDiagnostics> {
+  const value = await requestAboardBridgeJson<unknown>(host, "/diagnostics", undefined, options);
+  if (!isRecord(value) || !Array.isArray(value.events)) {
+    throw new PiRemoteError("invalidResponse", "A board serial bridge returned an invalid diagnostics response");
+  }
+  return {
+    ...normalizeAboardBridgeHealth(value),
+    device: isPiBridgeSerialDeviceSnapshot(value.device) ? value.device : undefined,
+    inFlightRequestId: typeof value.inFlightRequestId === "number" || value.inFlightRequestId === null ? value.inFlightRequestId : undefined,
+    requestCount: typeof value.requestCount === "number" ? value.requestCount : undefined,
+    failureCount: typeof value.failureCount === "number" ? value.failureCount : undefined,
+    lastError: typeof value.lastError === "string" || value.lastError === null ? value.lastError : undefined,
+    events: value.events.filter(isPiBridgeSerialEvent),
+    uptimeSec: typeof value.uptimeSec === "number" ? value.uptimeSec : undefined
   };
 }
 
@@ -80,7 +159,7 @@ export async function sendAboardBridgeCommand(host: string, command: PcCommand, 
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command })
+      body: JSON.stringify(typeof options.timeoutMs === "number" ? { command, timeoutMs: options.timeoutMs } : { command })
     },
     options
   );
@@ -94,12 +173,19 @@ export async function sendAboardBridgeCommand(host: string, command: PcCommand, 
       `A board bridge is using ${serialPort}; expected ${A_BOARD_BRIDGE_SERIAL_PORT} for Raspberry Pi pins 30/32/33.`
     );
   }
-  return {
+  const result: AboardBridgeCommandResult = {
     ok: value.ok !== false,
     messages: value.messages.filter(isInboundMessage),
     serialPort,
     baudRate: typeof value.baudRate === "number" ? value.baudRate : undefined
   };
+  if (typeof value.busy === "boolean") result.busy = value.busy;
+  if (typeof value.accepted === "boolean") result.accepted = value.accepted;
+  if (typeof value.dropped === "boolean") result.dropped = value.dropped;
+  if (typeof value.queueDepth === "number") result.queueDepth = value.queueDepth;
+  if (typeof value.inFlight === "boolean") result.inFlight = value.inFlight;
+  if (typeof value.error === "string") result.error = value.error;
+  return result;
 }
 
 export async function startAboardBridge(
@@ -107,18 +193,19 @@ export async function startAboardBridge(
   profile: Pick<PiSetupProfile, "workspaceDir">,
   options: AboardBridgeRequestOptions = {}
 ): Promise<AboardBridgeStartResult> {
-  const workspace = await setupPiWorkspace(connection, profile, options);
+  const requestOptions = { ...options, operation: { name: "pi.a-board-bridge.start" } };
+  const workspace = await setupPiWorkspace(connection, profile, requestOptions);
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const remotePath = `${workspaceDir}/${A_BOARD_BRIDGE_SCRIPT_NAME}`;
   const file = new File([A_BOARD_SERIAL_BRIDGE_SCRIPT], A_BOARD_BRIDGE_SCRIPT_NAME, { type: "text/x-python" });
-  await uploadPiFile({ ...connection, file, remotePath }, options);
+  await uploadPiFile({ ...connection, file, remotePath }, requestOptions);
   const command = buildAboardBridgeServiceCommand({
     password: connection.password,
     remotePath,
     username: connection.username,
     workspaceDir
   });
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, options);
+  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, requestOptions);
   return {
     ok: workspace.ok && exec.exitCode === 0 && /a_board_bridge_service:active/.test(exec.stdout),
     workspaceDir,
@@ -222,155 +309,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
 }
 
+function normalizeAboardBridgeHealth(value: Record<string, unknown>): AboardBridgeHealth {
+  const serialPort = typeof value.serialPort === "string" ? value.serialPort : A_BOARD_BRIDGE_SERIAL_PORT;
+  const health: AboardBridgeHealth = {
+    ok: value.ok === true,
+    serialPort,
+    baudRate: typeof value.baudRate === "number" ? value.baudRate : A_BOARD_BRIDGE_BAUD_RATE
+  };
+  if (typeof value.service === "string") health.service = value.service;
+  if (typeof value.version === "string") health.version = value.version;
+  if (typeof value.queueDepth === "number") health.queueDepth = value.queueDepth;
+  if (typeof value.inFlight === "boolean") health.inFlight = value.inFlight;
+  health.busy = typeof value.busy === "boolean" ? value.busy : Boolean((health.queueDepth ?? 0) > 0 || health.inFlight);
+  if (typeof value.serialOpen === "boolean") health.serialOpen = value.serialOpen;
+  if (typeof value.reconnectCount === "number") health.reconnectCount = value.reconnectCount;
+  if (typeof value.lastReconnectAt === "number" || value.lastReconnectAt === null) health.lastReconnectAt = value.lastReconnectAt;
+  if (typeof value.reconnectIntervalSec === "number") health.reconnectIntervalSec = value.reconnectIntervalSec;
+  if (typeof value.deviceExists === "boolean") health.deviceExists = value.deviceExists;
+  if (isPiBridgeSerialEvent(value.lastSerialEvent) || value.lastSerialEvent === null) health.lastSerialEvent = value.lastSerialEvent;
+  if (typeof value.lastCloseReason === "string" || value.lastCloseReason === null) health.lastCloseReason = value.lastCloseReason;
+  if (isPiBridgeExceptionDetail(value.lastException) || value.lastException === null) health.lastException = value.lastException;
+  if (typeof value.consecutiveOpenFailures === "number") health.consecutiveOpenFailures = value.consecutiveOpenFailures;
+  if (typeof value.diagnosticsPath === "string") health.diagnosticsPath = value.diagnosticsPath;
+  if (typeof value.motionPending === "boolean") health.motionPending = value.motionPending;
+  if (typeof value.latestMotionSeq === "number" || value.latestMotionSeq === null) health.latestMotionSeq = value.latestMotionSeq;
+  if (typeof value.droppedMotionCount === "number") health.droppedMotionCount = value.droppedMotionCount;
+  if (typeof value.activeCommand === "string" || value.activeCommand === null) health.activeCommand = value.activeCommand;
+  if (typeof value.canServoReady === "boolean") health.canServoReady = value.canServoReady;
+  if (typeof value.mecanumReady === "boolean") health.mecanumReady = value.mecanumReady;
+  return health;
+}
+
+function isPiBridgeExceptionDetail(value: unknown): value is PiBridgeExceptionDetail {
+  return isRecord(value);
+}
+
+function isPiBridgeSerialDeviceSnapshot(value: unknown): value is PiBridgeSerialDeviceSnapshot {
+  return isRecord(value);
+}
+
+function isPiBridgeSerialEvent(value: unknown): value is PiBridgeSerialEvent {
+  return isRecord(value);
+}
+
 function shellQuote(value: string): string {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-export const A_BOARD_SERIAL_BRIDGE_SCRIPT = String.raw`#!/usr/bin/env python3
-import json
-import os
-import select
-import sys
-import termios
-import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-SERIAL_PORT = os.environ.get("A_BOARD_SERIAL_PORT", "/dev/ttyAMA5")
-BAUD_RATE = int(os.environ.get("A_BOARD_BAUD", "115200"))
-HOST = os.environ.get("A_BOARD_BRIDGE_HOST", "0.0.0.0")
-PORT = int(os.environ.get("A_BOARD_BRIDGE_PORT", "17353"))
-DEFAULT_TIMEOUT_MS = int(os.environ.get("A_BOARD_TIMEOUT_MS", "1200"))
-
-BAUD_FLAGS = {
-    9600: termios.B9600,
-    19200: termios.B19200,
-    38400: termios.B38400,
-    57600: termios.B57600,
-    115200: termios.B115200,
-}
-
-
-def configure_serial(fd):
-    attrs = termios.tcgetattr(fd)
-    baud = BAUD_FLAGS.get(BAUD_RATE, termios.B115200)
-    attrs[0] = 0
-    attrs[1] = 0
-    attrs[2] = termios.CLOCAL | termios.CREAD | termios.CS8
-    attrs[3] = 0
-    attrs[4] = baud
-    attrs[5] = baud
-    attrs[6][termios.VMIN] = 0
-    attrs[6][termios.VTIME] = 0
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
-    termios.tcflush(fd, termios.TCIOFLUSH)
-
-
-def open_serial():
-    fd = os.open(SERIAL_PORT, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    configure_serial(fd)
-    return fd
-
-
-def read_lines_until(fd, seq, timeout_ms, command_type):
-    deadline = time.monotonic() + timeout_ms / 1000.0
-    settle_deadline = None
-    buffer = b""
-    messages = []
-    while True:
-        active_deadline = settle_deadline if settle_deadline is not None else deadline
-        if time.monotonic() >= active_deadline:
-            return messages
-        remaining = max(0.0, active_deadline - time.monotonic())
-        readable, _, _ = select.select([fd], [], [], min(0.05, remaining))
-        if not readable:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except BlockingIOError:
-            continue
-        if not chunk:
-            continue
-        buffer += chunk
-        while b"\n" in buffer:
-            line, buffer = buffer.split(b"\n", 1)
-            text = line.decode("utf-8", errors="replace").strip()
-            if not text:
-                continue
-            try:
-                message = json.loads(text)
-            except json.JSONDecodeError:
-                message = {"type": "log", "message": text}
-            messages.append(message)
-            message_type = message.get("type")
-            if message.get("seq") != seq:
-                continue
-            if message_type in ("error", "motor.feedback"):
-                return messages
-            if command_type == "can.send" and message_type == "can.feedback":
-                settle_deadline = min(deadline, time.monotonic() + 0.12)
-                continue
-            if message_type in ("can.feedback", "can.frame", "imu.feedback"):
-                return messages
-    return messages
-
-
-def send_command(command, timeout_ms):
-    seq = command.get("seq")
-    if not isinstance(seq, int):
-        raise ValueError("command.seq must be an integer")
-    fd = open_serial()
-    try:
-        os.write(fd, (json.dumps(command, separators=(",", ":")) + "\n").encode("utf-8"))
-        messages = read_lines_until(fd, seq, timeout_ms, command.get("type"))
-        return messages
-    finally:
-        os.close(fd)
-
-
-def send_json(handler, status, body):
-    payload = json.dumps(body).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Headers", "content-type")
-    handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(payload)))
-    handler.end_headers()
-    handler.wfile.write(payload)
-
-
-class Handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        send_json(self, 200, {"ok": True})
-
-    def do_GET(self):
-        if self.path != "/health":
-            send_json(self, 404, {"ok": False, "error": "not found"})
-            return
-        exists = os.path.exists(SERIAL_PORT)
-        send_json(self, 200, {"ok": exists, "serialPort": SERIAL_PORT, "baudRate": BAUD_RATE})
-
-    def do_POST(self):
-        if self.path != "/command":
-            send_json(self, 404, {"ok": False, "error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-            command = body.get("command", body)
-            timeout_ms = int(body.get("timeoutMs", DEFAULT_TIMEOUT_MS))
-            messages = send_command(command, timeout_ms)
-            matched = any(message.get("seq") == command.get("seq") and message.get("type") in ("error", "motor.feedback", "can.feedback", "can.frame", "imu.feedback") for message in messages if isinstance(message, dict))
-            send_json(self, 200, {"ok": matched, "messages": messages, "serialPort": SERIAL_PORT, "baudRate": BAUD_RATE})
-        except Exception as exc:
-            send_json(self, 500, {"ok": False, "error": str(exc), "messages": []})
-
-    def log_message(self, fmt, *args):
-        sys.stderr.write("%s\n" % (fmt % args))
-
-
-if __name__ == "__main__":
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("A board serial bridge listening on %s:%s -> %s @ %s" % (HOST, PORT, SERIAL_PORT, BAUD_RATE), flush=True)
-    server.serve_forever()
-`;
+export const A_BOARD_SERIAL_BRIDGE_SCRIPT = aBoardSerialBridgeScript;

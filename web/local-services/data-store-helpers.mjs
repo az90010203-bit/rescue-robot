@@ -48,6 +48,9 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
     capabilities: [{ id: "servo", features: ["position_control", "feedback", "current_config", "pid_config", "id_config", "can1"] }],
     configSchema: [
       { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
+      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
+      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
+      { id: "direction", label: "Direction", kind: "select", options: [{ label: "Normal", value: 1 }, { label: "Reverse", value: -1 }] },
       {
         id: "bitrateKbps",
         label: "CAN Bitrate",
@@ -60,7 +63,7 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
       },
       { id: "canBus", label: "CAN Bus", kind: "select", options: [{ label: "RoboMaster A CAN1", value: "CAN1" }] }
     ],
-    defaultConfig: { servoId: 1, bitrateKbps: 250, canBus: "CAN1" },
+    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
     tags: ["servo", "can", "asme", "asmg-md", "robomaster-a"]
   },
   {
@@ -104,7 +107,7 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
       { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
       { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
     ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
+    defaultConfig: { channel: "M1", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", sensorPin: "", encoderAPin: "PE4", encoderBPin: "PF0" },
     tags: ["motor", "wheeltec", "pwm", "encoder"]
   },
   {
@@ -209,6 +212,24 @@ export const BUILTIN_DEVICE_CATALOG_ITEMS = [
     ],
     defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
     tags: ["camera", "browser", "local", "usb", "webcam"]
+  },
+  {
+    id: "catalog.local.ai-vision",
+    type: "ai-vision",
+    brand: "Local",
+    model: "AI Vision Helper",
+    displayName: "Local AI Vision Helper",
+    driverId: "driver.ai-vision-helper",
+    transportId: "transport.local-helper",
+    capabilities: [{ id: "ai-vision", features: ["mjpeg_stream_analysis", "competition_mannequin", "sample_capture", "external_helper"] }],
+    configSchema: [
+      { id: "sourceId", label: "Source ID", kind: "text", required: true },
+      { id: "streamUrl", label: "Stream URL", kind: "text", required: true },
+      { id: "label", label: "Label", kind: "text" },
+      { id: "helperUrl", label: "Helper URL", kind: "text" }
+    ],
+    defaultConfig: { sourceId: "main", streamUrl: "http://192.168.55.220:8080/stream", label: "competition_mannequin", helperUrl: "http://127.0.0.1:17353" },
+    tags: ["ai", "vision", "local-helper", "competition_mannequin"]
   }
 ];
 
@@ -268,7 +289,7 @@ export function componentRow(row) {
   return {
     id: row.id,
     name: row.name,
-    kind: row.kind === "robot-arm" ? "robot-arm" : "custom",
+    kind: row.kind === "robot-arm" || row.kind === "mecanum-drive" || row.kind === "can-servo-group" ? row.kind : "custom",
     pluginInstanceIds: normalizeStringArray(parseJson(row.pluginInstanceIdsJson, [])),
     config: parseJson(row.configJson, {}),
     tags: normalizeStringArray(parseJson(row.tagsJson, [])),
@@ -396,7 +417,7 @@ export function normalizeComponent(value) {
   if (!value || typeof value !== "object") {
     throw badRequestError("component is required");
   }
-  const kind = value.kind === "robot-arm" ? "robot-arm" : "custom";
+  const kind = value.kind === "robot-arm" || value.kind === "mecanum-drive" || value.kind === "can-servo-group" ? value.kind : "custom";
   const config = value.config && typeof value.config === "object" && !Array.isArray(value.config) ? value.config : {};
   return {
     id: typeof value.id === "string" && value.id.trim() ? value.id.trim() : randomUUID(),
@@ -465,17 +486,66 @@ export function assertPluginIdsAvailable(projectId, pluginIds, options = {}) {
 }
 
 export function assertComponentPluginTypes(projectId, component) {
-  if (component.kind !== "robot-arm") {
+  if (component.kind !== "robot-arm" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
     return;
   }
   const rows = currentDb()
-    .prepare("SELECT id, type, driver_id AS driverId FROM plugin_instances WHERE project_id = ?")
+    .prepare("SELECT id, type, driver_id AS driverId, config_json AS configJson FROM plugin_instances WHERE project_id = ?")
     .all(projectId);
-  const pluginById = new Map(rows.map((row) => [row.id, row]));
+  const pluginById = new Map(rows.map((row) => [row.id, { ...row, config: parseJson(row.configJson, {}) }]));
   for (const pluginId of component.pluginInstanceIds) {
     const plugin = pluginById.get(pluginId);
-    if (plugin?.type !== "servo" || plugin.driverId !== "driver.feetech-servo") {
+    if (component.kind === "robot-arm" && (plugin?.type !== "servo" || plugin.driverId !== "driver.feetech-servo")) {
       throw badRequestError(`robot-arm component requires Feetech servo plugin instances: ${pluginId}`);
+    }
+    if (component.kind === "mecanum-drive" && plugin?.type !== "motor") {
+      throw badRequestError(`mecanum-drive component requires motor plugin instances: ${pluginId}`);
+    }
+    if (component.kind === "can-servo-group" && (plugin?.type !== "servo" || plugin.driverId !== "driver.asme-can-servo")) {
+      throw badRequestError(`can-servo-group component requires ASME CAN servo plugin instances: ${pluginId}`);
+    }
+  }
+  if (component.kind === "mecanum-drive") {
+    const wheels = component.config?.wheels && typeof component.config.wheels === "object" && !Array.isArray(component.config.wheels)
+      ? component.config.wheels
+      : {};
+    const wheelIds = ["frontLeft", "frontRight", "rearLeft", "rearRight"]
+      .map((position) => typeof wheels[position] === "string" ? wheels[position].trim() : "")
+      .filter(Boolean);
+    if (component.pluginInstanceIds.length !== 4 || new Set(component.pluginInstanceIds).size !== 4 || wheelIds.length !== 4 || new Set(wheelIds).size !== 4) {
+      throw badRequestError("mecanum-drive component requires four unique motor plugin instances");
+    }
+    for (const pluginId of wheelIds) {
+      if (!component.pluginInstanceIds.includes(pluginId)) {
+        throw badRequestError(`mecanum-drive wheel plugin must be assigned to the component: ${pluginId}`);
+      }
+    }
+  }
+  if (component.kind === "can-servo-group") {
+    const servos = component.config?.servos && typeof component.config.servos === "object" && !Array.isArray(component.config.servos)
+      ? component.config.servos
+      : {};
+    const servoIds = ["servo1", "servo2", "servo3", "servo4"]
+      .map((slot) => typeof servos[slot] === "string" ? servos[slot].trim() : "")
+      .filter(Boolean);
+    if (component.pluginInstanceIds.length !== 4 || new Set(component.pluginInstanceIds).size !== 4 || servoIds.length !== 4 || new Set(servoIds).size !== 4) {
+      throw badRequestError("can-servo-group component requires four unique ASME CAN servo plugin instances");
+    }
+    const profiles = servoIds.map((pluginId) => pluginById.get(pluginId)).filter(Boolean);
+    for (const pluginId of servoIds) {
+      if (!component.pluginInstanceIds.includes(pluginId)) {
+        throw badRequestError(`can-servo-group servo plugin must be assigned to the component: ${pluginId}`);
+      }
+      const plugin = pluginById.get(pluginId);
+      if (plugin?.type !== "servo" || plugin.driverId !== "driver.asme-can-servo") {
+        throw badRequestError(`can-servo-group component requires ASME CAN servo plugin instances: ${pluginId}`);
+      }
+    }
+    const first = profiles[0]?.config ?? {};
+    const firstBus = String(first.canBus ?? "CAN1");
+    const firstBitrate = Number(first.bitrateKbps ?? 250);
+    if (profiles.some((plugin) => String(plugin.config?.canBus ?? "CAN1") !== firstBus || Number(plugin.config?.bitrateKbps ?? 250) !== firstBitrate)) {
+      throw badRequestError("can-servo-group component requires all servos to use the same CAN bus and bitrate");
     }
   }
 }

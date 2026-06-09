@@ -30,6 +30,14 @@ interface UsePlatformRuntimeOptions {
   selectedId: number | "";
   servoFeedback: ServoFeedbackMap;
   servos: ServoProfile[];
+  aiVisionHelperReady?: boolean;
+  aiVisionMode?: string | null;
+  aiVisionSampleDir?: string | null;
+  aiVisionDetectionCount?: number | null;
+  aiVisionLastLabel?: string | null;
+  aiVisionLastConfidence?: number | null;
+  aiVisionLastCapturePath?: string | null;
+  aiVisionSourceId?: string | null;
 }
 
 export function usePlatformRuntime({
@@ -45,7 +53,15 @@ export function usePlatformRuntime({
   selectedChannel,
   selectedId,
   servoFeedback,
-  servos
+  servos,
+  aiVisionHelperReady,
+  aiVisionMode,
+  aiVisionSampleDir,
+  aiVisionDetectionCount,
+  aiVisionLastLabel,
+  aiVisionLastConfidence,
+  aiVisionLastCapturePath,
+  aiVisionSourceId
 }: UsePlatformRuntimeOptions) {
   const platformRegistryRef = useRef(createPlatformRegistry(BUILTIN_PLATFORM_PLUGINS));
   const platformEventBusRef = useRef(new PlatformEventBus());
@@ -65,9 +81,14 @@ export function usePlatformRuntime({
         connected,
         connectionMode,
         cameraReady,
-        cameraReadyBySourceId
+        cameraReadyBySourceId,
+        aiVisionHelperReady,
+        aiVisionMode,
+        aiVisionSampleDir,
+        aiVisionDetectionCount,
+        aiVisionSourceId
       }),
-    [armConfig, cameraConfig, cameraReady, cameraReadyBySourceId, connected, connectionMode, motorFeedback, motors, servoFeedback, servos]
+    [aiVisionDetectionCount, aiVisionHelperReady, aiVisionMode, aiVisionSampleDir, aiVisionSourceId, armConfig, cameraConfig, cameraReady, cameraReadyBySourceId, connected, connectionMode, motorFeedback, motors, servoFeedback, servos]
   );
   const platformState = useMemo(
     () =>
@@ -79,9 +100,17 @@ export function usePlatformRuntime({
         connected,
         connectionMode,
         cameraReady,
-        cameraReadyBySourceId
+        cameraReadyBySourceId,
+        aiVisionHelperReady,
+        aiVisionMode,
+        aiVisionSampleDir,
+        aiVisionDetectionCount,
+        aiVisionLastLabel,
+        aiVisionLastConfidence,
+        aiVisionLastCapturePath,
+        aiVisionSourceId
       }),
-    [armConfig, cameraConfig, cameraReady, cameraReadyBySourceId, connected, connectionMode, motorFeedback, servoFeedback]
+    [aiVisionDetectionCount, aiVisionHelperReady, aiVisionLastCapturePath, aiVisionLastConfidence, aiVisionLastLabel, aiVisionMode, aiVisionSampleDir, aiVisionSourceId, armConfig, cameraConfig, cameraReady, cameraReadyBySourceId, connected, connectionMode, motorFeedback, servoFeedback]
   );
   const preferredPlatformDeviceId =
     activeModule === "servo" && selectedId !== ""

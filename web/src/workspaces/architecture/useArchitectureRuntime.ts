@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { listPluginInstances } from "@adapters/data-service/dataService";
 import type { MotorProfile, ServoProfile } from "@adapters/hardware/protocol";
 import {
   type PluginInstance,
@@ -10,8 +11,10 @@ import { isServoBusModule, type ActiveModule, type ConnectionMode } from "@app/a
 
 interface UseArchitectureRuntimeOptions {
   activeModule: ActiveModule;
+  autoSyncPluginInstances?: boolean;
   connected: boolean;
   connectionMode: ConnectionMode | null;
+  projectId?: string | null;
   selectModule: (module: ActiveModule) => Promise<void>;
   setMotors: (updater: (current: MotorProfile[]) => MotorProfile[]) => void;
   setServos: (updater: (current: ServoProfile[]) => ServoProfile[]) => void;
@@ -19,15 +22,17 @@ interface UseArchitectureRuntimeOptions {
 
 export function useArchitectureRuntime({
   activeModule,
+  autoSyncPluginInstances = false,
   connected,
   connectionMode,
+  projectId,
   selectModule,
   setMotors,
   setServos
 }: UseArchitectureRuntimeOptions) {
   const [architecturePluginInstances, setArchitecturePluginInstances] = useState<PluginInstance[]>([]);
 
-  function syncArchitecturePluginInstances(instances: PluginInstance[]) {
+  const syncArchitecturePluginInstances = useCallback((instances: PluginInstance[]) => {
     setArchitecturePluginInstances(instances);
     const architectureServos = pluginInstancesToServoProfiles(instances);
     const architectureMotors = pluginInstancesToMotorProfiles(instances);
@@ -37,13 +42,30 @@ export function useArchitectureRuntime({
     if (architectureMotors.length > 0) {
       setMotors((current) => mergeMotorProfiles(current, architectureMotors));
     }
-  }
+  }, [setMotors, setServos]);
 
-  async function prepareArchitectureCommand(capability: CapabilityId) {
+  useEffect(() => {
+    if (!autoSyncPluginInstances || !projectId) {
+      return;
+    }
+    let cancelled = false;
+    void listPluginInstances(projectId)
+      .then((instances) => {
+        if (!cancelled) {
+          syncArchitecturePluginInstances(instances);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [autoSyncPluginInstances, projectId, syncArchitecturePluginInstances]);
+
+  const prepareArchitectureCommand = useCallback(async (capability: CapabilityId) => {
     const module =
       capability === "servo"
         ? "servo"
-        : capability === "motor"
+        : capability === "motor" || capability === "mecanum-drive" || capability === "can-servo-group"
           ? "motor"
           : capability === "robot-arm"
             ? "arm"
@@ -54,7 +76,7 @@ export function useArchitectureRuntime({
     if (module !== activeModule || (connected && connectionMode !== targetMode)) {
       await selectModule(module);
     }
-  }
+  }, [activeModule, connected, connectionMode, selectModule]);
 
   return {
     architecturePluginInstances,

@@ -41,7 +41,7 @@ export function platformControlDefaultsForDevice(device: DeviceDescriptor | unde
   if (device.type === "servo") {
     return {
       angleDeg: 90,
-      speedRaw: 800,
+      speedRaw: 300,
       enabled: true
     };
   }
@@ -66,6 +66,13 @@ export function platformControlDefaultsForDevice(device: DeviceDescriptor | unde
     return {
       command: "",
       file: null
+    };
+  }
+  if (device.type === "ai-vision") {
+    return {
+      sourceId: device.metadata?.sourceId ?? "main",
+      streamUrl: device.metadata?.streamUrl ?? "",
+      label: "competition_mannequin"
     };
   }
   return {};
@@ -202,6 +209,25 @@ export function platformCommandForControl(device: DeviceDescriptor, actionId: st
     }
     if (actionId === "upload") {
       return createPlatformCommand("firmware.upload", device.id, { port: String(draft.port ?? "") });
+    }
+  }
+
+  if (device.type === "ai-vision") {
+    if (actionId === "helper_check") {
+      return createPlatformCommand("ai-vision.helper.check", device.id);
+    }
+    if (actionId === "analyze") {
+      return createPlatformCommand("ai-vision.analyze", device.id, {
+        sourceId: String(draft.sourceId ?? ""),
+        streamUrl: String(draft.streamUrl ?? "")
+      });
+    }
+    if (actionId === "capture_sample") {
+      return createPlatformCommand("ai-vision.samples.capture", device.id, {
+        sourceId: String(draft.sourceId ?? ""),
+        streamUrl: String(draft.streamUrl ?? ""),
+        label: String(draft.label ?? "competition_mannequin")
+      });
     }
   }
 

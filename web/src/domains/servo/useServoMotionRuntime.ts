@@ -2,7 +2,7 @@
 import { createPositionTrajectory, createWheelSpeedTrajectory, resolveServoMotionConfig, smoothStepQuintic, type ServoSmoothPreset } from "@domains/servo/servoMotion";
 import { calculateServoLinkageTargets, calculateServoLinkageWheelTargets, type ServoLinkageGroup, type ServoLinkageWheelDirection } from "@adapters/persistence/storage";
 import { singleWheelTurnProgressKey, type ServoCommandState } from "@app/appModel";
-type ServoStatus = "idle" | "paused" | "smoothing"; type PositionWrite = { servo: ServoProfile; physicalAngleDeg: number; speedRaw: number; acc: number | undefined; waitMs: number; logFrame: boolean };
+type ServoStatus = "idle" | "paused" | "smoothing"; type PositionWrite = { servo: ServoProfile; physicalAngleDeg: number; speedRaw: number; acc: number | undefined; waitMs: number; logFrame: boolean; live?: boolean; setupMode?: boolean };
 type WheelWrite = { servo: ServoProfile; speedRaw: number; acc: number | undefined; setupMode: boolean; waitMs: number; logFrame: boolean }; interface UseServoMotionRuntimeOptions {
   addLog: (source: "rx" | "tx" | "system", message: string, level?: any) => void;
   addSystemLog: (messageKey: string, level?: any, values?: any) => void;
@@ -85,7 +85,7 @@ export function useServoMotionRuntime({
       }
       return false;
     }
-    if (!servoSmoothingEnabled) {
+    if (!servoSmoothingEnabled || live) {
       cancelServoMotionForServo(servo.id, "idle");
       const sent = await enqueueServoSerialTask(() =>
         writeServoPositionUnlocked({
@@ -94,7 +94,8 @@ export function useServoMotionRuntime({
           speedRaw: speedValue,
           acc,
           waitMs: live ? 12 : 80,
-          logFrame: !live
+          logFrame: !live,
+          live
         })
       );
       if (sent) {
@@ -138,7 +139,8 @@ export function useServoMotionRuntime({
             speedRaw: speedValue,
             acc,
             waitMs: live ? 12 : 30,
-            logFrame: false
+            logFrame: false,
+            live
           })
         );
         if (!sent || !isServoMotionCurrent(key, generation)) {
@@ -182,7 +184,7 @@ export function useServoMotionRuntime({
       }
       return false;
     }
-    if (!servoSmoothingEnabled) {
+    if (!servoSmoothingEnabled || live) {
       cancelServoMotionForServo(servo.id, "idle");
       const sent = await enqueueServoSerialTask(() =>
         writeServoWheelSpeedUnlocked({
@@ -289,7 +291,7 @@ export function useServoMotionRuntime({
       return false;
     }
     const ids = targets.map((target) => target.servoId);
-    if (!servoSmoothingEnabled) {
+    if (!servoSmoothingEnabled || live) {
       cancelServoMotionForLinkage(group.id, "idle");
       await enqueueServoSerialTask(async () => {
         for (const target of targets) {
@@ -299,7 +301,8 @@ export function useServoMotionRuntime({
             speedRaw: target.speedRaw,
             acc: target.acc,
             waitMs: live ? 12 : 80,
-            logFrame: !live
+            logFrame: !live,
+            live
           });
         }
       });
@@ -356,7 +359,8 @@ export function useServoMotionRuntime({
               speedRaw: target.speedRaw,
               acc: target.acc,
               waitMs: live ? 12 : 30,
-              logFrame: false
+              logFrame: false,
+              live
             });
           }
         });
@@ -498,6 +502,3 @@ export function useServoMotionRuntime({
     runServoWheelMotion
   };
 }
-
-
-

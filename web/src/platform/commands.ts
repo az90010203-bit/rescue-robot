@@ -22,6 +22,9 @@ export type PlatformCommandType =
   | "robot-arm.teach.start"
   | "robot-arm.teach.stop"
   | "robot-arm.teach.play"
+  | "mecanum-drive.set_velocity"
+  | "mecanum-drive.stop"
+  | "can-servo-group.set_positions"
   | "pi.check"
   | "pi.setup"
   | "pi.upload_file"
@@ -34,7 +37,10 @@ export type PlatformCommandType =
   | "firmware.helper.check"
   | "firmware.ports.refresh"
   | "firmware.compile"
-  | "firmware.upload";
+  | "firmware.upload"
+  | "ai-vision.helper.check"
+  | "ai-vision.analyze"
+  | "ai-vision.samples.capture";
 
 export interface PlatformCommandTarget {
   deviceId: string;
@@ -77,6 +83,9 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "robot-arm.teach.start",
   "robot-arm.teach.stop",
   "robot-arm.teach.play",
+  "mecanum-drive.set_velocity",
+  "mecanum-drive.stop",
+  "can-servo-group.set_positions",
   "pi.check",
   "pi.setup",
   "pi.upload_file",
@@ -89,7 +98,10 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "firmware.helper.check",
   "firmware.ports.refresh",
   "firmware.compile",
-  "firmware.upload"
+  "firmware.upload",
+  "ai-vision.helper.check",
+  "ai-vision.analyze",
+  "ai-vision.samples.capture"
 ]);
 
 const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
@@ -112,6 +124,9 @@ const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
   "robot-arm.teach.start": "robot-arm",
   "robot-arm.teach.stop": "robot-arm",
   "robot-arm.teach.play": "robot-arm",
+  "mecanum-drive.set_velocity": "mecanum-drive",
+  "mecanum-drive.stop": "mecanum-drive",
+  "can-servo-group.set_positions": "can-servo-group",
   "pi.check": "raspberry-pi",
   "pi.setup": "raspberry-pi",
   "pi.upload_file": "raspberry-pi",
@@ -124,7 +139,10 @@ const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
   "firmware.helper.check": "firmware",
   "firmware.ports.refresh": "firmware",
   "firmware.compile": "firmware",
-  "firmware.upload": "firmware"
+  "firmware.upload": "firmware",
+  "ai-vision.helper.check": "ai-vision",
+  "ai-vision.analyze": "ai-vision",
+  "ai-vision.samples.capture": "ai-vision"
 };
 
 const TARGET_CAPABILITY_BY_PREFIX: Array<[string, CapabilityId]> = [
@@ -132,9 +150,12 @@ const TARGET_CAPABILITY_BY_PREFIX: Array<[string, CapabilityId]> = [
   ["motor:", "motor"],
   ["camera:", "camera"],
   ["robot-arm:", "robot-arm"],
+  ["mecanum-drive:", "mecanum-drive"],
+  ["can-servo-group:", "can-servo-group"],
   ["pi:", "raspberry-pi"],
   ["firmware:", "firmware"],
-  ["gamepad:", "gamepad"]
+  ["gamepad:", "gamepad"],
+  ["ai-vision:", "ai-vision"]
 ];
 
 export function createPlatformCommand(type: PlatformCommandType, targetDeviceId: string, payload: Record<string, unknown> = {}): PlatformCommand {
@@ -204,8 +225,14 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
     if (!Number.isFinite(command.payload.speedPercent) || command.payload.speedPercent < -100 || command.payload.speedPercent > 100) {
       return "motor.set_speed speedPercent must be from -100 to 100";
     }
+    if (command.payload.closedLoop !== undefined && typeof command.payload.closedLoop !== "boolean") {
+      return "motor.set_speed closedLoop must be boolean";
+    }
+    if (command.payload.targetRpm !== undefined && !isPositiveInteger(command.payload.targetRpm, 30_000)) {
+      return "motor.set_speed targetRpm must be an integer from 1 to 30000";
+    }
   }
-  if ((command.type === "motor.set_speed" || command.type === "motor.stop") && command.payload.stopMode !== undefined && command.payload.stopMode !== "coast" && command.payload.stopMode !== "brake") {
+  if ((command.type === "motor.set_speed" || command.type === "motor.stop" || command.type === "mecanum-drive.set_velocity" || command.type === "mecanum-drive.stop") && command.payload.stopMode !== undefined && command.payload.stopMode !== "coast" && command.payload.stopMode !== "brake") {
     return `${command.type} stopMode must be coast or brake`;
   }
   if (command.type === "motor.configure") {
@@ -213,6 +240,49 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
       if (typeof command.payload[key] !== "string" || !String(command.payload[key]).trim()) {
         return `motor.configure requires ${key}`;
       }
+    }
+    if (command.payload.closedLoop !== undefined && typeof command.payload.closedLoop !== "boolean") {
+      return "motor.configure closedLoop must be boolean";
+    }
+    if (command.payload.maxRpm !== undefined && !isPositiveInteger(command.payload.maxRpm, 30_000)) {
+      return "motor.configure maxRpm must be an integer from 1 to 30000";
+    }
+    if (command.payload.encoderTicksPerRev !== undefined && !isPositiveInteger(command.payload.encoderTicksPerRev, 100_000)) {
+      return "motor.configure encoderTicksPerRev must be an integer from 1 to 100000";
+    }
+  }
+  if (command.type === "mecanum-drive.set_velocity") {
+    for (const key of ["forward", "strafe", "turn"]) {
+      const value = command.payload[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < -1 || value > 1) {
+        return `mecanum-drive.set_velocity ${key} must be from -1 to 1`;
+      }
+    }
+    if (command.payload.speedLimitPercent !== undefined) {
+      const value = command.payload.speedLimitPercent;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+        return "mecanum-drive.set_velocity speedLimitPercent must be from 0 to 100";
+      }
+    }
+  }
+  if (command.type === "can-servo-group.set_positions") {
+    if (!isPlainObject(command.payload.positions)) {
+      return "can-servo-group.set_positions requires positions";
+    }
+    const positions = command.payload.positions as Record<string, unknown>;
+    const keys = Object.keys(positions);
+    if (keys.length === 0) {
+      return "can-servo-group.set_positions requires at least one position";
+    }
+    for (const key of keys) {
+      const value = positions[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 360) {
+        return `can-servo-group.set_positions ${key} must be from 0 to 360`;
+      }
+    }
+    const speedRaw = command.payload.speedRaw;
+    if (speedRaw !== undefined && (typeof speedRaw !== "number" || !Number.isInteger(speedRaw) || speedRaw < 0 || speedRaw > 4095)) {
+      return "can-servo-group.set_positions speedRaw must be an integer from 0 to 4095";
     }
   }
   if (command.type === "camera.set_gimbal") {
@@ -235,6 +305,17 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
   if (command.type === "firmware.upload" && typeof command.payload.port !== "string") {
     return "firmware.upload requires port";
   }
+  if (command.type === "ai-vision.analyze" || command.type === "ai-vision.samples.capture") {
+    if (typeof command.payload.sourceId !== "string" || !command.payload.sourceId.trim()) {
+      return `${command.type} requires sourceId`;
+    }
+    if (typeof command.payload.streamUrl !== "string" || !command.payload.streamUrl.trim()) {
+      return `${command.type} requires streamUrl`;
+    }
+  }
+  if (command.type === "ai-vision.samples.capture" && command.payload.label !== undefined && (typeof command.payload.label !== "string" || !command.payload.label.trim())) {
+    return "ai-vision.samples.capture label must be a non-empty string";
+  }
   return null;
 }
 
@@ -256,4 +337,12 @@ export function capabilityForTargetDeviceId(deviceId: string): CapabilityId | nu
 
 function isAngle(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 360;
+}
+
+function isPositiveInteger(value: unknown, max: number): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

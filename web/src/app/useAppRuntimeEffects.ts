@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { buildMotorSetCommand, type MotorProfile, type MotorStopMode, type MotorTarget, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
+import { useEffect, useRef } from "react";
+import { buildMotorConfigCommand, buildMotorSetCommand, type MotorPortMapping, type MotorProfile, type MotorStopMode, type MotorTarget, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
 import {
   normalizeArmConfig,
   normalizeMotorLinkageGroups,
@@ -39,7 +39,9 @@ export function driveCommandSignature(stopMode: MotorStopMode, targets: MotorTar
     stopMode,
     targets: targets.map((target) => ({
       channel: target.channel,
-      speedPercent: target.speedPercent
+      speedPercent: target.speedPercent,
+      closedLoop: target.closedLoop,
+      targetRpm: target.targetRpm
     }))
   });
 }
@@ -54,6 +56,7 @@ interface UseAppRuntimeEffectsOptions {
   connected: boolean;
   currentLanguage: string;
   driveInput: { cameraPan: number; cameraTilt: number };
+  driveSetupMappings?: MotorPortMapping[];
   driveTargets: MotorTarget[];
   driveTargetsRef: { current: MotorTarget[] };
   lastDriveCommandRef: { current: string };
@@ -92,6 +95,7 @@ export function useAppRuntimeEffects({
   connected,
   currentLanguage,
   driveInput,
+  driveSetupMappings = [],
   driveTargets,
   driveTargetsRef,
   lastDriveCommandRef,
@@ -119,6 +123,8 @@ export function useAppRuntimeEffects({
   setServoLinkageGroups,
   stopMode
 }: UseAppRuntimeEffectsOptions) {
+  const lastDriveSetupSignatureRef = useRef("");
+
   useEffect(() => {
     document.documentElement.lang = currentLanguage;
   }, [currentLanguage]);
@@ -207,8 +213,12 @@ export function useAppRuntimeEffects({
   useEffect(() => {
     if (activeModule !== "camera") {
       lastDriveCommandRef.current = "";
+      lastDriveSetupSignatureRef.current = "";
     }
-  }, [activeModule, lastDriveCommandRef]);
+    if (!connected) {
+      lastDriveSetupSignatureRef.current = "";
+    }
+  }, [activeModule, connected, lastDriveCommandRef]);
 
   useEffect(() => {
     if (activeModule !== "camera" || !connected) {
@@ -222,13 +232,23 @@ export function useAppRuntimeEffects({
       }
       lastDriveCommandRef.current = signature;
       try {
-        await sendMotorCommandBatch(targets.map((target) => buildMotorSetCommand(nextSeq(), { ...target, stopMode })));
+        const setupSignature = stableRuntimeSignature(driveSetupMappings);
+        const setupCommands = setupSignature === lastDriveSetupSignatureRef.current
+          ? []
+          : driveSetupMappings.map((mapping) => buildMotorConfigCommand(nextSeq(), mapping));
+        if (setupCommands.length > 0) {
+          lastDriveSetupSignatureRef.current = setupSignature;
+        }
+        await sendMotorCommandBatch([
+          ...setupCommands,
+          ...targets.map((target) => buildMotorSetCommand(nextSeq(), { ...target, stopMode }))
+        ]);
       } catch {
         addSystemLog("logs.driveCommandInvalid", "error");
       }
     }, 120);
     return () => window.clearInterval(timer);
-  }, [activeModule, addSystemLog, connected, driveTargetsRef, lastDriveCommandRef, nextSeq, sendMotorCommandBatch, stopMode]);
+  }, [activeModule, addSystemLog, connected, driveSetupMappings, driveTargetsRef, lastDriveCommandRef, nextSeq, sendMotorCommandBatch, stopMode]);
 
   useEffect(() => {
     if (activeModule !== "camera" || !cameraCanCommand || (driveInput.cameraPan === 0 && driveInput.cameraTilt === 0)) {

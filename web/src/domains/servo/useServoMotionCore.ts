@@ -27,7 +27,7 @@ interface UseServoMotionCoreOptions {
   lastServoPhysicalAngleRef: { current: Record<number, number> };
   lastServoWheelSpeedRef: { current: Record<number, number> };
   livePositionModeServoRef: { current: Set<number> };
-  sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean) => Promise<any>;
+  sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean, options?: { ackDrainMs?: number; coalesceKey?: string; minIntervalMs?: number; policy?: "latest" }) => Promise<any>;
   servoBusConnected: () => boolean;
   servoFeedback: ServoFeedbackMap;
   servoLinkageGroupsRef: { current: ServoLinkageGroup[] };
@@ -49,6 +49,9 @@ export function useServoMotionCore({
   servoMotionGenerationRef,
   setServoMotionStatusById
 }: UseServoMotionCoreOptions) {
+  const LIVE_POSITION_MIN_INTERVAL_MS = 40;
+  const LIVE_POSITION_ACK_DRAIN_MS = 4;
+
   function motionKeyForServo(id: number): string {
     return `servo:${id}`;
   }
@@ -146,11 +149,35 @@ export function useServoMotionCore({
     return Number.isFinite(feedbackSpeed) ? clamp(Math.round(feedbackSpeed!), -DEFAULT_WHEEL_SPEED_LIMIT, DEFAULT_WHEEL_SPEED_LIMIT) : 0;
   }
 
+  async function prepareServoPositionModeUnlocked(options: {
+    logFrame: boolean;
+    servo: ServoProfile;
+    waitMs: number;
+  }) {
+    if (!servoBusConnected()) {
+      addSystemLog("logs.servoBusRequired", "warn");
+      return false;
+    }
+
+    if (livePositionModeServoRef.current.has(options.servo.id)) {
+      return true;
+    }
+
+    await sendServoFrameUnlocked(buildTorqueFrame(options.servo.id, false), options.waitMs, options.logFrame);
+    await sendServoFrameUnlocked(buildModeFrame(options.servo.id, "servo"), options.waitMs, options.logFrame);
+    await sendServoFrameUnlocked(buildTorqueFrame(options.servo.id, true), options.waitMs, options.logFrame);
+    livePositionModeServoRef.current.add(options.servo.id);
+    lastServoWheelSpeedRef.current[options.servo.id] = 0;
+    return true;
+  }
+
   async function writeServoPositionUnlocked(options: {
     acc: number | undefined;
+    live?: boolean;
     logFrame: boolean;
     physicalAngleDeg: number;
     servo: ServoProfile;
+    setupMode?: boolean;
     speedRaw: number;
     waitMs: number;
   }) {
@@ -159,11 +186,16 @@ export function useServoMotionCore({
       return false;
     }
 
-    if (!livePositionModeServoRef.current.has(options.servo.id)) {
-      await sendServoFrameUnlocked(buildTorqueFrame(options.servo.id, false), options.waitMs, options.logFrame);
-      await sendServoFrameUnlocked(buildModeFrame(options.servo.id, "servo"), options.waitMs, options.logFrame);
-      await sendServoFrameUnlocked(buildTorqueFrame(options.servo.id, true), options.waitMs, options.logFrame);
-      livePositionModeServoRef.current.add(options.servo.id);
+    const shouldSetupMode = options.setupMode ?? options.live !== true;
+    if (shouldSetupMode && !livePositionModeServoRef.current.has(options.servo.id)) {
+      const prepared = await prepareServoPositionModeUnlocked({
+        servo: options.servo,
+        waitMs: options.waitMs,
+        logFrame: options.logFrame
+      });
+      if (!prepared) {
+        return false;
+      }
     }
 
     await sendServoFrameUnlocked(
@@ -175,7 +207,15 @@ export function useServoMotionCore({
         acc: options.acc
       }),
       options.waitMs,
-      options.logFrame
+      options.logFrame,
+      options.live
+        ? {
+            policy: "latest",
+            coalesceKey: `servo:${options.servo.id}:position`,
+            minIntervalMs: LIVE_POSITION_MIN_INTERVAL_MS,
+            ackDrainMs: LIVE_POSITION_ACK_DRAIN_MS
+          }
+        : undefined
     );
     lastServoPhysicalAngleRef.current[options.servo.id] = options.physicalAngleDeg;
     lastServoWheelSpeedRef.current[options.servo.id] = 0;
@@ -223,6 +263,7 @@ export function useServoMotionCore({
     motionKeyForLinkage,
     motionKeyForServo,
     setServoMotionStatus,
+    prepareServoPositionModeUnlocked,
     writeServoPositionUnlocked,
     writeServoWheelSpeedUnlocked
   };

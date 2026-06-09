@@ -92,6 +92,15 @@ const devices: DeviceDescriptor[] = [
     transportId: "transport.browser-gamepad-api",
     status: "offline",
     capabilities: []
+  },
+  {
+    id: "ai-vision:local",
+    name: "AI Vision",
+    type: "ai-vision",
+    driverId: "driver.ai-vision-helper",
+    transportId: "transport.local-helper",
+    status: "offline",
+    capabilities: []
   }
 ];
 
@@ -138,6 +147,7 @@ describe("platform ui helpers", () => {
     expect(findPlatformUiPanelForDevice({ ...devices[6], capabilities: [{ id: "raspberry-pi", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("raspberry-pi-remote");
     expect(findPlatformUiPanelForDevice({ ...devices[7], capabilities: [{ id: "firmware", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("firmware-upload");
     expect(findPlatformUiPanelForDevice({ ...devices[8], capabilities: [{ id: "gamepad", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("gamepad-status");
+    expect(findPlatformUiPanelForDevice({ ...devices[9], capabilities: [{ id: "ai-vision", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("ai-vision-control");
   });
 
   it("creates platform commands from control actions", () => {
@@ -184,6 +194,12 @@ describe("platform ui helpers", () => {
     if (typeof firmwareCommand !== "string") {
       expect(firmwareCommand.type).toBe("firmware.upload");
     }
+
+    const aiVisionCommand = platformCommandForControl(devices[9], "analyze", { sourceId: "main", streamUrl: "http://127.0.0.1:8080/stream" });
+    expect(typeof aiVisionCommand).not.toBe("string");
+    if (typeof aiVisionCommand !== "string") {
+      expect(aiVisionCommand.type).toBe("ai-vision.analyze");
+    }
   });
 
   it("returns clear errors for incomplete or unsupported controls", () => {
@@ -228,6 +244,9 @@ function draftForDevice(device: DeviceDescriptor) {
     joints: [],
     command: "python3 main.py",
     file: { name: "main.py" },
-    port: "COM6"
+    port: "COM6",
+    sourceId: "main",
+    streamUrl: "http://127.0.0.1:8080/stream",
+    label: "competition_mannequin"
   };
 }

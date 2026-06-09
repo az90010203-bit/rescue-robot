@@ -3,6 +3,7 @@ export const enUSResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "Rescue Robot Console",
+      "documentTitle": "Rescue Robot Console",
       "systemLine": "USB Serial · 115200 baud · {{module}}",
       "servoBridgeSystemLine": "Pi Servo Bridge · 115200 UART · {{module}}",
       "servoBusSystemLine": "USB Serial · 1000000 baud · {{module}}",
@@ -31,6 +32,147 @@ export const enUSResource = {
       "no": "NO",
       "delete": "Delete"
     },
+    "diagnosticAgent": {
+      "title": "Diagnostic Copilot",
+      "meta": "Local rules",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "placeholder": "Ask about camera, servo feedback, Pi, firmware...",
+      "messages": {
+        "initial": "I am the local rule-based diagnostic copilot. I read current state, logs, and low-risk check results, then suggest the next step.",
+        "actionNeedsConfirm": "{{label}} needs manual confirmation before it runs; I will not send this action automatically.",
+        "actionCannotAutoRun": "{{label}} cannot be executed automatically by the diagnostic copilot.",
+        "actionResult": "{{label}} -> {{status}}{{message}}",
+        "lowRiskComplete": "Low-risk checks completed: {{results}}"
+      },
+      "summaries": {
+        "blocking": "I checked the current state. Start with {{title}}; there are {{blockingExtra}} more high-priority items and {{lowRiskCount}} low-risk checks I can run.",
+        "warning": "I found {{warningCount}} states to confirm. Start with {{title}}. {{hint}}",
+        "unknown": "I could not map that sentence to a specific device, but the current state has no obvious blocker. You can ask me to check the camera, servo feedback, Pi, or firmware helper.",
+        "ready": "I checked the current state and found no obvious blocker. {{hint}}",
+        "warningLowRiskHint": "I can run the low-risk checks directly.",
+        "warningManualHint": "This mainly needs manual configuration or wiring confirmation.",
+        "readyLowRiskHint": "Low-risk checks can continue for confirmation.",
+        "readyManualHint": "Next, inspect the concrete action result."
+      },
+      "issues": {
+        "serialOffline": {
+          "title": "Control serial offline",
+          "message": "The control serial link is offline, so servo, motor, and gimbal actions will not reach the controller.",
+          "actionHint": "Connect browser serial or the Pi servo bridge, then retry hardware actions."
+        },
+        "piHelperOffline": {
+          "title": "Pi helper not ready",
+          "message": "The local Pi helper check channel is unavailable, so camera and remote actions may not be confirmed.",
+          "actionHint": "Run a Pi connection check to confirm the local helper and SSH target."
+        },
+        "piConnectionOffline": {
+          "title": "Pi connection not confirmed",
+          "message": "Pi helper exists, but SSH/target connection has not been confirmed online.",
+          "actionHint": "Run one Pi connection check first."
+        },
+        "cameraStreamUrlMissing": {
+          "title": "Camera stream URL is empty",
+          "message": "The active video source has no streamUrl, so preview and vision analysis have no input.",
+          "actionHint": "Restore or fill in the MJPEG stream URL in camera settings."
+        },
+        "cameraStreamNotReady": {
+          "title": "Camera not confirmed online",
+          "message": "A video URL exists, but the camera state is not online yet.",
+          "actionHint": "Run a camera check to confirm the device, port, and stream service."
+        },
+        "firmwareHelperOffline": {
+          "title": "Firmware helper offline",
+          "message": "The local firmware compile/port refresh helper is not ready.",
+          "actionHint": "Check firmware helper, then refresh ports."
+        },
+        "aiVisionHelperOffline": {
+          "title": "AI Vision helper offline",
+          "message": "The local vision helper is offline, so frame capture and analysis are unavailable.",
+          "actionHint": "Check AI Vision helper first."
+        },
+        "aiVisionNoDetections": {
+          "title": "No current vision detections",
+          "message": "AI Vision helper is online, but the latest analysis did not find targets.",
+          "actionHint": "Run analysis again after confirming the video source."
+        },
+        "servoFeedbackMissing": {
+          "title": "Servo {{servoId}} feedback missing",
+          "message": "{{targetDeviceId}} has no positionRaw feedback yet.",
+          "actionHint": "Read servo feedback once and confirm ID, bus, and power."
+        },
+        "motorFeedbackMissing": {
+          "title": "Motor {{motorChannel}} feedback missing",
+          "message": "{{targetDeviceId}} has no recent feedback yet.",
+          "actionHint": "Read motor feedback or confirm A-board bridge status."
+        },
+        "recentLogs": {
+          "title": "Recent logs contain problems",
+          "message": "System logs contain recent warnings or errors that may be related.",
+          "actionHint": "Compare the latest error with the related helper or device."
+        },
+        "systemReady": {
+          "title": "No obvious blocker",
+          "message": "Platform state does not show a direct diagnostic blocker.",
+          "actionHint": "If hardware still does not move, inspect the concrete command result and wiring."
+        }
+      },
+      "status": {
+        "issues": "{{count}} issues",
+        "lowRisk": "{{count}} checks"
+      },
+      "actions": {
+        "quickCheck": "Run diagnosis",
+        "reset": "Reset",
+        "send": "Send",
+        "run": "Run",
+        "running": "Running",
+        "checkPi": {
+          "label": "Check Pi connection",
+          "description": "Read Pi helper and SSH target status."
+        },
+        "checkCamera": {
+          "label": "Check camera",
+          "description": "Ask the Pi helper to check camera devices and stream service."
+        },
+        "configureVideoSource": {
+          "label": "Configure video source",
+          "description": "Fill in streamUrl from camera settings."
+        },
+        "checkFirmwareHelper": {
+          "label": "Check firmware helper",
+          "description": "Confirm whether the local firmware helper is online."
+        },
+        "checkAiVision": {
+          "label": "Check AI Vision",
+          "description": "Confirm whether the local vision helper is online."
+        },
+        "analyzeFrame": {
+          "label": "Analyze frame again",
+          "description": "Capture one frame from the current video source and update detections."
+        },
+        "readServoFeedback": {
+          "label": "Read servo feedback",
+          "description": "Read current position feedback from {{targetDeviceId}}."
+        },
+        "readMotorFeedback": {
+          "label": "Read motor feedback",
+          "description": "Read the latest feedback from {{targetDeviceId}}."
+        },
+        "connectSerial": {
+          "label": "Connect control serial",
+          "description": "Browser serial permission must be confirmed manually by the operator."
+        },
+        "refreshFirmwarePorts": {
+          "label": "Refresh firmware ports",
+          "description": "Refresh locally available flashing ports."
+        }
+      },
+      "risk": {
+        "confirm": "Confirm",
+        "blocked": "Manual"
+      }
+    },
     "language": {
       "label": "Language",
       "select": "Select language"
@@ -38,7 +180,9 @@ export const enUSResource = {
     "loading": {
       "console": "Loading console...",
       "arm3d": "Loading 3D arm...",
-      "architecture": "Loading architecture workspace..."
+      "architecture": "Loading architecture workspace...",
+      "workspaceErrorTitle": "Workspace did not load",
+      "workspaceErrorHint": "Reload the page or switch sections to retry this workspace."
     },
     "sections": {
       "console": "Main Console",
@@ -94,7 +238,16 @@ export const enUSResource = {
         "error": "Layout save failed"
       },
       "targets": {
-        "mainArm": "Main arm"
+        "mainArm": "Main arm",
+        "mainCamera": "Main camera",
+        "secondaryCamera": "Second camera"
+      },
+      "targetMeta": {
+        "telemetry": "Live platform state",
+        "attitude": "A-board IMU feedback",
+        "joystick": "Combined drive and gimbal input",
+        "eventLog": "Recent console events",
+        "mainArm": "Current console arm"
       },
       "actions": {
         "addPanel": "Add panel",
@@ -186,6 +339,7 @@ export const enUSResource = {
     "actions": {
       "connectSerial": "Connect Serial",
       "disconnectSerial": "Disconnect Serial",
+      "reloadPage": "Reload Page",
       "enterDebug": "Enter Debug",
       "exitDebug": "Exit Debug",
       "sendCommand": "Send Command",
@@ -214,11 +368,11 @@ export const enUSResource = {
       "sendPortMapping": "Send Port Config",
       "downloadArduinoFirmware": "Download Arduino Code",
       "checkAboardBridge": "Check A Board Bridge",
-      "startAboardBridge": "Install/Start Persistent A Board Bridge",
+      "startAboardBridge": "Upgrade/Repair A Board Bridge",
       "disconnectAboardBridge": "Disconnect Bridge",
       "connectAboard": "Connect A Board",
       "checkPiServoBridge": "Check Servo Bridge",
-      "startPiServoBridge": "Install/Start Pi Servo Bridge",
+      "startPiServoBridge": "Upgrade/Repair Pi Servo Bridge",
       "disconnectPiServoBridge": "Disconnect Servo Bridge",
       "connectPiServo": "Connect Servo Bridge",
       "checkFirmwareHelper": "Check Helper",
@@ -347,6 +501,8 @@ export const enUSResource = {
         "motor": "Motor",
         "camera": "Camera",
         "robot-arm": "Robot Arm",
+        "mecanum-drive": "Mecanum Drive",
+        "can-servo-group": "CAN Servo Group",
         "raspberry-pi": "Raspberry Pi",
         "firmware": "Firmware",
         "gamepad": "Gamepad",
@@ -596,16 +752,50 @@ export const enUSResource = {
         "name": "Component Name",
         "kind": {
           "custom": "Custom Component",
-          "robotArm": "Robot Arm"
+          "robotArm": "Robot Arm",
+          "mecanumDrive": "Mecanum Drive"
         },
         "noAvailablePluginInstances": "No available plugin instances",
         "createRobotArm": "Create Robot Arm",
+        "createMecanumDrive": "Create Mecanum Drive",
         "createComponent": "Create Component",
         "count": "{{count}} components",
         "panelTitle": "Component Panel",
         "empty": "No components yet",
         "pluginCount": "{{count}} plugins",
         "selectComponent": "Select a component"
+      },
+      "mecanum": {
+        "wheels": {
+          "frontLeft": "Front left",
+          "frontRight": "Front right",
+          "rearLeft": "Rear left",
+          "rearRight": "Rear right"
+        },
+        "incomplete": "Incomplete",
+        "ready": "Ready",
+        "closedLoop": "Closed loop",
+        "maxRpm": "Max RPM",
+        "encoderTicksPerRev": "Encoder ticks / rev",
+        "closedLoopDefault": "Enable component closed-loop speed control",
+        "linkedSpeed": "Linked speed",
+        "speedPercent": "Speed",
+        "forward": "Forward",
+        "backward": "Backward",
+        "strafeLeft": "Strafe left",
+        "strafeRight": "Strafe right",
+        "rotateLeft": "Rotate left",
+        "rotateRight": "Rotate right",
+        "stop": "Stop",
+        "channel": "Channel",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "Encoder A / B",
+        "rpm": "RPM",
+        "ticks": "Ticks",
+        "targetRpm": "Target",
+        "reverse": "Reverse",
+        "save": "Save mecanum drive"
       },
       "robots": {
         "steps": {
@@ -792,6 +982,9 @@ export const enUSResource = {
       "maxAngle": "Max Angle",
       "neutralDeg": "Neutral deg",
       "segmentLength": "Segment Length px",
+      "startDirection": "Start Direction",
+      "baseDirection": "Base Direction",
+      "jointStartDirection": "Joint Start Direction",
       "liveDrag": "Live Drag",
       "targetX": "Target X",
       "targetY": "Target Y",
@@ -817,6 +1010,13 @@ export const enUSResource = {
       "asmgSpeedSlider": "Speed Slider",
       "asmgLiveDrag": "Live Drag",
       "asmgAngleLive": "Live Angle Read",
+      "asmgStallProtection": "Stall Protection",
+      "asmgStallCurrent": "Stall Current Threshold",
+      "asmgLivePrime": "Live Prime",
+      "asmgLiveFeedback": "Live Feedback",
+      "asmgLivePosition": "Live Position",
+      "asmgLiveCurrent": "Live Current",
+      "asmgLiveFeedbackAge": "Feedback Age",
       "canAutoConfigure": "Auto configure CAN before send",
       "asmgCurrent": "Current",
       "asmgP": "P",
@@ -873,7 +1073,8 @@ export const enUSResource = {
       "motionStatus": {
         "idle": "Idle",
         "smoothing": "Smoothing",
-        "paused": "Idle after stop"
+        "paused": "Idle after stop",
+        "unreachable": "No response"
       },
       "smoothPresets": {
         "soft": "Soft",
@@ -1002,13 +1203,19 @@ export const enUSResource = {
         "newId": "New ID must be 0..253.",
         "dangerConfirm": "Confirm single-servo bus and type the current target ID first.",
         "liveUnavailable": "Live drag requires the A board bridge online and a valid target ID.",
+        "livePrimeFailed": "Live drag was not enabled because the current position could not be read.",
+        "liveFeedbackStale": "Live drag stopped before sending because the position feedback is stale.",
+        "liveStalled": "Live drag stopped: target did not move and current is high. Holding the latest feedback position.",
+        "liveFeedbackLost": "Live drag stopped: position/current feedback was lost. Holding the latest known position.",
         "commandFailed": "CAN servo command failed."
       },
       "live": {
         "off": "LIVE OFF",
+        "priming": "READING POSITION",
         "ready": "LIVE READY",
         "configuring": "CONFIGURING",
         "sending": "SENDING",
+        "stalled": "PROTECTED STOP",
         "error": "LIVE ERROR"
       },
       "parsed": {
@@ -1041,8 +1248,8 @@ export const enUSResource = {
     "encoderDiagnostics": {
       "noFeedback": "No encoder feedback yet. Click Read Encoder or enable the A board bridge.",
       "oldFirmware": "Feedback is present, but A/B diagnostics are missing. Flash the latest A board firmware.",
-      "noMovement": "A/B levels and ticks have not changed yet. Check encoder power, E1A/E1B wiring, and voltage level.",
-      "levelsOnly": "A/B levels changed but TIM2 ticks did not. Check PA0/PA1 mapping or encoder mode setup.",
+      "noMovement": "A/B levels and ticks have not changed yet. Check encoder power, the selected channel's E*A/E*B wiring, and voltage level.",
+      "levelsOnly": "A/B levels changed but software ticks did not. Check the selected channel's encoder A/B mapping and phase order.",
       "slowOrSparse": "Ticks changed but pulseHz is 0. Turn faster or wait for another refresh sample.",
       "ok": "Ticks and pulse frequency are changing. Encoder feedback path looks good."
     },
@@ -1556,6 +1763,18 @@ export const enUSResource = {
         "runLog": {
           "start": "Run {{name}}"
         },
+        "smartCheck": {
+          "title": "Smart check",
+          "ok": "READY",
+          "ready": "Smart check passed.",
+          "blocked": "Smart check blocked the run.",
+          "blockedCount": "{{count}} blocked",
+          "warningCount": "{{count}} hints",
+          "runDiagnosis": "Run diagnosis",
+          "noRunIssues": "No diagnosis for this run.",
+          "logPrefix": "Smart diagnosis",
+          "inspectLastStep": "Check the last run-log step, then inspect the matching device."
+        },
         "categories": {
           "actions": "Robot actions",
           "flow": "Flow"
@@ -1564,6 +1783,7 @@ export const enUSResource = {
           "start": "program start",
           "motorSet": "set motor",
           "motorStop": "stop motor",
+          "mecanumDrive": "mecanum drive",
           "servoMove": "move servo",
           "armPose": "send arm pose",
           "cameraGimbal": "set gimbal",
@@ -1576,6 +1796,10 @@ export const enUSResource = {
         "fields": {
           "ms": "ms",
           "speed": "speed",
+          "forward": "forward",
+          "strafe": "strafe",
+          "turn": "turn",
+          "duration": "duration",
           "angle": "angle",
           "acc": "acc",
           "pan": "pan",

@@ -84,6 +84,7 @@ describe("arm config storage and geometry", () => {
     const config = loadArmConfig(servos, createStorage());
 
     expect(config.liveDragEnabled).toBe(false);
+    expect(config.baseDirectionDeg).toBe(0);
     expect(config.selectedJointId).toBe("arm-joint-1");
     expect(config.joints.map((joint) => [joint.servoId, joint.angleDeg, joint.neutralDeg, joint.enabled])).toEqual([
       [1, 90, 90, true],
@@ -97,6 +98,7 @@ describe("arm config storage and geometry", () => {
   it("normalizes saved joints and filters invalid servo bindings", () => {
     const config = normalizeArmConfig(
       {
+        baseDirectionDeg: 270,
         liveDragEnabled: true,
         selectedJointId: "joint-2",
         joints: [
@@ -110,6 +112,7 @@ describe("arm config storage and geometry", () => {
     );
 
     expect(config.liveDragEnabled).toBe(true);
+    expect(config.baseDirectionDeg).toBe(-90);
     expect(config.selectedJointId).toBe("joint-2");
     expect(config.joints).toEqual([
       { id: "joint-1", name: "Base", servoId: 1, lengthPx: 180, angleDeg: 360, neutralDeg: 0, speedRaw: 4095, acc: 254, reverse: true, enabled: true, shapeSegments: [{ id: "main", name: "主段", lengthPx: 180, directionDeg: 0 }], childFrameOffsetDeg: 0 },
@@ -144,6 +147,59 @@ describe("arm config storage and geometry", () => {
     expect(Math.round(poses[1].endX)).toBe(100);
     expect(Math.round(poses[1].endY)).toBe(-50);
     expect(poses[1].globalDeg).toBe(90);
+  });
+
+  it("applies the arm base direction before the first joint", () => {
+    const poses = calculateArmSegmentPoses(
+      [
+        { id: "base", name: "Base", servoId: 1, lengthPx: 100, angleDeg: 90, neutralDeg: 90, speedRaw: 800, acc: 30, reverse: false, enabled: true }
+      ],
+      { x: 0, y: 0 },
+      90
+    );
+
+    expect(Math.round(poses[0].endX)).toBe(0);
+    expect(Math.round(poses[0].endY)).toBe(-100);
+    expect(poses[0].globalDeg).toBe(90);
+  });
+
+  it("applies each joint start direction through its main shape segment", () => {
+    const poses = calculateArmSegmentPoses(
+      [
+        {
+          id: "base",
+          name: "Base",
+          servoId: 1,
+          lengthPx: 100,
+          angleDeg: 90,
+          neutralDeg: 90,
+          speedRaw: 800,
+          acc: 30,
+          reverse: false,
+          enabled: true,
+          shapeSegments: [{ id: "main", name: "Main", lengthPx: 100, directionDeg: 90 }]
+        },
+        {
+          id: "elbow",
+          name: "Elbow",
+          servoId: 2,
+          lengthPx: 50,
+          angleDeg: 90,
+          neutralDeg: 90,
+          speedRaw: 800,
+          acc: 30,
+          reverse: false,
+          enabled: true,
+          shapeSegments: [{ id: "main", name: "Main", lengthPx: 50, directionDeg: -90 }]
+        }
+      ],
+      { x: 0, y: 0 }
+    );
+
+    expect(Math.round(poses[0].endX)).toBe(0);
+    expect(Math.round(poses[0].endY)).toBe(-100);
+    expect(poses[1].endX).toBeCloseTo(0, 5);
+    expect(Math.round(poses[1].endY)).toBe(-50);
   });
 
   it("calculates L-shaped joint geometry and preserves path points", () => {
@@ -223,6 +279,30 @@ describe("arm config storage and geometry", () => {
         currentAngleDeg: 270
       })
     ).toBe(270);
+  });
+
+  it("keeps drag angles at the lower limit instead of wrapping to the upper limit", () => {
+    expect(
+      calculateArmDragAngle({
+        anchor: { x: 0, y: 0 },
+        pointer: { x: 100, y: 1 },
+        parentGlobalDeg: 0,
+        neutralDeg: 0,
+        servoSpanDeg: 360,
+        currentAngleDeg: 0
+      })
+    ).toBe(0);
+
+    expect(
+      calculateArmDragAngle({
+        anchor: { x: 0, y: 0 },
+        pointer: { x: 100, y: -1 },
+        parentGlobalDeg: 0,
+        neutralDeg: 360,
+        servoSpanDeg: 360,
+        currentAngleDeg: 360
+      })
+    ).toBe(360);
   });
 });
 

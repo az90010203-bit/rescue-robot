@@ -25,6 +25,7 @@ import {
   pluginInstanceDeviceId,
   pluginInstancesToMotorProfiles
 } from "@platform/architecture";
+import { MECANUM_WHEEL_POSITIONS, normalizeMecanumDriveConfig, type MecanumWheelPosition } from "@domains/drive/mecanumComponent";
 import type { MotorFeedbackMap, ServoFeedbackMap } from "@platform/stateStore";
 import {
   ROBOT_ASSEMBLY_CANVAS_HEIGHT,
@@ -668,7 +669,7 @@ export function RobotAssemblyWorkspace({
         <text className="robot-assembly-node-kicker" x="14" y="19">{node.sourceType.toUpperCase()}</text>
         <text className="robot-assembly-node-title" x="14" y="39">{truncate(label, 27)}</text>
         <text className="robot-assembly-node-subtitle" x="14" y="58">{truncate(subtitle, 34)}</text>
-        {node.visualKind === "tracked-base" ? renderTrackedBaseNode(node) : renderSimpleNodeGlyph(node)}
+        {node.visualKind === "mecanum-drive" ? renderMecanumDriveNode(node) : node.visualKind === "tracked-base" ? renderTrackedBaseNode(node) : renderSimpleNodeGlyph(node)}
         {nodePorts(assembly, node.id).map((port) => renderPort(node, port))}
       </g>
     );
@@ -721,8 +722,39 @@ export function RobotAssemblyWorkspace({
     );
   }
 
+  function renderMecanumDriveNode(node: RobotAssemblyNode) {
+    const component = componentById.get(node.sourceId);
+    const config = component ? normalizeMecanumDriveConfig(component.config, pluginInstances) : null;
+    const wheelLabels: Record<MecanumWheelPosition, string> = {
+      frontLeft: "FL",
+      frontRight: "FR",
+      rearLeft: "RL",
+      rearRight: "RR"
+    };
+    return (
+      <g className="robot-assembly-mecanum-base">
+        {MECANUM_WHEEL_POSITIONS.map((position, index) => {
+          const plugin = config ? pluginInstances.find((item) => item.id === config.wheels[position]) : null;
+          const tone = plugin ? motionToneForPlugin(plugin, statusContext) : "neutral";
+          const speed = plugin ? motorSpeedForPlugin(plugin, statusContext) ?? 0 : 0;
+          const x = index % 2 === 0 ? 16 : node.w - 96;
+          const y = index < 2 ? 76 : 114;
+          return (
+            <g className={`robot-assembly-motor-block tone-${tone}`} key={position} transform={`translate(${x} ${y})`}>
+              <rect width="80" height="24" rx="5" />
+              <line x1="10" y1="21" x2="26" y2="3" />
+              <line x1="30" y1="21" x2="46" y2="3" />
+              <line x1="50" y1="21" x2="66" y2="3" />
+              <text x="8" y="17">{truncate(`${wheelLabels[position]} ${plugin ? pluginInstanceDeviceId(plugin) : "--"} ${speed}%`, 17)}</text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
   function renderSimpleNodeGlyph(node: RobotAssemblyNode) {
-    const iconText = node.visualKind === "robot-arm" ? "ARM" : node.visualKind === "power-module" ? "PWR" : node.visualKind === "motor-driver" ? "DRV" : node.sourceType === "hardware" ? "HW" : node.sourceType === "plugin" ? "PLG" : "CMP";
+    const iconText = node.visualKind === "robot-arm" ? "ARM" : node.visualKind === "mecanum-drive" ? "MEC" : node.visualKind === "power-module" ? "PWR" : node.visualKind === "motor-driver" ? "DRV" : node.sourceType === "hardware" ? "HW" : node.sourceType === "plugin" ? "PLG" : "CMP";
     return (
       <g className="robot-assembly-simple-glyph" transform={`translate(16 ${node.h - 42})`}>
         <rect width="62" height="28" rx="5" />
@@ -1180,7 +1212,7 @@ function componentMeta(component: ComponentDefinition | null | undefined, plugin
     return "--";
   }
   const motors = pluginInstancesToMotorProfiles(effectivePluginInstancesForComponent(component, pluginInstances)).length;
-  const kind = component.kind === "robot-arm" ? "robot arm" : motors >= 2 ? "tracked base" : "component";
+  const kind = component.kind === "robot-arm" ? "robot arm" : component.kind === "mecanum-drive" ? "mecanum drive" : motors >= 2 ? "tracked base" : "component";
   return `${kind} / ${component.pluginInstanceIds.length} plugins`;
 }
 

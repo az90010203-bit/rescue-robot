@@ -7,4 +7,5 @@
 @import "./styles/motor.css";
 @import "./styles/pi.css";
 @import "./styles/drive.css";
+@import "./styles/diagnostic-agent.css";
 @import "./styles/logs.css";

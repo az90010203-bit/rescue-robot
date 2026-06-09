@@ -116,12 +116,28 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.equal(asmeCatalog[0].transportId, "transport.a-board-can1");
   const wheeltecCatalog = store.listDeviceCatalog({ type: "motor", brand: "WHEELTEC" });
   assert.deepEqual(wheeltecCatalog.map((item) => item.model), ["G513XL", "MG540"]);
+  assert.deepEqual(wheeltecCatalog[0].defaultConfig, {
+    channel: "M1",
+    pwmPin: "PA0",
+    in1Pin: "PB0",
+    in2Pin: "PE12",
+    enablePin: "PD12",
+    sensorPin: "",
+    encoderAPin: "PE4",
+    encoderBPin: "PF0"
+  });
   const localCameraCatalog = store.listDeviceCatalog({ type: "camera", brand: "Browser", query: "local" });
   assert.equal(localCameraCatalog.length, 1);
   assert.equal(localCameraCatalog[0].id, "catalog.browser.local-camera");
   assert.equal(localCameraCatalog[0].driverId, "driver.browser-camera");
   assert.equal(localCameraCatalog[0].transportId, "transport.browser-media");
   assert.deepEqual(localCameraCatalog[0].defaultConfig, { preferredDeviceId: "", width: 640, height: 480, fps: 30 });
+  const aiVisionCatalog = store.listDeviceCatalog({ type: "ai-vision", brand: "Local", query: "mannequin" });
+  assert.equal(aiVisionCatalog.length, 1);
+  assert.equal(aiVisionCatalog[0].id, "catalog.local.ai-vision");
+  assert.equal(aiVisionCatalog[0].driverId, "driver.ai-vision-helper");
+  assert.equal(aiVisionCatalog[0].transportId, "transport.local-helper");
+  assert.equal(aiVisionCatalog[0].defaultConfig.label, "competition_mannequin");
 
   const custom = store.createDeviceCatalogItem({
     type: "sensor",
@@ -145,14 +161,45 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   const canServo = store.createPluginInstance(project.id, {
     name: "CAN Servo",
     catalogItemId: "catalog.asme.asme-se-can-servo",
-    config: { servoId: 7 }
+    config: { servoId: 7, minDeg: 10, maxDeg: 180, direction: -1 }
   });
   assert.equal(canServo.driverId, "driver.asme-can-servo");
   assert.equal(canServo.config.servoId, 7);
+  assert.equal(canServo.config.direction, -1);
+  const canServo2 = store.createPluginInstance(project.id, {
+    name: "CAN Servo 2",
+    catalogItemId: "catalog.asme.asme-se-can-servo",
+    config: { servoId: 8 }
+  });
+  const canServo3 = store.createPluginInstance(project.id, {
+    name: "CAN Servo 3",
+    catalogItemId: "catalog.asme.asme-se-can-servo",
+    config: { servoId: 9 }
+  });
+  const canServo4 = store.createPluginInstance(project.id, {
+    name: "CAN Servo 4",
+    catalogItemId: "catalog.asme.asme-se-can-servo",
+    config: { servoId: 10 }
+  });
   const motor = store.createPluginInstance(project.id, {
     name: "Left Track",
     catalogItemId: "catalog.toshiba.tb6618-motor",
     config: { channel: "m1", pwmPin: "D5" }
+  });
+  const rearLeftMotor = store.createPluginInstance(project.id, {
+    name: "Rear Left",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "M2", pwmPin: "PA1", in1Pin: "PC2", in2Pin: "PE6", encoderAPin: "PE5", encoderBPin: "PF1" }
+  });
+  const rearRightMotor = store.createPluginInstance(project.id, {
+    name: "Rear Right",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "M3", pwmPin: "PA2", in1Pin: "PA4", in2Pin: "PC1", encoderAPin: "PC0", encoderBPin: "PB1" }
+  });
+  const frontRightMotor = store.createPluginInstance(project.id, {
+    name: "Front Right",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "M4", pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", encoderAPin: "PC4", encoderBPin: "PC3" }
   });
   const armServo = store.createPluginInstance(project.id, {
     name: "Arm Joint 1",
@@ -194,6 +241,59 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.throws(
     () => store.createComponent(project.id, { name: "Bad Arm", kind: "robot-arm", pluginInstanceIds: [motor.id] }),
     /requires Feetech servo plugin instances/
+  );
+  const mecanumComponent = store.createComponent(project.id, {
+    name: "Mecanum Base",
+    kind: "mecanum-drive",
+    pluginInstanceIds: [motor.id, rearLeftMotor.id, rearRightMotor.id, frontRightMotor.id],
+    config: {
+      wheels: {
+        frontLeft: motor.id,
+        frontRight: frontRightMotor.id,
+        rearLeft: rearLeftMotor.id,
+        rearRight: rearRightMotor.id
+      },
+      directions: { frontRight: -1 },
+      closedLoop: true,
+      maxRpm: 6000,
+      encoderTicksPerRev: 52
+    }
+  });
+  assert.equal(mecanumComponent.kind, "mecanum-drive");
+  assert.equal(mecanumComponent.config.closedLoop, true);
+  assert.equal(mecanumComponent.config.wheels.frontRight, frontRightMotor.id);
+  assert.throws(
+    () => store.updateComponent(project.id, mecanumComponent.id, {
+      config: { wheels: { frontLeft: motor.id, frontRight: rearLeftMotor.id, rearLeft: rearRightMotor.id, rearRight: motor.id } }
+    }),
+    /four unique motor plugin instances/
+  );
+  assert.deepEqual(store.deleteComponent(project.id, mecanumComponent.id), { deleted: true });
+
+  const canServoGroup = store.createComponent(project.id, {
+    name: "CAN Group",
+    kind: "can-servo-group",
+    pluginInstanceIds: [canServo.id, canServo2.id, canServo3.id, canServo4.id],
+    config: {
+      servos: {
+        servo1: canServo.id,
+        servo2: canServo2.id,
+        servo3: canServo3.id,
+        servo4: canServo4.id
+      }
+    }
+  });
+  assert.equal(canServoGroup.kind, "can-servo-group");
+  assert.equal(canServoGroup.config.servos.servo1, canServo.id);
+  assert.deepEqual(store.deleteComponent(project.id, canServoGroup.id), { deleted: true });
+  assert.throws(
+    () => store.createComponent(project.id, {
+      name: "Bad CAN Group",
+      kind: "can-servo-group",
+      pluginInstanceIds: [canServo.id, canServo2.id, canServo3.id, motor.id],
+      config: { servos: { servo1: canServo.id, servo2: canServo2.id, servo3: canServo3.id, servo4: motor.id } }
+    }),
+    /requires ASME CAN servo/
   );
 
   const component = store.createComponent(project.id, { name: "Drive", pluginInstanceIds: [motor.id] });
@@ -269,6 +369,9 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.deepEqual(store.deletePluginInstance(project.id, armServo.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, localCamera.id), { deleted: true });
   assert.deepEqual(store.deleteComponent(project.id, component.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, frontRightMotor.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, rearRightMotor.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, rearLeftMotor.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, motor.id), { deleted: true });
   store.close();
 });

@@ -12,6 +12,7 @@ export const MAX_REQUEST_BYTES = Math.ceil(MAX_UPLOAD_BYTES * 1.4) + 16 * 1024;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 export const MAX_COMMAND_TIMEOUT_MS = 300_000;
 const LOG_LIMIT = 120_000;
+const OPERATION_CANCELLED_STATUS = 409;
 
 export { isLocalRequest };
 
@@ -84,6 +85,186 @@ function shellQuote(value) {
 function commandWithCwd(command, cwd) {
   const cleanCwd = typeof cwd === "string" ? cwd.trim() : "";
   return cleanCwd ? `cd ${shellQuote(cleanCwd)} && ${command}` : command;
+}
+
+function createOperationScheduler() {
+  let nextId = 1;
+  const resources = new Map();
+  const totals = {
+    scheduled: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0
+  };
+
+  function resourceFor(resourceKey) {
+    const key = resourceKey || "global";
+    let resource = resources.get(key);
+    if (!resource) {
+      resource = {
+        key,
+        inFlight: null,
+        queue: []
+      };
+      resources.set(key, resource);
+    }
+    return resource;
+  }
+
+  function cancelPendingLatest(resource, job) {
+    if (job.policy !== "latest" || !job.dedupeKey) {
+      return;
+    }
+    const kept = [];
+    for (const pending of resource.queue) {
+      if (pending.policy === "latest" && pending.dedupeKey === job.dedupeKey) {
+        pending.cancelled = true;
+        totals.cancelled += 1;
+        pending.reject(Object.assign(new Error("operation superseded by a newer request"), {
+          statusCode: OPERATION_CANCELLED_STATUS,
+          operationId: pending.id,
+          resourceKey: pending.resourceKey
+        }));
+      } else {
+        kept.push(pending);
+      }
+    }
+    resource.queue = kept;
+  }
+
+  function runNext(resource) {
+    if (resource.inFlight || resource.queue.length === 0) {
+      return;
+    }
+    const job = resource.queue.shift();
+    if (!job || job.cancelled) {
+      runNext(resource);
+      return;
+    }
+    const startedAt = Date.now();
+    const context = {
+      operationId: job.id,
+      resourceKey: job.resourceKey,
+      queuedMs: Math.max(0, startedAt - job.queuedAt)
+    };
+    resource.inFlight = {
+      id: job.id,
+      name: job.name,
+      policy: job.policy,
+      dedupeKey: job.dedupeKey,
+      startedAt,
+      queuedMs: context.queuedMs
+    };
+    Promise.resolve()
+      .then(job.task)
+      .then((result) => {
+        totals.completed += 1;
+        job.resolve(annotateOperationResult(result, context));
+      })
+      .catch((error) => {
+        totals.failed += 1;
+        job.reject(error);
+      })
+      .finally(() => {
+        resource.inFlight = null;
+        runNext(resource);
+      });
+  }
+
+  return {
+    schedule(operation, task) {
+      const normalized = normalizeOperation(operation);
+      const resource = resourceFor(normalized.resourceKey);
+      const job = {
+        ...normalized,
+        id: `piop-${Date.now().toString(36)}-${nextId++}`,
+        queuedAt: Date.now(),
+        task,
+        cancelled: false
+      };
+      totals.scheduled += 1;
+      cancelPendingLatest(resource, job);
+      return new Promise((resolve, reject) => {
+        job.resolve = resolve;
+        job.reject = reject;
+        resource.queue.push(job);
+        runNext(resource);
+      });
+    },
+    snapshot() {
+      return {
+        totals: { ...totals },
+        resources: Array.from(resources.values()).map((resource) => ({
+          resourceKey: resource.key,
+          queueDepth: resource.queue.length,
+          inFlight: resource.inFlight
+            ? {
+                ...resource.inFlight,
+                runningMs: Math.max(0, Date.now() - resource.inFlight.startedAt)
+              }
+            : null,
+          pending: resource.queue.map((job) => ({
+            id: job.id,
+            name: job.name,
+            policy: job.policy,
+            dedupeKey: job.dedupeKey,
+            queuedMs: Math.max(0, Date.now() - job.queuedAt)
+          }))
+        }))
+      };
+    }
+  };
+}
+
+function normalizeOperation(operation) {
+  const resourceKey = cleanOperationString(operation.resourceKey) || "global";
+  const name = cleanOperationString(operation.name) || "pi.operation";
+  const policy = operation.policy === "latest" ? "latest" : "fifo";
+  const dedupeKey = cleanOperationString(operation.dedupeKey) || (policy === "latest" ? `${resourceKey}:${name}` : "");
+  return {
+    name,
+    resourceKey,
+    policy,
+    dedupeKey
+  };
+}
+
+function cleanOperationString(value) {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 200) : "";
+}
+
+function operationFromBody(body, connection, fallbackName) {
+  const input = body && typeof body.operation === "object" && body.operation ? body.operation : {};
+  const hostKey = `${connection.username}@${connection.host}:${connection.port}`;
+  return {
+    name: cleanOperationString(input.name) || fallbackName,
+    policy: input.policy === "latest" ? "latest" : "fifo",
+    resourceKey: cleanOperationString(input.resourceKey) || `ssh:${hostKey}`,
+    dedupeKey: cleanOperationString(input.dedupeKey)
+  };
+}
+
+function annotateOperationResult(value, context) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const metadata = {
+    operationId: context.operationId,
+    queuedMs: context.queuedMs,
+    resourceKey: context.resourceKey
+  };
+  const result = { ...value, ...metadata };
+  if (result.upload && typeof result.upload === "object" && !Array.isArray(result.upload)) {
+    result.upload = { ...result.upload, ...metadata };
+  }
+  if (result.exec && typeof result.exec === "object" && !Array.isArray(result.exec)) {
+    result.exec = { ...result.exec, ...metadata };
+  }
+  return result;
+}
+
+function scheduleConnectorOperation(scheduler, body, connection, fallbackName, task) {
+  return scheduler.schedule(operationFromBody(body, connection, fallbackName), task);
 }
 
 async function resolveSshConfig(connection) {
@@ -221,7 +402,7 @@ export function createSshConnector() {
   };
 }
 
-async function handleRoute(request, response, connector) {
+async function handleRoute(request, response, connector, scheduler) {
   if (!isLocalRequest(request)) {
     sendJson(response, 403, { error: "local requests only" });
     return;
@@ -237,14 +418,16 @@ async function handleRoute(request, response, connector) {
       ok: true,
       maxUploadBytes: MAX_UPLOAD_BYTES,
       defaultCommandTimeoutMs: DEFAULT_COMMAND_TIMEOUT_MS,
-      maxCommandTimeoutMs: MAX_COMMAND_TIMEOUT_MS
+      maxCommandTimeoutMs: MAX_COMMAND_TIMEOUT_MS,
+      scheduler: scheduler.snapshot()
     });
     return;
   }
 
   if (request.method === "POST" && url.pathname === "/connect-test") {
     const body = await readJsonBody(request);
-    const result = await connector.connectTest(normalizeConnection(body));
+    const connection = normalizeConnection(body);
+    const result = await scheduleConnectorOperation(scheduler, body, connection, "pi.connect-test", () => connector.connectTest(connection));
     sendJson(response, 200, result);
     return;
   }
@@ -254,7 +437,7 @@ async function handleRoute(request, response, connector) {
     const connection = normalizeConnection(body);
     const remotePath = normalizeRemotePath(body.remotePath);
     const buffer = decodeUploadContent(body);
-    const result = await connector.upload(connection, remotePath, buffer);
+    const result = await scheduleConnectorOperation(scheduler, body, connection, "pi.upload", () => connector.upload(connection, remotePath, buffer));
     sendJson(response, 200, result);
     return;
   }
@@ -263,7 +446,8 @@ async function handleRoute(request, response, connector) {
     const body = await readJsonBody(request);
     const connection = normalizeConnection(body);
     const command = commandWithCwd(normalizeCommand(body.command), body.cwd);
-    const result = await connector.exec(connection, command, normalizeTimeoutMs(body.timeoutMs));
+    const timeoutMs = normalizeTimeoutMs(body.timeoutMs);
+    const result = await scheduleConnectorOperation(scheduler, body, connection, "pi.exec", () => connector.exec(connection, command, timeoutMs));
     sendJson(response, 200, result);
     return;
   }
@@ -274,18 +458,22 @@ async function handleRoute(request, response, connector) {
     const remotePath = normalizeRemotePath(body.remotePath);
     const buffer = decodeUploadContent(body);
     const command = commandWithCwd(normalizeCommand(body.command), body.cwd);
-    const upload = await connector.upload(connection, remotePath, buffer);
-    const exec = await connector.exec(connection, command, normalizeTimeoutMs(body.timeoutMs));
-    sendJson(response, 200, { ok: true, upload, exec });
+    const timeoutMs = normalizeTimeoutMs(body.timeoutMs);
+    const result = await scheduleConnectorOperation(scheduler, body, connection, "pi.upload-and-exec", async () => {
+      const upload = await connector.upload(connection, remotePath, buffer);
+      const exec = await connector.exec(connection, command, timeoutMs);
+      return { ok: true, upload, exec };
+    });
+    sendJson(response, 200, result);
     return;
   }
 
   sendJson(response, 404, { error: "not found" });
 }
 
-export function createPiHelperServer({ connector = createSshConnector() } = {}) {
+export function createPiHelperServer({ connector = createSshConnector(), scheduler = createOperationScheduler() } = {}) {
   return createServer((request, response) => {
-    handleRoute(request, response, connector).catch((error) => {
+    handleRoute(request, response, connector, scheduler).catch((error) => {
       sendErrorJson(response, error, { fallbackMessage: "raspberry pi helper error" });
     });
   });

@@ -5,6 +5,7 @@ export type CameraEffectiveMode = CameraStreamMode | "mjpegFallback";
 
 interface CameraViewerProps {
   alt: string;
+  failed?: boolean;
   forceMjpeg?: boolean;
   mode: CameraStreamMode;
   offerUrl: string;
@@ -17,6 +18,7 @@ interface CameraViewerProps {
 
 export function CameraViewer({
   alt,
+  failed = false,
   forceMjpeg = false,
   mode,
   offerUrl,
@@ -144,6 +146,10 @@ export function CameraViewer({
   }, [effectiveMode, streamUrl]);
 
   if (!streamUrl) {
+    return <>{placeholder}</>;
+  }
+
+  if (failed && effectiveMode !== "webrtc") {
     return <>{placeholder}</>;
   }
 

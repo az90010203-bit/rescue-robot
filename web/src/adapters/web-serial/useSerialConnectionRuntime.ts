@@ -61,6 +61,9 @@ export function useSerialConnectionRuntime({
       const client = new WebSerialClient(handleMessage);
       await client.connect(mode === "servo-bus" ? 1000000 : 115200, mode === "servo-bus" ? "binary" : "json");
       serialRef.current = client;
+      livePositionModeServoRef.current.clear();
+      lastServoWheelSpeedRef.current = {};
+      servoSerialQueueRef.current = Promise.resolve();
       setConnectionMode(mode);
       setConnected(true);
       resetMotorDebugHandshake();

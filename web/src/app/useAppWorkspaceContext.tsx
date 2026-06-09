@@ -29,18 +29,20 @@ import { useAppPersistenceEffects } from "@app/useAppPersistenceEffects";
 import { useMotorSerialRuntime } from "@adapters/hardware/useMotorSerialRuntime";
 import { useAppCancellationRuntime } from "@app/useAppCancellationRuntime";
 import { useSerialConnectionRuntime } from "@adapters/web-serial/useSerialConnectionRuntime";
-import { useServoSerialTransport } from "@adapters/web-serial/useServoSerialTransport";
+import { useServoSerialTransport, type ServoFrameSendOptions } from "@adapters/web-serial/useServoSerialTransport";
 import { useAppNavigation } from "@app/useAppNavigation";
 import { useFeedbackRuntime } from "@platform/useFeedbackRuntime";
 import { useAppRuntimeEffects } from "@app/useAppRuntimeEffects";
 import { useDisplayFormatters } from "@app/useDisplayFormatters";
 import { useAppStateRefs } from "@app/useAppStateRefs";
+import { useAiVisionRuntime } from "@domains/ai-vision/useAiVisionRuntime";
+import { useDiagnosticAgentRuntime } from "@domains/diagnostic-agent/useDiagnosticAgentRuntime";
 import { createArmCanvasRenderer, createPlatformPanelRenderer } from "@app/createWorkspaceRenderers";
 import { createAppPlatformCommandDispatcher } from "@app/appPlatformCommandBridge";
 import { useArchitectureRuntime } from "@workspaces/architecture/useArchitectureRuntime";
-import { DebugModule, InboundMessage, MotorDirection, MOTOR_DIRECTION_DEADTIME_MS, MotorProfile, MotorStopMode, MotorTarget, PcCommand, ServoProfile, DEFAULT_WHEEL_SPEED_LIMIT, applyServoWheelDirection, buildDebugSetCommand, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildServoMoveCommand, buildWheelModeSetupFrames, buildWriteSpeedFrames, clamp, clampServoLogicalAngle, isMotorDebugDisabledError, isMotorPcCommand, motorDirectionFromSpeed, normalizeMotorChannel, normalizeServoProfile, parseFeetechStatusPacket, parseServoFeedback, requiresMotorDirectionDeadtime, servoLogicalSpan, servoLogicalToPhysicalAngle, servoPhysicalToLogicalAngleWithReverse, toHex, withCommandSeq } from "@adapters/hardware/protocol";
+import { DebugModule, FeetechStatusPacket, InboundMessage, MotorDirection, MOTOR_DIRECTION_DEADTIME_MS, MotorProfile, MotorStopMode, MotorTarget, PcCommand, ServoProfile, DEFAULT_WHEEL_SPEED_LIMIT, applyServoWheelDirection, buildDebugSetCommand, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildMotorTargetCommand, buildPingFrame, buildReadFeedbackFrame, buildServoMoveCommand, buildWheelModeSetupFrames, buildWriteSpeedFrames, clamp, clampServoLogicalAngle, isMotorDebugDisabledError, isMotorPcCommand, motorDirectionFromSpeed, normalizeMotorChannel, normalizeServoProfile, parseFeetechStatusPacket, parseServoFeedback, requiresMotorDirectionDeadtime, servoLogicalSpan, servoLogicalToPhysicalAngle, servoPhysicalToLogicalAngleWithReverse, toHex, withCommandSeq } from "@adapters/hardware/protocol";
 import { AppConfigSnapshot, AppStateSnapshotV2, createAppConfigSnapshot, createAppStateSnapshotV2, loadOrMigrateAppConfigSnapshot, normalizeAppStateSnapshotV2, saveAppDatabaseSnapshot, PersistedActiveModule, PersistedLogEntry, PersistedServoCommandMap } from "@adapters/persistence/appDatabase";
-import { DataProject, DataTelemetryEntry, CurrentProjectState, appendEvents, appendTelemetry, checkDataService, createProject, endSession, listArmTeachTracks, listProjects, loadCurrentProjectState, saveProjectState, selectProject, startSession } from "@adapters/data-service/dataService";
+import { DataProject, DataTelemetryEntry, CurrentProjectState, appendEvents, appendTelemetry, checkDataService, createProject, endSession, listArmTeachTracks, listComponents, listPluginInstances, listProjects, loadCurrentProjectState, saveProjectState, selectProject, startSession } from "@adapters/data-service/dataService";
 import { createArmTuningProbeSequence } from "@domains/arm/armKinematics";
 import { ArmTeachTrack, normalizeArmTeachTracks } from "@domains/arm/armTeach";
 import { ServoSmoothPreset, resolveServoMotionConfig } from "@domains/servo/servoMotion";
@@ -49,14 +51,16 @@ import { WHEEL_SLIDER_CENTER_DEG, WHEEL_SLIDER_MAX_DEG, WHEEL_SLIDER_MIN_DEG, cl
 import { DEFAULT_DRIVE_CHANNELS, DriveBase, DriveInputState, ZERO_DRIVE_INPUT, combineDriveInputs, mixDriveTargets } from "@domains/drive/drive";
 import { ControlAction, DEFAULT_INPUT_MAPPING, GamepadPresetId, InputMapping, cloneMapping, getGamepadPresetMapping, gamepadInputFromGamepad, isCustomGamepadMapping, keyboardInputFromPressedKeys, normalizeInputMapping, resolveGamepadPreset } from "@domains/drive/inputMapping";
 import { WebSerialClient } from "@adapters/web-serial/serial";
-import { ArmConfig, ArmJointConfig, ArmSegmentPose, CameraConfig, DEFAULT_CAMERA_CONFIG, DEFAULT_LINKAGE_MEMBER_ACC, DEFAULT_LINKAGE_MEMBER_SPEED_RAW, DEFAULT_LINKAGE_WHEEL_TURNS_TARGET, DEFAULT_MOTORS, DEFAULT_SERVOS, MotorLinkageGroup, ServoLinkageGroup, ServoLinkageWheelDirection, ValidationErrorKey, calculateArmSegmentPoses, calculateMotorLinkageTargets, calculateServoLinkageWheelTargets, createDefaultArmConfig, validateCameraConfig, validateMotorMapping } from "@adapters/persistence/storage";
+import { ArmConfig, ArmJointConfig, ArmSegmentPose, CameraConfig, DEFAULT_CAMERA_CONFIG, DEFAULT_LINKAGE_MEMBER_ACC, DEFAULT_LINKAGE_MEMBER_SPEED_RAW, DEFAULT_LINKAGE_WHEEL_TURNS_TARGET, DEFAULT_MOTORS, DEFAULT_SERVOS, MotorLinkageGroup, ServoLinkageGroup, ServoLinkageWheelDirection, ValidationErrorKey, calculateArmSegmentPoses, calculateMotorLinkageTargets, calculateServoLinkageTargets, calculateServoLinkageWheelTargets, createDefaultArmConfig, validateCameraConfig, validateMotorMapping } from "@adapters/persistence/storage";
 import { defaultLanguage, isSupportedLanguage } from "../i18n/languages";
 import { TB6618_MOTOR_DEBUGGER_INO_FILENAME, buildTb6618MotorDebuggerIno } from "@adapters/firmware/arduinoFirmware";
 import { FirmwareBoardId } from "@adapters/firmware/firmwareUpload";
 import { PiExecResult, PiCameraCheckResult, PiHelperHealth, PiReadinessResult, PiRunPlan, PiSetupProfile, PiUploadResult, checkPiCamera, checkPiReadiness, createPiRunPlan, execPiCommand, installPiCameraTools, isPiRemoteError, requestPiHelperHealth, runUploadedFile, startPiCameraStream, stopPiCameraStream, setupPiWorkspace, testPiConnection, uploadPiFile } from "@adapters/pi/piRemote";
-import { checkAboardBridge, sendAboardBridgeCommand, startAboardBridge, type AboardBridgeCommandResult } from "@adapters/pi/piAboardBridge";
-import { checkPiServoBridge, sendPiServoBridgeFrame as sendPiServoBridgeFrameRequest, startPiServoBridge } from "@adapters/pi/piServoBridge";
-import { shouldAutoCheckAboardBridge } from "@adapters/pi/aBoardBridgeAutoCheck";
+import { checkAboardBridge, sendAboardBridgeCommand, startAboardBridge, type AboardBridgeCommandResult, type AboardBridgeHealth } from "@adapters/pi/piAboardBridge";
+import { checkPiServoBridge, sendPiServoBridgeFrame as sendPiServoBridgeFrameRequest, startPiServoBridge, type PiServoBridgeHealth } from "@adapters/pi/piServoBridge";
+import { shouldAutoCheckAboardBridge, shouldAutoCheckPiServoBridgeContext, shouldAutoRecoverBridge } from "@adapters/pi/aBoardBridgeAutoCheck";
+import { isLatestWinsAboardMotorBatch, shouldClearPendingAboardMotion } from "@adapters/pi/aBoardCommandScheduling";
+import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 import {
   beginImuCalibration,
   calculateImuAttitude,
@@ -67,12 +71,57 @@ import {
   type ImuCalibration,
   type ImuFeedback
 } from "@domains/drive/imuAttitude";
-import { createPlatformCommand } from "@platform/commands";
+import { createPlatformCommand, type PlatformCommand, type PlatformCommandResult } from "@platform/commands";
+import { createPlatformStateSnapshot } from "@platform/stateStore";
 import { findPlatformUiPanelForDevice, formatPlatformStateValue, limitPlatformEvents, platformControlDefaultsForDevice, PlatformControlDraft, resolveSelectedPlatformDeviceId } from "@platform/ui";
 import { ActiveModule, AppSection, ArmMotionTarget, ArmTeachRuntime, ArmTeachStatus, ConnectionMode, DatabaseSaveStatus, FirmwareUploadStatus, GamepadSummary, MotorDebugHandshakeStatus, MotorErrorDisplay, MotorFeedbackMap, PendingCommandResponse, PendingDebugSet, PendingLiveAngleMove, PendingLiveWheelMove, PendingSingleMotorMove, PI_SETUP_PROFILE_STORAGE_KEY, ServoCommandState, ServoCommandStateMap, ServoControlMode, ServoFeedbackMap, ServoMotionDisplayStatus, ServoMotionStatusMap, ServoSafetyDisplayStatus, ServoSafetyMonitor, ServoSafetyStatusMap, TestPanel, WheelTurnProgress, clampServoCommandStateToLimits, createDefaultServoCommandState, databaseStatusTone, debugModuleFor, defaultMotorDraft, defaultPiRemoteForm, defaultServoDraft, formatServoAngle, formatSignedPercent, getServoCommandState, isEditableTarget, isServoBusModule, linkageWheelTurnProgressKey, motorPinSummary, nextMotorDraft, nextMotorLinkageGroupName, nextServoLinkageGroupName, safeCameraGimbalCommandPreview, safeDriveCommandPreview, safeFramePreview, safeMotorCommandPreview, safeSpeedFramePreview, servoMotionStatusLabel, singleWheelTurnProgressKey } from "@app/appModel";
+
+const BRIDGE_AUTO_RECOVER_DELAY_MS = 2000;
+const PI_SERVO_BRIDGE_HEALTH_TIMEOUT_MS = 1200;
+const PI_SERVO_BRIDGE_FRAME_TIMEOUT_PADDING_MS = 2600;
+const SERVO_REALTIME_AUTO_RETRY_MS = 1500;
+const SERVO_REALTIME_UNAVAILABLE_RETRY_MS = 8000;
+
+interface PendingAboardMotorBatch {
+  commands: PcCommand[];
+  options: { log?: boolean; shouldRun?: () => boolean };
+  generation: number;
+  resolve: (sent: boolean) => void;
+}
+interface AboardCommandOutcome {
+  busy: boolean;
+  result: AboardBridgeCommandResult | null;
+  sent: boolean;
+}
+const A_BOARD_IMU_POLL_BASE_MS = 500;
+const A_BOARD_IMU_POLL_BACKOFF_MS = [A_BOARD_IMU_POLL_BASE_MS, 1000, 2000];
+const A_BOARD_IMU_BUSY_RETRY_MS = 120;
+const A_BOARD_IMU_TIMEOUT_MS = 700;
+const A_BOARD_BUSY_RETRY_MS = 80;
+
+function aBoardImuPollDelayMs(failureCount: number): number {
+  return A_BOARD_IMU_POLL_BACKOFF_MS[Math.min(Math.max(0, failureCount), A_BOARD_IMU_POLL_BACKOFF_MS.length - 1)];
+}
+
+function feetechSyntheticOkStatus(frame: number[]): number[] {
+  const id = Number(frame[2]) & 0xff;
+  const body = [id, 2, 0];
+  const checksum = (~body.reduce((total, byte) => total + (byte & 0xff), 0)) & 0xff;
+  return [0xff, 0xff, ...body, checksum];
+}
+
+function feetechStatusPacketBytes(packet: FeetechStatusPacket): number[] {
+  return [0xff, 0xff, packet.id & 0xff, (packet.params.length + 2) & 0xff, packet.status & 0xff, ...packet.params.map((param) => param & 0xff), packet.checksum & 0xff];
+}
+
 export function useAppWorkspaceContext() {
   const { i18n, t } = useTranslation();
   const currentLanguage = isSupportedLanguage(i18n.language) ? i18n.language : defaultLanguage;
+
+  useEffect(() => {
+    document.title = t("app.documentTitle", { defaultValue: t("app.title") });
+  }, [currentLanguage, t]);
+
   const { activeSection, setActiveSection, activeTest, setActiveTest, activeModule, setActiveModule, servos, setServos, armConfig, setArmConfig, armTeachTracks, setArmTeachTracks, selectedArmTeachTrackId, setSelectedArmTeachTrackId, armTeachStatus, setArmTeachStatus, armTeachDraftName, setArmTeachDraftName, armTeachDraftNotes, setArmTeachDraftNotes, armTeachElapsedMs, setArmTeachElapsedMs, armTeachSampleCount, setArmTeachSampleCount, armTeachLastSampleStatus, setArmTeachLastSampleStatus, armTeachUnsavedTrack, setArmTeachUnsavedTrack, servoLinkageGroups, setServoLinkageGroups, motors, setMotors, motorLinkageGroups, setMotorLinkageGroups, cameraConfig, setCameraConfig, servoDraft, setServoDraft, motorDraft, setMotorDraft, servoLibraryError, setServoLibraryError, motorLibraryError, setMotorLibraryError, motorConfigError, setMotorConfigError, cameraConfigError, setCameraConfigError, cameraStreamLoaded, setCameraStreamLoaded, cameraStreamFailed, setCameraStreamFailed, debugEnabled, setDebugEnabled, motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState, lastMotorError, setLastMotorError, motorTestBoard, setMotorTestBoard, aBoardBridgeStatus, setABoardBridgeStatus, aBoardBridgeError, setABoardBridgeError, aBoardBridgeDetail, setABoardBridgeDetail, piServoBridgeStatus, setPiServoBridgeStatus, piServoBridgeError, setPiServoBridgeError, piServoBridgeDetail, setPiServoBridgeDetail, connected, setConnected, connectionMode, setConnectionMode, selectedId, setSelectedId, selectedChannel, setSelectedChannel, servoCommandById, setServoCommandById, servoSmoothingEnabled, setServoSmoothingEnabled, servoSmoothPreset, setServoSmoothPreset, servoMotionStatusById, setServoMotionStatusById, servoSafetyEnabled, setServoSafetyEnabled, servoSafetyPreset, setServoSafetyPreset, servoSafetyStatusById, setServoSafetyStatusById, databaseStatus, setDatabaseStatus, currentProject, setCurrentProject, projects, setProjects, newProjectName, setNewProjectName, lastDatabaseSavedAt, setLastDatabaseSavedAt, databaseErrorMessage, setDatabaseErrorMessage, expandedServoLinkageGroupIds, setExpandedServoLinkageGroupIds, expandedMotorLinkageGroupIds, setExpandedMotorLinkageGroupIds, linkageWheelDirectionByGroup, setLinkageWheelDirectionByGroup, motorSpeed, setMotorSpeed, stopMode, setStopMode, servoFeedback, setServoFeedback, wheelTurnProgress, setWheelTurnProgress, motorFeedback, setMotorFeedback, serialRef, seqRef, driveTargetsRef, lastDriveCommandRef, servoSerialQueueRef, liveAngleTimerRef, liveAngleSendingRef, pendingLiveAngleRef, liveWheelTimerRef, liveWheelSendingRef, pendingLiveWheelRef, armLiveTimerRef, armLiveSendingRef, pendingArmConfigRef, draggingArmJointIdRef, armTeachTimerRef, armTeachRuntimeRef, armTeachPlaybackGenerationRef, linkageLiveTimerRef, linkageLiveSendingRef, pendingLinkageMoveRef, servoLinkageGroupsRef, motorLinkageLiveTimerRef, motorLinkageLiveSendingRef, pendingMotorLinkageMoveRef, motorLinkageGroupsRef, motorLinkageGenerationRef, singleMotorLiveTimerRef, singleMotorLiveSendingRef, pendingSingleMotorMoveRef, singleMotorGenerationRef, motorSerialQueueRef, lastMotorSpeedByChannelRef, pendingCommandResponseBySeqRef, servoMotionGenerationRef, lastServoPhysicalAngleRef, lastServoWheelSpeedRef, servoSafetyTimerRef, servoSafetyMonitorRef, servoSafetySettingsRef, livePositionModeServoRef, databaseLoadedRef, databaseSaveTimerRef, currentProjectIdRef, currentSessionIdRef, motorDebugHandshakeStatusRef, motorDebugHandshakePromiseRef, pendingDebugSetBySeqRef } = useAppStateRefs();
   const [aBoardImuFeedback, setABoardImuFeedback] = useState<ImuFeedback | null>(null);
   const [aBoardImuAttitude, setABoardImuAttitude] = useState<ImuAttitude | null>(null);
@@ -82,8 +131,24 @@ export function useAppWorkspaceContext() {
   const aBoardBridgeAutoCheckedHostRef = useRef("");
   const aBoardBridgeManualDisconnectRef = useRef(false);
   const piServoBridgeAutoCheckedHostRef = useRef("");
+  const piServoBridgeHostRef = useRef("");
   const piServoBridgeManualDisconnectRef = useRef(false);
   const aBoardImuPollInFlightRef = useRef(false);
+  const aBoardImuPollFailureCountRef = useRef(0);
+  const piServoBridgeFrameFailureCheckInFlightRef = useRef(false);
+  const servoRealtimePrimedAtRef = useRef<Record<number, number>>({});
+  const servoRealtimeNoResponseAtRef = useRef<Record<number, number>>({});
+  const servoRealtimeAutoPrimeKeyRef = useRef("");
+  const bridgeManagementBusyRef = useRef(false);
+  const aBoardCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const aBoardCommandInFlightRef = useRef(false);
+  const aBoardBridgeBusyRef = useRef(false);
+  const aBoardBridgeBusyUntilRef = useRef(0);
+  const aBoardLastOkAtRef = useRef<number | null>(null);
+  const aBoardMotionGenerationRef = useRef(0);
+  const pendingAboardMotorBatchRef = useRef<PendingAboardMotorBatch | null>(null);
+  const aBoardMotorBatchSendingRef = useRef(false);
+  const [servoRealtimeRetryGeneration, setServoRealtimeRetryGeneration] = useState(0);
   useEffect(() => {
     aBoardImuCalibrationRef.current = aBoardImuCalibration;
   }, [aBoardImuCalibration]);
@@ -131,8 +196,8 @@ export function useAppWorkspaceContext() {
     [armTeachTracks, armTeachUnsavedTrack, selectedArmTeachTrackId]
   );
   const armSegmentPoses = useMemo(
-    () => calculateArmSegmentPoses(armConfig.joints, { x: 300, y: 250 }),
-    [armConfig.joints]
+    () => calculateArmSegmentPoses(armConfig.joints, { x: 300, y: 250 }, armConfig.baseDirectionDeg ?? 0),
+    [armConfig.baseDirectionDeg, armConfig.joints]
   );
   const selectedArmFeedback = selectedArmJoint ? servoFeedback[selectedArmJoint.servoId] : undefined;
   const numericMotorSpeed = Number(motorSpeed);
@@ -204,7 +269,36 @@ export function useAppWorkspaceContext() {
     () => motors.filter((motor) => validateMotorMapping(motor) === null).length,
     [motors]
   );
-  const driveRuntime = useDriveInput({ activeModule, addSystemLog, stopAllMotors });
+  const [runtimeArchitectureComponents, setRuntimeArchitectureComponents] = useState<ComponentDefinition[]>([]);
+  const [runtimeArchitecturePluginInstances, setRuntimeArchitecturePluginInstances] = useState<PluginInstance[]>([]);
+  useEffect(() => {
+    if (databaseStatus === "offline" || !currentProject?.id) {
+      setRuntimeArchitectureComponents([]);
+      setRuntimeArchitecturePluginInstances([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all([
+      listPluginInstances(currentProject.id),
+      listComponents(currentProject.id)
+    ]).then(([nextPluginInstances, nextComponents]) => {
+      if (cancelled) {
+        return;
+      }
+      setRuntimeArchitecturePluginInstances(nextPluginInstances);
+      setRuntimeArchitectureComponents(nextComponents);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.id, databaseStatus]);
+  const driveRuntime = useDriveInput({
+    activeModule,
+    addSystemLog,
+    components: runtimeArchitectureComponents,
+    pluginInstances: runtimeArchitecturePluginInstances,
+    stopAllMotors
+  });
   const {
     activeDriveBase,
     activeGamepad,
@@ -212,6 +306,7 @@ export function useAppWorkspaceContext() {
     capturingKey,
     driveInput,
     driveSpeedLimit,
+    driveSetupMappings,
     driveTargets,
     gamepads,
     handleVirtualStickDown,
@@ -335,12 +430,31 @@ export function useAppWorkspaceContext() {
   const drivePreviewCommand = safeDriveCommandPreview(driveTargets, stopMode);
   const driveCanCommand = connected && debugEnabled && activeModule === "camera";
   const webSerialAvailable = typeof navigator !== "undefined" && Boolean(navigator.serial);
+  const basePlatformState = useMemo(
+    () =>
+      createPlatformStateSnapshot({
+        servoFeedback,
+        motorFeedback,
+        cameraConfig,
+        armConfig,
+        connected,
+        connectionMode,
+        cameraReady: mainCameraReady,
+        cameraReadyBySourceId
+      }),
+    [armConfig, cameraConfig, cameraReadyBySourceId, connected, connectionMode, mainCameraReady, motorFeedback, servoFeedback]
+  );
+  const aiVision = useAiVisionRuntime({
+    activeCameraSource,
+    platformState: basePlatformState
+  });
   const {
     platformCapabilityCount,
     platformDeviceCount,
     platformDevices,
     platformEventBusRef,
     platformEvents,
+    platformState,
     platformStateCount,
     resolvedPlatformDeviceId,
     selectedPlatformControlDraft,
@@ -362,7 +476,15 @@ export function useAppWorkspaceContext() {
     selectedChannel,
     selectedId,
     servoFeedback,
-    servos
+    servos,
+    aiVisionHelperReady: aiVision.helperReady,
+    aiVisionMode: aiVision.health?.mode ?? null,
+    aiVisionSampleDir: aiVision.health?.sampleDir ?? null,
+    aiVisionDetectionCount: aiVision.detections.length,
+    aiVisionLastLabel: aiVision.detections[0]?.label ?? null,
+    aiVisionLastConfidence: aiVision.detections[0]?.confidence ?? null,
+    aiVisionLastCapturePath: aiVision.lastCaptureResult?.imagePath ?? null,
+    aiVisionSourceId: activeCameraSource.id
   });
   const feedbackRuntime = useFeedbackRuntime({
     addLog, addSystemLog, lastServoPhysicalAngleRef, lastServoWheelSpeedRef, platformEventBusRef, queueTelemetry, setMotorFeedback, setServoFeedback
@@ -418,6 +540,7 @@ export function useAppWorkspaceContext() {
     motionKeyForArm,
     motionKeyForLinkage,
     motionKeyForServo,
+    prepareServoPositionModeUnlocked,
     setServoMotionStatus,
     writeServoPositionUnlocked,
     writeServoWheelSpeedUnlocked
@@ -435,10 +558,47 @@ export function useAppWorkspaceContext() {
     cancelServoSafetyMonitor, debugEnabled, handleMessage, lastServoWheelSpeedRef, livePositionModeServoRef, platformEventBusRef, resetMotorDebugHandshake, serialRef,
     servoSerialQueueRef, setConnected, setConnectionMode, stopAllMotors, webSerialAvailable, writeDebugSetToClient
   });
-  const { dispatchPlatformCommand, emitPlatformCommandResult } = usePlatformCommands({
+  const platformCommandsRuntime = usePlatformCommands({
     enqueueServoSerialTask, nextSeq, platformEventBusRef, rememberServoFeedback, sendAboardBridgeMotorCommand: motorTestBoardIsAboard && aBoardBridgeConnected ? sendAboardBridgeMotorCommand : undefined, sendMotorCommand, sendServoFrameUnlocked, sendServoFrames, servos, writeServoPositionUnlocked,
     writeServoWheelSpeedUnlocked
   });
+  const emitPlatformCommandResult = platformCommandsRuntime.emitPlatformCommandResult;
+  async function dispatchPlatformCommand(command: PlatformCommand) {
+    if (command.type === "servo.set_position" || command.type === "servo.set_speed") {
+      const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+      const servo = servos.find((item) => item.id === servoId);
+      if (servo) {
+        const live = command.payload.live === true;
+        const wasPrimed = Boolean(servoRealtimePrimedAtRef.current[servo.id]);
+        const zeroSpeedStop = command.type === "servo.set_speed" && Number(command.payload.speedRaw) === 0;
+        if (zeroSpeedStop || (live && wasPrimed)) {
+          return platformCommandsRuntime.dispatchPlatformCommand(command);
+        }
+        const feedback = await readServoRealtimeForDebug(servo, { quiet: command.payload.live === true, syncArm: true });
+        if (!feedback) {
+          const result: PlatformCommandResult = {
+            commandId: command.id,
+            deviceId: command.targetDeviceId,
+            status: "timeout",
+            message: `servo ${servo.id} current position read failed`
+          };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
+        if (!wasPrimed && !zeroSpeedStop) {
+          const result: PlatformCommandResult = {
+            commandId: command.id,
+            deviceId: command.targetDeviceId,
+            status: "skipped",
+            message: `servo ${servo.id} current position synced; first target blocked`
+          };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
+      }
+    }
+    return platformCommandsRuntime.dispatchPlatformCommand(command);
+  }
   const {
     cancelServoLinkageWheelTurnMonitors,
     cancelWheelTurnMonitor,
@@ -446,7 +606,7 @@ export function useAppWorkspaceContext() {
   } = useServoWheelTurnRuntime({
     addSystemLog, rememberServoFeedback, sendServoFrame, setWheelTurnProgress
   });
-  const { calculateArmMotionTargets, runArmPositionMotion } = useArmMotionRuntime({
+  const { calculateArmMotionTargets, runArmPositionMotion: runArmPositionMotionUnsafe } = useArmMotionRuntime({
     addLog, addSystemLog, beginServoSafetyMonitor, bumpServoMotionGeneration, cancelServoMotionForArm, enqueueServoSerialTask, getPositionMotionStartAngle, isServoMotionCurrent,
     motionKeyForArm, pauseArm, servoBusConnected, servoSmoothPreset, servoSmoothingEnabled, servos, setServoMotionStatus, sleepMs,
     writeServoPositionUnlocked
@@ -479,7 +639,7 @@ export function useAppWorkspaceContext() {
   } = useServoCommandRuntime({
     addSystemLog, armConfig, cancelArmLiveMove, cancelLiveAngleMove, cancelLiveWheelMove, cancelServoSafetyMonitor, cancelWheelTurnMonitor,
     liveAngleSendingRef, liveAngleTimerRef, livePositionModeServoRef, liveWheelSendingRef, liveWheelTimerRef, pendingLiveAngleRef, pendingLiveWheelRef,
-    runServoPositionMotion, sendMoveForServo, servoBusReady, servoSmoothingEnabled, setServoCommandById
+    prepareServoPositionMode, runServoPositionMotion, sendMoveForServo, servoBusReady, servoSerialQueueBusy, setServoCommandById
   });
   const {
     holdServoAtCurrentPosition,
@@ -537,8 +697,8 @@ export function useAppWorkspaceContext() {
     updateServoLinkageWheelTurnTarget
   } = useServoLinkageRuntime({
     armConfig, cancelArmLiveMove, cancelLiveAngleMove, cancelLiveWheelMove, cancelServoLinkageMove, cancelServoLinkageWheelTurnMonitors, cancelServoSafetyMonitor, cancelWheelTurnMonitor,
-    linkageLiveSendingRef, linkageLiveTimerRef, pauseServoLinkageGroup, pendingLinkageMoveRef, sendServoLinkageGroup, servoLinkageGroups, servoLinkageGroupsRef, servoSmoothingEnabled,
-    servos, setExpandedServoLinkageGroupIds, setLinkageWheelDirectionByGroup, setServoCommandById, setServoLinkageGroups
+    linkageLiveSendingRef, linkageLiveTimerRef, pauseServoLinkageGroup, pendingLinkageMoveRef, sendServoLinkageGroup, servoLinkageGroups, servoLinkageGroupsRef,
+    servoSerialQueueBusy, servos, setExpandedServoLinkageGroupIds, setLinkageWheelDirectionByGroup, setServoCommandById, setServoLinkageGroups
   });
   const servoMotionRuntime = useServoMotionRuntime({
     addLog, addSystemLog, beginServoSafetyMonitor, bumpServoMotionGeneration, cancelLiveAngleMove, cancelServoLinkageMove, cancelServoLinkageWheelTurnMonitors, cancelServoMotionForLinkage,
@@ -583,12 +743,21 @@ export function useAppWorkspaceContext() {
     syncArchitecturePluginInstances
   } = useArchitectureRuntime({
     activeModule,
+    autoSyncPluginInstances: databaseStatus !== "offline",
     connected,
     connectionMode,
+    projectId: currentProject?.id ?? null,
     selectModule,
     setMotors,
     setServos
   });
+  function syncArchitectureSnapshot(nextPluginInstances: PluginInstance[], nextComponents?: ComponentDefinition[]) {
+    setRuntimeArchitecturePluginInstances(nextPluginInstances);
+    if (nextComponents) {
+      setRuntimeArchitectureComponents(nextComponents);
+    }
+    syncArchitecturePluginInstances(nextPluginInstances);
+  }
   const currentServoSmoothConfig = resolveServoMotionConfig(servoSmoothPreset);
   const currentServoSafetyConfig = resolveServoSafetyConfig(servoSafetyPreset);
   const activeModuleLabel =
@@ -739,7 +908,7 @@ export function useAppWorkspaceContext() {
   });
   useAppRuntimeEffects({
     activeModule, addSystemLog, cameraCanCommand, cameraConfig, cancelServoSafetyMonitor, checkFirmwareHelper, connected, currentLanguage,
-    driveInput, driveTargets, driveTargetsRef, lastDriveCommandRef, motorLinkageGroups, motorLinkageGroupsRef, motors, nextSeq,
+    driveInput, driveSetupMappings, driveTargets, driveTargetsRef, lastDriveCommandRef, motorLinkageGroups, motorLinkageGroupsRef, motors, nextSeq,
     nudgeCamera, sendMotorCommandBatch, selectedChannel, selectedId, servoLinkageGroups, servoLinkageGroupsRef, servoSafetyEnabled, servoSafetyPreset,
     servoSafetySettingsRef, servos, setArmConfig, setCameraStreamFailed, setCameraStreamLoaded, setMotorLinkageGroups, setSelectedChannel, setSelectedId,
     setServoCommandById, setServoLinkageGroups, stopMode
@@ -751,25 +920,227 @@ export function useAppWorkspaceContext() {
   function enqueueServoSerialTask<T>(task: () => Promise<T>): Promise<T> {
     return servoSerialTransport.enqueueServoSerialTask(task);
   }
-  async function sendServoFrameUnlocked(frame: number[], waitMs = 80, logFrame = true) { return servoSerialTransport.sendServoFrameUnlocked(frame, waitMs, logFrame); }
-  async function sendServoFrame(frame: number[], waitMs = 80, logFrame = true) { return servoSerialTransport.sendServoFrame(frame, waitMs, logFrame); }
+  async function sendServoFrameUnlocked(frame: number[], waitMs = 80, logFrame = true, options?: ServoFrameSendOptions) { return servoSerialTransport.sendServoFrameUnlocked(frame, waitMs, logFrame, options); }
+  async function sendServoFrame(frame: number[], waitMs = 80, logFrame = true, options?: ServoFrameSendOptions) { return servoSerialTransport.sendServoFrame(frame, waitMs, logFrame, options); }
   async function sendServoFrames(frames: number[] | number[][], waitMs = 80) { return servoSerialTransport.sendServoFrames(frames, waitMs); }
   function sleepMs(ms: number) { return servoSerialTransport.sleepMs(ms); }
   function servoBusConnected() { return servoSerialTransport.servoBusConnected(); }
+  function servoSerialQueueBusy() {
+    const status = servoSerialTransport.getServoSerialQueueStatus();
+    return status.inFlight || status.queueDepth > 0;
+  }
+
+  function prepareServoPositionMode(servo: ServoProfile, options: { logFrame?: boolean; waitMs?: number } = {}) {
+    return enqueueServoSerialTask(() =>
+      prepareServoPositionModeUnlocked({
+        servo,
+        waitMs: options.waitMs ?? 40,
+        logFrame: options.logFrame ?? false
+      })
+    );
+  }
+
+  function clearServoRealtimeAvailability() {
+    servoRealtimeNoResponseAtRef.current = {};
+    setServoMotionStatusById((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const key of Object.keys(next)) {
+        const servoId = Number(key);
+        if (next[servoId] === "unreachable") {
+          delete next[servoId];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }
+
+  function markServoRealtimeUnavailable(servoId: number) {
+    const wasUnavailable = Boolean(servoRealtimeNoResponseAtRef.current[servoId]);
+    delete servoRealtimePrimedAtRef.current[servoId];
+    servoRealtimeNoResponseAtRef.current[servoId] = Date.now();
+    servoRealtimeAutoPrimeKeyRef.current = "";
+    if (!wasUnavailable) {
+      setServoRealtimeRetryGeneration((generation) => generation + 1);
+    }
+    setServoMotionStatusById((current) =>
+      current[servoId] === "unreachable"
+        ? current
+        : {
+            ...current,
+            [servoId]: "unreachable"
+          }
+    );
+  }
+
+  function markServoRealtimeAvailable(servoId: number) {
+    delete servoRealtimeNoResponseAtRef.current[servoId];
+    setServoMotionStatusById((current) => {
+      if (current[servoId] !== "unreachable") {
+        return current;
+      }
+      const next = { ...current };
+      delete next[servoId];
+      return next;
+    });
+  }
+
+  function syncServoRealtimeFeedbackToDrafts(servo: ServoProfile, feedback: InboundMessage & { type: "servo.feedback" }, options: { syncArm?: boolean } = {}) {
+    if (feedback.positionDeg === undefined) {
+      return false;
+    }
+
+    setServoCommandById((current) => {
+      const state = getServoCommandState(current, servo.id);
+      const logicalAngle = servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg!, state.reverse);
+      return {
+        ...current,
+        [servo.id]: {
+          ...state,
+          angleDeg: formatServoAngle(logicalAngle)
+        }
+      };
+    });
+
+    if (options.syncArm) {
+      setArmConfig((current) => ({
+        ...current,
+        joints: current.joints.map((joint) => {
+          if (joint.servoId !== servo.id) {
+            return joint;
+          }
+          const logicalAngle = servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg!, joint.reverse);
+          return { ...joint, angleDeg: logicalAngle };
+        })
+      }));
+    }
+
+    return true;
+  }
+
+  async function readServoRealtimeForDebug(servo: ServoProfile, options: { quiet?: boolean; syncArm?: boolean } = {}) {
+    if (!servoBusConnected()) {
+      if (!options.quiet) {
+        addSystemLog("logs.servoBusRequired", "warn");
+      }
+      return null;
+    }
+    const result = await dispatchPlatformCommand(createPlatformCommand("servo.read_feedback", `servo:${servo.id}`));
+    const packet = result.response as ReturnType<typeof parseFeetechStatusPacket>;
+    if (!packet || packet.status !== 0) {
+      if (!packet) {
+        markServoRealtimeUnavailable(servo.id);
+      } else {
+        delete servoRealtimePrimedAtRef.current[servo.id];
+        servoRealtimeAutoPrimeKeyRef.current = "";
+      }
+      if (!options.quiet) {
+        addLog("system", packet ? `ID${servo.id} read status error ${packet.status}` : `ID${servo.id} read no response`, "warn");
+      }
+      return null;
+    }
+
+    markServoRealtimeAvailable(servo.id);
+    const feedback = parseServoFeedback(packet);
+    if (syncServoRealtimeFeedbackToDrafts(servo, feedback, { syncArm: options.syncArm })) {
+      servoRealtimePrimedAtRef.current[servo.id] = Date.now();
+      if (!options.quiet) {
+        addLog("system", `ID${servo.id} synced current position ${feedback.positionDeg?.toFixed(1) ?? "--"} deg`);
+      }
+    }
+    return feedback;
+  }
+
+  async function primeServoRealtimeBeforeMotion(servo: ServoProfile, options: { live?: boolean; syncArm?: boolean } = {}) {
+    const wasPrimed = Boolean(servoRealtimePrimedAtRef.current[servo.id]);
+    if (options.live && wasPrimed) {
+      return true;
+    }
+    const feedback = await readServoRealtimeForDebug(servo, { quiet: options.live === true, syncArm: options.syncArm });
+    if (!feedback) {
+      return false;
+    }
+    if (!wasPrimed && !options.live) {
+      addLog("system", `ID${servo.id} first target blocked until current position is synced`, "warn");
+    }
+    return wasPrimed;
+  }
+
+  async function primeArmConfigRealtimeBeforeMotion(config: ArmConfig, options: { extraServos?: ServoProfile[]; live?: boolean } = {}) {
+    const targets = calculateArmMotionTargets(config, options.extraServos ?? []);
+    if (targets.length === 0) {
+      return true;
+    }
+    let allWerePrimed = true;
+    for (const target of targets) {
+      const wasPrimed = Boolean(servoRealtimePrimedAtRef.current[target.servoId]);
+      if (!wasPrimed) {
+        allWerePrimed = false;
+      }
+      if (options.live && wasPrimed) {
+        continue;
+      }
+      const feedback = await readServoRealtimeForDebug(target.servo, { quiet: options.live === true, syncArm: true });
+      if (!feedback) {
+        return false;
+      }
+    }
+    return allWerePrimed;
+  }
+
   async function runServoPositionMotion(
     servo: ServoProfile,
     state: ServoCommandState,
     logicalAngleDeg: number,
     options: { live?: boolean } = {}
-  ) { return servoMotionRuntime.runServoPositionMotion(servo, state, logicalAngleDeg, options); }
+  ) {
+    const primed = await primeServoRealtimeBeforeMotion(servo, { live: options.live, syncArm: true });
+    if (!primed) {
+      return false;
+    }
+    return servoMotionRuntime.runServoPositionMotion(servo, state, logicalAngleDeg, options);
+  }
   async function runServoWheelMotion(
     servo: ServoProfile,
     state: ServoCommandState,
     effectiveWheelSpeed: number,
     options: { live?: boolean; log?: boolean } = {}
-  ) { return servoMotionRuntime.runServoWheelMotion(servo, state, effectiveWheelSpeed, options); }
-  async function runServoLinkagePositionMotion(group: ServoLinkageGroup, live = false) { return servoMotionRuntime.runServoLinkagePositionMotion(group, live); }
-  async function runServoLinkageWheelMotion(group: ServoLinkageGroup, direction: ServoLinkageWheelDirection) { return servoMotionRuntime.runServoLinkageWheelMotion(group, direction); }
+  ) {
+    const primed = await primeServoRealtimeBeforeMotion(servo, { live: options.live, syncArm: true });
+    if (!primed) {
+      return false;
+    }
+    return servoMotionRuntime.runServoWheelMotion(servo, state, effectiveWheelSpeed, options);
+  }
+  async function runServoLinkagePositionMotion(group: ServoLinkageGroup, live = false) {
+    const targets = calculateServoLinkageTargets(group, servos);
+    let allWerePrimed = true;
+    for (const target of targets) {
+      const primed = await primeServoRealtimeBeforeMotion(target.servo, { live, syncArm: true });
+      if (!primed) {
+        allWerePrimed = false;
+      }
+    }
+    if (!allWerePrimed) {
+      return false;
+    }
+    return servoMotionRuntime.runServoLinkagePositionMotion(group, live);
+  }
+  async function runServoLinkageWheelMotion(group: ServoLinkageGroup, direction: ServoLinkageWheelDirection) {
+    const targets = calculateServoLinkageWheelTargets(group, servos, direction);
+    let allWerePrimed = true;
+    for (const target of targets) {
+      const primed = await primeServoRealtimeBeforeMotion(target.servo, { syncArm: true });
+      if (!primed) {
+        allWerePrimed = false;
+      }
+    }
+    if (!allWerePrimed) {
+      return false;
+    }
+    return servoMotionRuntime.runServoLinkageWheelMotion(group, direction);
+  }
   function startAboardImuCalibration() {
     const next = beginImuCalibration();
     aBoardImuCalibrationRef.current = next;
@@ -816,6 +1187,152 @@ export function useAppWorkspaceContext() {
       handleImuFeedback(message);
     }
   }
+  function clearPendingAboardMotorBatch() {
+    aBoardMotionGenerationRef.current += 1;
+    const pending = pendingAboardMotorBatchRef.current;
+    if (!pending) {
+      return;
+    }
+    pendingAboardMotorBatchRef.current = null;
+    pending.resolve(false);
+  }
+  async function runAboardBridgeCommandExclusive<T>(task: () => Promise<T>): Promise<T> {
+    const previous = aBoardCommandQueueRef.current;
+    let releaseCurrent: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    aBoardCommandQueueRef.current = previous.then(() => current, () => current);
+    await previous.catch(() => undefined);
+    aBoardCommandInFlightRef.current = true;
+    try {
+      return await task();
+    } finally {
+      aBoardCommandInFlightRef.current = false;
+      releaseCurrent();
+    }
+  }
+  function aboardCommandSent(command: PcCommand, result: AboardBridgeCommandResult | null) {
+    if (!result || result.busy) {
+      return false;
+    }
+    const commandError = result.messages.find((message): message is InboundMessage & { type: "error" } => message.type === "error");
+    if (commandError) {
+      return false;
+    }
+    return result.ok || result.messages.some((message) => message.seq === command.seq);
+  }
+  async function sendAboardBridgeCommandThroughGate(command: PcCommand, options: { log?: boolean; timeoutMs?: number } = {}) {
+    if (!aBoardBridgeConnected) {
+      addLog("system", "A board bridge is not connected", "warn");
+      return null;
+    }
+    const bridgeCommand = normalizeAboardSemanticCommand(command);
+    try {
+      if (options.log !== false) {
+        addLog("tx", JSON.stringify(bridgeCommand));
+      }
+      const result = await runAboardBridgeCommandExclusive(() =>
+        sendAboardBridgeCommand(piRemoteForm.host, bridgeCommand, { timeoutMs: options.timeoutMs })
+      );
+      updateAboardBridgeRuntimeDetail(result);
+      for (const message of result.messages) {
+        handleMessage(message, { log: options.log });
+      }
+      return result;
+    } catch (error) {
+      const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "A board bridge command failed";
+      aBoardBridgeBusyRef.current = false;
+      setABoardBridgeError(message);
+      setABoardBridgeStatus("error");
+      addLog("system", message, "error");
+      return null;
+    }
+  }
+  function normalizeAboardSemanticCommand(command: PcCommand): PcCommand {
+    if (command.type === "motor.set") {
+      return buildMotorTargetCommand(command.seq, {
+        channel: String(command.channel ?? ""),
+        speedPercent: Number(command.speedPercent),
+        stopMode: command.stopMode === "brake" ? "brake" : "coast",
+        closedLoop: typeof command.closedLoop === "boolean" ? command.closedLoop : undefined,
+        targetRpm: typeof command.targetRpm === "number" ? command.targetRpm : undefined
+      });
+    }
+    return command;
+  }
+  async function sendAboardBridgeMotorCommandOutcome(command: PcCommand, options: { log?: boolean } = {}): Promise<AboardCommandOutcome> {
+    const bridgeCommand = normalizeAboardSemanticCommand(command);
+    const result = await sendAboardBridgeCommandThroughGate(bridgeCommand, options);
+    return {
+      busy: result?.busy === true,
+      result,
+      sent: aboardCommandSent(bridgeCommand, result)
+    };
+  }
+  async function sendLatestAboardMotorBatch(commands: PcCommand[], options: { log?: boolean; shouldRun?: () => boolean } = {}) {
+    if (!aBoardBridgeConnected) {
+      addLog("system", "A board bridge is not connected", "warn");
+      return false;
+    }
+    if (options.shouldRun && !options.shouldRun()) {
+      return false;
+    }
+    if (pendingAboardMotorBatchRef.current) {
+      pendingAboardMotorBatchRef.current.resolve(false);
+    }
+    const result = new Promise<boolean>((resolve) => {
+      pendingAboardMotorBatchRef.current = { commands, options, generation: aBoardMotionGenerationRef.current, resolve };
+    });
+    void drainLatestAboardMotorBatch();
+    return result;
+  }
+  async function drainLatestAboardMotorBatch() {
+    if (aBoardMotorBatchSendingRef.current) {
+      return;
+    }
+    aBoardMotorBatchSendingRef.current = true;
+    let retryScheduled = false;
+    try {
+      while (pendingAboardMotorBatchRef.current) {
+        const pending = pendingAboardMotorBatchRef.current;
+        pendingAboardMotorBatchRef.current = null;
+        let sent = true;
+        let retryPending = false;
+        for (const command of pending.commands) {
+          if (aBoardMotionGenerationRef.current !== pending.generation || (pending.options.shouldRun && !pending.options.shouldRun())) {
+            sent = false;
+            break;
+          }
+          const outcome = await sendAboardBridgeMotorCommandOutcome(command, { log: pending.options.log });
+          if (outcome.busy) {
+            retryPending = true;
+            sent = false;
+            break;
+          }
+          if (!outcome.sent) {
+            sent = false;
+            break;
+          }
+        }
+        if (retryPending && !pendingAboardMotorBatchRef.current && aBoardMotionGenerationRef.current === pending.generation) {
+          pendingAboardMotorBatchRef.current = pending;
+          retryScheduled = true;
+          window.setTimeout(() => {
+            void drainLatestAboardMotorBatch();
+          }, A_BOARD_BUSY_RETRY_MS);
+          break;
+        } else {
+          pending.resolve(sent);
+        }
+      }
+    } finally {
+      aBoardMotorBatchSendingRef.current = false;
+      if (pendingAboardMotorBatchRef.current && !retryScheduled) {
+        void drainLatestAboardMotorBatch();
+      }
+    }
+  }
   async function sendSelectedMotorCommand(command: PcCommand, options: { log?: boolean; retryCount?: number } = {}) {
     if (motorTestBoardIsAboard) {
       return sendAboardBridgeMotorCommand(command, options);
@@ -830,7 +1347,12 @@ export function useAppWorkspaceContext() {
       addLog("system", "A board bridge is not connected", "warn");
       return false;
     }
-    for (const command of commands) {
+    const bridgeCommands = commands.map(normalizeAboardSemanticCommand);
+    if (isLatestWinsAboardMotorBatch(bridgeCommands)) {
+      return sendLatestAboardMotorBatch(bridgeCommands, options);
+    }
+    clearPendingAboardMotorBatch();
+    for (const command of bridgeCommands) {
       if (options.shouldRun && !options.shouldRun()) {
         return false;
       }
@@ -859,7 +1381,117 @@ export function useAppWorkspaceContext() {
       workspaceDir: piRemoteForm.workspaceDir.trim() || "~/rescue-robot"
     };
   }
-  async function checkAboardSerialBridge(options: { automatic?: boolean } = {}) {
+  function bridgeHealthDetail(health: AboardBridgeHealth | PiServoBridgeHealth) {
+    const busy = "busy" in health && health.busy === true;
+    const parts = [busy ? "BUSY" : health.ok ? "OK" : "WAIT", `${health.serialPort} @ ${health.baudRate}`];
+    if (health.service) {
+      parts.push(health.version ? `${health.service} ${health.version}` : health.service);
+    }
+    if (typeof health.queueDepth === "number") {
+      parts.push(`queue ${health.queueDepth}`);
+    }
+    if (health.inFlight) {
+      parts.push("in-flight");
+    }
+    if ("motionPending" in health && health.motionPending) {
+      parts.push("motion pending");
+    }
+    if ("droppedMotionCount" in health && typeof health.droppedMotionCount === "number" && health.droppedMotionCount > 0) {
+      parts.push(`dropped ${health.droppedMotionCount}`);
+    }
+    if ("activeCommand" in health && health.activeCommand) {
+      parts.push(`active ${health.activeCommand}`);
+    }
+    const diagnostic = bridgeDiagnosticSummary(health);
+    if (diagnostic) {
+      parts.push(diagnostic);
+    }
+    return parts.join(" / ");
+  }
+  function bridgeDiagnosticSummary(health: AboardBridgeHealth | PiServoBridgeHealth) {
+    const parts: string[] = [];
+    if (health.deviceExists === false) {
+      parts.push("device missing");
+    }
+    if (health.lastCloseReason) {
+      parts.push(`closed: ${health.lastCloseReason}`);
+    }
+    const eventKind = health.lastSerialEvent?.kind;
+    if (eventKind && eventKind !== "opened") {
+      parts.push(`last: ${eventKind}`);
+    }
+    if (typeof health.consecutiveOpenFailures === "number" && health.consecutiveOpenFailures > 0) {
+      parts.push(`open failures ${health.consecutiveOpenFailures}`);
+    }
+    if (typeof health.reconnectCount === "number" && health.reconnectCount > 0) {
+      parts.push(`reconnects ${health.reconnectCount}`);
+    }
+    const exceptionMessage = health.lastException?.message;
+    if (exceptionMessage) {
+      parts.push(exceptionMessage.length > 80 ? `${exceptionMessage.slice(0, 77)}...` : exceptionMessage);
+    }
+    return parts.join(" / ");
+  }
+  function applyAboardBridgeHealth(health: AboardBridgeHealth) {
+    aBoardBridgeBusyRef.current = health.busy === true || health.inFlight === true || (health.queueDepth ?? 0) > 0;
+    aBoardBridgeBusyUntilRef.current = aBoardBridgeBusyRef.current ? Date.now() + A_BOARD_BUSY_RETRY_MS : 0;
+    if (health.ok && !aBoardBridgeBusyRef.current) {
+      aBoardLastOkAtRef.current = Date.now();
+    }
+    setABoardBridgeDetail(bridgeHealthDetail(health));
+  }
+  function updateAboardBridgeRuntimeDetail(result: AboardBridgeCommandResult) {
+    const busy = result.busy === true || result.inFlight === true || (result.queueDepth ?? 0) > 0;
+    aBoardBridgeBusyRef.current = busy;
+    aBoardBridgeBusyUntilRef.current = busy ? Date.now() + A_BOARD_BUSY_RETRY_MS : 0;
+    if (result.ok && !busy) {
+      aBoardLastOkAtRef.current = Date.now();
+    }
+    const parts = [busy ? "BUSY" : result.ok ? "OK" : "WAIT"];
+    if (result.serialPort && typeof result.baudRate === "number") {
+      parts.push(`${result.serialPort} @ ${result.baudRate}`);
+    } else {
+      parts.push("A board bridge");
+    }
+    if (typeof result.queueDepth === "number") {
+      parts.push(`queue ${result.queueDepth}`);
+    }
+    if (result.inFlight) {
+      parts.push("in-flight");
+    }
+    if (aBoardLastOkAtRef.current && !busy) {
+      parts.push(`last OK ${new Date(aBoardLastOkAtRef.current).toLocaleTimeString()}`);
+    }
+    if (result.error) {
+      parts.push(result.error);
+    }
+    setABoardBridgeDetail(parts.join(" / "));
+  }
+  function aBoardRuntimeBusy() {
+    return (
+      aBoardCommandInFlightRef.current ||
+      aBoardMotorBatchSendingRef.current ||
+      Boolean(pendingAboardMotorBatchRef.current) ||
+      (aBoardBridgeBusyRef.current && Date.now() < aBoardBridgeBusyUntilRef.current)
+    );
+  }
+  function bridgeSerialUnavailableMessage(label: string, health: AboardBridgeHealth | PiServoBridgeHealth) {
+    const serialState = health.serialOpen === false ? "serial device is not open" : "serial device is unavailable";
+    const diagnostic = bridgeDiagnosticSummary(health);
+    const diagnosticSuffix = diagnostic ? ` Last serial diagnostic: ${diagnostic}.` : "";
+    return `${label} service is online, but ${health.serialPort} ${serialState}.${diagnosticSuffix} Reboot the Raspberry Pi after image initialization, then check UART wiring and overlays.`;
+  }
+  function beginBridgeManagementAction() {
+    if (bridgeManagementBusyRef.current || piRemoteBusy || piCameraBusy) {
+      return false;
+    }
+    bridgeManagementBusyRef.current = true;
+    return true;
+  }
+  function endBridgeManagementAction() {
+    bridgeManagementBusyRef.current = false;
+  }
+  async function checkAboardSerialBridge(options: { automatic?: boolean; quietFailure?: boolean } = {}) {
     if (!options.automatic) {
       aBoardBridgeManualDisconnectRef.current = false;
       aBoardBridgeAutoCheckedHostRef.current = "";
@@ -868,7 +1500,16 @@ export function useAppWorkspaceContext() {
     setABoardBridgeError(null);
     try {
       const health = await checkAboardBridge(piRemoteForm.host);
-      setABoardBridgeDetail(`${health.serialPort} @ ${health.baudRate}`);
+      applyAboardBridgeHealth(health);
+      if (!health.ok) {
+        const message = bridgeSerialUnavailableMessage("A board bridge", health);
+        setABoardBridgeError(message);
+        setABoardBridgeStatus("error");
+        if (!options.quietFailure) {
+          addLog("system", message, "error");
+        }
+        return false;
+      }
       setABoardBridgeStatus("connected");
       addLog("system", `A board bridge ready: ${health.serialPort} @ ${health.baudRate}`);
       return true;
@@ -876,11 +1517,16 @@ export function useAppWorkspaceContext() {
       const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "A board bridge check failed";
       setABoardBridgeError(message);
       setABoardBridgeStatus("error");
-      addLog("system", message, "error");
+      if (!options.quietFailure) {
+        addLog("system", message, "error");
+      }
       return false;
     }
   }
   async function startAboardSerialBridge() {
+    if (!beginBridgeManagementAction()) {
+      return false;
+    }
     aBoardBridgeManualDisconnectRef.current = false;
     aBoardBridgeAutoCheckedHostRef.current = "";
     setABoardBridgeStatus("starting");
@@ -896,44 +1542,107 @@ export function useAppWorkspaceContext() {
         return false;
       }
       addLog("system", `A board bridge persistent service ready: ${result.serviceName ?? "a-board-serial-bridge.service"} (${result.remotePath})`);
-      return checkAboardSerialBridge();
+      return await checkAboardSerialBridge();
     } catch (error) {
       const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "A board bridge start failed";
       setABoardBridgeError(message);
       setABoardBridgeStatus("error");
       addLog("system", message, "error");
       return false;
+    } finally {
+      endBridgeManagementAction();
     }
   }
   function disconnectAboardSerialBridge() {
     aBoardBridgeManualDisconnectRef.current = true;
+    clearPendingAboardMotorBatch();
+    aBoardBridgeBusyRef.current = false;
+    aBoardBridgeBusyUntilRef.current = 0;
+    aBoardCommandInFlightRef.current = false;
+    aBoardCommandQueueRef.current = Promise.resolve();
     setABoardBridgeStatus("idle");
     setABoardBridgeError(null);
     setABoardBridgeDetail("");
     addLog("system", "A board bridge disconnected");
   }
-  async function checkPiServoSerialBridge(options: { automatic?: boolean } = {}) {
+  function resetPiServoBridgeRuntimeState() {
+    cancelArmLiveMove("idle");
+    cancelLiveAngleMove();
+    cancelLiveWheelMove();
+    cancelServoLinkageMove();
+    cancelServoMotion();
+    cancelServoSafetyMonitor();
+    servoSerialQueueRef.current = Promise.resolve();
+    armLiveSendingRef.current = false;
+    liveAngleSendingRef.current = {};
+    liveWheelSendingRef.current = {};
+    linkageLiveSendingRef.current = {};
+    livePositionModeServoRef.current.clear();
+    lastServoWheelSpeedRef.current = {};
+    servoRealtimePrimedAtRef.current = {};
+    clearServoRealtimeAvailability();
+    servoRealtimeAutoPrimeKeyRef.current = "";
+  }
+
+  function markPiServoBridgeRecovering(message: string) {
+    if (piServoBridgeManualDisconnectRef.current) {
+      return;
+    }
+    resetPiServoBridgeRuntimeState();
+    piServoBridgeAutoCheckedHostRef.current = "";
+    piServoBridgeHostRef.current = "";
+    setPiServoBridgeError(message);
+    setPiServoBridgeStatus("error");
+  }
+
+  async function checkPiServoSerialBridge(options: { automatic?: boolean; preserveStatus?: boolean; quietFailure?: boolean; quietSuccess?: boolean } = {}) {
     if (!options.automatic) {
       piServoBridgeManualDisconnectRef.current = false;
       piServoBridgeAutoCheckedHostRef.current = "";
     }
-    setPiServoBridgeStatus("checking");
+    const wasDisconnected = piServoBridgeStatus !== "connected";
+    if (!options.preserveStatus) {
+      setPiServoBridgeStatus("checking");
+    }
     setPiServoBridgeError(null);
     try {
-      const health = await checkPiServoBridge(piRemoteForm.host);
-      setPiServoBridgeDetail(`${health.serialPort} @ ${health.baudRate}`);
+      const host = piRemoteForm.host.trim();
+      const health = await checkPiServoBridge(host, { timeoutMs: PI_SERVO_BRIDGE_HEALTH_TIMEOUT_MS });
+      piServoBridgeHostRef.current = host;
+      setPiServoBridgeDetail(bridgeHealthDetail(health));
+      if (!health.ok) {
+        const message = bridgeSerialUnavailableMessage("Pi servo bridge", health);
+        resetPiServoBridgeRuntimeState();
+        setPiServoBridgeError(message);
+        setPiServoBridgeStatus("error");
+        if (!options.quietFailure) {
+          addLog("system", message, "error");
+        }
+        return false;
+      }
+      if (wasDisconnected) {
+        resetPiServoBridgeRuntimeState();
+      }
       setPiServoBridgeStatus("connected");
-      addLog("system", `Pi servo bridge ready: ${health.serialPort} @ ${health.baudRate}`);
+      if (!options.quietSuccess) {
+        addLog("system", `Pi servo bridge ready: ${health.serialPort} @ ${health.baudRate}`);
+      }
       return true;
     } catch (error) {
       const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "Pi servo bridge check failed";
+      resetPiServoBridgeRuntimeState();
       setPiServoBridgeError(message);
       setPiServoBridgeStatus("error");
-      addLog("system", message, "error");
+      if (!options.quietFailure) {
+        addLog("system", message, "error");
+      }
       return false;
     }
   }
   async function startPiServoSerialBridge() {
+    if (!beginBridgeManagementAction()) {
+      return false;
+    }
     piServoBridgeManualDisconnectRef.current = false;
     piServoBridgeAutoCheckedHostRef.current = "";
     setPiServoBridgeStatus("starting");
@@ -949,81 +1658,68 @@ export function useAppWorkspaceContext() {
         return false;
       }
       addLog("system", `Pi servo bridge persistent service ready: ${result.serviceName ?? "pi-servo-serial-bridge.service"} (${result.remotePath})`);
-      return checkPiServoSerialBridge();
+      return await checkPiServoSerialBridge();
     } catch (error) {
       const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "Pi servo bridge start failed";
       setPiServoBridgeError(message);
       setPiServoBridgeStatus("error");
       addLog("system", message, "error");
       return false;
+    } finally {
+      endBridgeManagementAction();
     }
   }
   function disconnectPiServoSerialBridge() {
     piServoBridgeManualDisconnectRef.current = true;
+    piServoBridgeHostRef.current = "";
     setPiServoBridgeStatus("idle");
     setPiServoBridgeError(null);
     setPiServoBridgeDetail("");
     addLog("system", "Pi servo bridge disconnected");
   }
-  async function sendPiServoBridgeFrameBytes(frame: number[], waitMs: number) {
+  async function sendPiServoBridgeFrameBytes(frame: number[], waitMs: number, options: ServoFrameSendOptions = {}) {
     try {
-      const result = await sendPiServoBridgeFrameRequest(piRemoteForm.host, frame, { waitMs });
+      const result = await sendPiServoBridgeFrameRequest(piServoBridgeHostRef.current || piRemoteForm.host, frame, {
+        ...options,
+        timeoutMs: Math.max(PI_SERVO_BRIDGE_HEALTH_TIMEOUT_MS, waitMs + PI_SERVO_BRIDGE_FRAME_TIMEOUT_PADDING_MS),
+        waitMs
+      });
+      if (result.skipped) {
+        return [];
+      }
+      if (result.ok && result.rxBytes.length === 0 && result.responseExpected === false) {
+        return feetechSyntheticOkStatus(frame);
+      }
+      if (result.packet) {
+        return feetechStatusPacketBytes(result.packet);
+      }
       return result.rxBytes;
     } catch (error) {
       const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "Pi servo bridge frame failed";
       setPiServoBridgeError(message);
-      setPiServoBridgeStatus("error");
       addLog("system", message, "error");
+      markPiServoBridgeRecovering(message);
+      if (!piServoBridgeFrameFailureCheckInFlightRef.current) {
+        piServoBridgeFrameFailureCheckInFlightRef.current = true;
+        void checkPiServoSerialBridge({ automatic: true, quietFailure: true, quietSuccess: false }).finally(() => {
+          piServoBridgeFrameFailureCheckInFlightRef.current = false;
+        });
+      }
       return [];
     }
   }
   async function sendAboardBridgeMotorCommand(command: PcCommand, options: { log?: boolean } = {}) {
-    if (!aBoardBridgeConnected) {
-      addLog("system", "A board bridge is not connected", "warn");
-      return false;
+    if (shouldClearPendingAboardMotion(command)) {
+      clearPendingAboardMotorBatch();
     }
-    try {
-      if (options.log !== false) {
-        addLog("tx", JSON.stringify(command));
-      }
-      const result = await sendAboardBridgeCommand(piRemoteForm.host, command);
-      for (const message of result.messages) {
-        handleMessage(message);
-      }
-      const commandError = result.messages.find((message): message is InboundMessage & { type: "error" } => message.type === "error");
-      if (commandError) {
-        return false;
-      }
-      return result.ok || result.messages.some((message) => message.seq === command.seq);
-    } catch (error) {
-      const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "A board bridge command failed";
-      setABoardBridgeError(message);
-      setABoardBridgeStatus("error");
-      addLog("system", message, "error");
-      return false;
-    }
+    return sendAboardBridgeMotorCommandNow(command, options);
+  }
+  async function sendAboardBridgeMotorCommandNow(command: PcCommand, options: { log?: boolean } = {}) {
+    return (await sendAboardBridgeMotorCommandOutcome(command, options)).sent;
   }
   async function sendAboardBridgeCanServoCommand(command: PcCommand, options: { log?: boolean } = {}): Promise<AboardBridgeCommandResult | null> {
-    if (!aBoardBridgeConnected) {
-      addLog("system", "A board bridge is not connected", "warn");
-      return null;
-    }
-    try {
-      if (options.log !== false) {
-        addLog("tx", JSON.stringify(command));
-      }
-      const result = await sendAboardBridgeCommand(piRemoteForm.host, command);
-      for (const message of result.messages) {
-        handleMessage(message);
-      }
-      return result;
-    } catch (error) {
-      const message = isPiRemoteError(error) ? error.message : error instanceof Error && error.message ? error.message : "A board bridge command failed";
-      setABoardBridgeError(message);
-      setABoardBridgeStatus("error");
-      addLog("system", message, "error");
-      return null;
-    }
+    clearPendingAboardMotorBatch();
+    return sendAboardBridgeCommandThroughGate(command, options);
   }
   function nextCommandSeq() {
     return seqRef.current++;
@@ -1046,7 +1742,17 @@ export function useAppWorkspaceContext() {
   }, [aBoardBridgeStatus, activeSection, activeTest, motorTestBoard, piRemoteForm.host]);
   useEffect(() => {
     const host = piRemoteForm.host.trim();
-    const servoContextActive = activeModule === "servo" || activeModule === "arm" || (activeSection === "tests" && (activeTest === "servo" || activeTest === "arm"));
+    if (!shouldAutoRecoverBridge({ host, manualDisconnect: aBoardBridgeManualDisconnectRef.current, status: aBoardBridgeStatus })) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void checkAboardSerialBridge({ automatic: true, quietFailure: true });
+    }, BRIDGE_AUTO_RECOVER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [aBoardBridgeStatus, piRemoteForm.host]);
+  useEffect(() => {
+    const host = piRemoteForm.host.trim();
+    const servoContextActive = shouldAutoCheckPiServoBridgeContext({ activeModule, activeSection, activeTest });
     if (
       !servoContextActive ||
       !host ||
@@ -1062,29 +1768,174 @@ export function useAppWorkspaceContext() {
     void checkPiServoSerialBridge({ automatic: true });
   }, [activeModule, activeSection, activeTest, piRemoteForm.host, piServoBridgeStatus]);
   useEffect(() => {
-    if (activeSection !== "console" || !aBoardBridgeConnected) {
-      aBoardImuPollInFlightRef.current = false;
+    const host = piRemoteForm.host.trim();
+    if (!shouldAutoRecoverBridge({ host, manualDisconnect: piServoBridgeManualDisconnectRef.current, status: piServoBridgeStatus })) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void checkPiServoSerialBridge({ automatic: true, quietFailure: true });
+    }, BRIDGE_AUTO_RECOVER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [piRemoteForm.host, piServoBridgeStatus]);
+  useEffect(() => {
+    const host = piRemoteForm.host.trim();
+    const servoContextActive = shouldAutoCheckPiServoBridgeContext({ activeModule, activeSection, activeTest });
+    if (!servoContextActive || !host || piServoBridgeManualDisconnectRef.current || piServoBridgeStatus !== "connected") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (piServoBridgeFrameFailureCheckInFlightRef.current) {
+        return;
+      }
+      piServoBridgeFrameFailureCheckInFlightRef.current = true;
+      void checkPiServoSerialBridge({
+        automatic: true,
+        preserveStatus: true,
+        quietFailure: true,
+        quietSuccess: true
+      }).finally(() => {
+        piServoBridgeFrameFailureCheckInFlightRef.current = false;
+      });
+    }, BRIDGE_AUTO_RECOVER_DELAY_MS);
+    return () => window.clearInterval(timer);
+  }, [activeModule, activeSection, activeTest, piRemoteForm.host, piServoBridgeStatus]);
+  useEffect(() => {
+    const servoContextActive = shouldAutoCheckPiServoBridgeContext({ activeModule, activeSection, activeTest });
+    if (!servoBusReady || !servoContextActive) {
+      servoRealtimePrimedAtRef.current = {};
+      clearServoRealtimeAvailability();
+      servoRealtimeAutoPrimeKeyRef.current = "";
+      return;
+    }
+
+    const armServoIds = new Set(armConfig.joints.filter((joint) => joint.enabled).map((joint) => joint.servoId));
+    const targetServos =
+      activeModule === "arm" || activeTest === "arm" || activeTest === "arm3d"
+        ? servos.filter((servo) => armServoIds.has(servo.id))
+        : selectedServo
+          ? [selectedServo]
+          : [];
+    const autoPrimeKey = [
+      activeModule,
+      activeSection,
+      activeTest,
+      targetServos.map((servo) => servo.id).join(",")
+    ].join(":");
+    if (!targetServos.length) {
+      return;
+    }
+    const allTargetServosReady = targetServos.every(
+      (servo) => Boolean(servoRealtimePrimedAtRef.current[servo.id]) && !servoRealtimeNoResponseAtRef.current[servo.id]
+    );
+    if (servoRealtimeAutoPrimeKeyRef.current === autoPrimeKey && allTargetServosReady) {
       return;
     }
 
     let cancelled = false;
+    let retryTimer: number | null = null;
+    servoRealtimeAutoPrimeKeyRef.current = autoPrimeKey;
+
+    const scheduleRetry = () => {
+      if (cancelled) {
+        return;
+      }
+      retryTimer = window.setTimeout(() => {
+        void runAutoPrimeAttempt();
+      }, SERVO_REALTIME_AUTO_RETRY_MS);
+    };
+
+    const runAutoPrimeAttempt = async () => {
+      let shouldRetry = false;
+      for (const servo of targetServos) {
+        if (cancelled || !servoBusConnected()) {
+          return;
+        }
+        if (servoSerialQueueBusy()) {
+          shouldRetry = true;
+          break;
+        }
+        const alreadySynced = Boolean(servoRealtimePrimedAtRef.current[servo.id]);
+        const wasUnavailable = Boolean(servoRealtimeNoResponseAtRef.current[servo.id]);
+        if (alreadySynced && !wasUnavailable) {
+          continue;
+        }
+        if (wasUnavailable && Date.now() - servoRealtimeNoResponseAtRef.current[servo.id] < SERVO_REALTIME_UNAVAILABLE_RETRY_MS) {
+          shouldRetry = true;
+          continue;
+        }
+        const feedback = await readServoRealtimeForDebug(servo, { quiet: true, syncArm: true });
+        if (!feedback) {
+          shouldRetry = true;
+        }
+      }
+      if (shouldRetry) {
+        scheduleRetry();
+      }
+    };
+
+    void runAutoPrimeAttempt();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [activeModule, activeSection, activeTest, armConfig.joints, selectedServo, servoBusReady, servoRealtimeRetryGeneration, servos]);
+  useEffect(() => {
+    if (activeSection !== "console" || !aBoardBridgeConnected) {
+      aBoardImuPollInFlightRef.current = false;
+      aBoardImuPollFailureCountRef.current = 0;
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+    function scheduleNextPoll(delayMs = aBoardImuPollDelayMs(aBoardImuPollFailureCountRef.current)) {
+      if (cancelled) {
+        return;
+      }
+      timer = window.setTimeout(() => {
+        void pollAboardImu();
+      }, delayMs);
+    }
     async function pollAboardImu() {
       if (cancelled || aBoardImuPollInFlightRef.current) {
+        scheduleNextPoll();
+        return;
+      }
+      if (aBoardRuntimeBusy()) {
+        scheduleNextPoll(A_BOARD_IMU_BUSY_RETRY_MS);
         return;
       }
       aBoardImuPollInFlightRef.current = true;
       const command: PcCommand = { type: "imu.read", seq: seqRef.current++ };
+      let succeeded = false;
+      let busy = false;
       try {
-        const result = await sendAboardBridgeCommand(piRemoteForm.host, command);
+        const result = await sendAboardBridgeCommandThroughGate(command, { log: false, timeoutMs: A_BOARD_IMU_TIMEOUT_MS });
         if (cancelled) {
           return;
         }
+        if (!result) {
+          return;
+        }
+        if (result.busy) {
+          busy = true;
+          return;
+        }
+        let hasImuFeedback = false;
+        let hasError = false;
         for (const message of result.messages) {
           if (message.type === "imu.feedback") {
-            handleMessage(message, { log: false });
+            hasImuFeedback = true;
+            succeeded = true;
           } else if (message.type === "error") {
+            hasError = true;
             setABoardImuError(message.message);
           }
+        }
+        if (!hasImuFeedback && !hasError) {
+          setABoardImuError("A board IMU did not return feedback");
         }
       } catch (error) {
         if (!cancelled) {
@@ -1093,16 +1944,21 @@ export function useAppWorkspaceContext() {
         }
       } finally {
         aBoardImuPollInFlightRef.current = false;
+        if (busy) {
+          scheduleNextPoll(A_BOARD_IMU_BUSY_RETRY_MS);
+          return;
+        }
+        aBoardImuPollFailureCountRef.current = succeeded ? 0 : Math.min(aBoardImuPollFailureCountRef.current + 1, A_BOARD_IMU_POLL_BACKOFF_MS.length - 1);
+        scheduleNextPoll();
       }
     }
 
     void pollAboardImu();
-    const timer = window.setInterval(() => {
-      void pollAboardImu();
-    }, 250);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
   }, [aBoardBridgeConnected, activeSection, piRemoteForm.host]);
   function cancelLiveAngleMove(id?: number) { return cancellationRuntime.cancelLiveAngleMove(id); }
@@ -1114,6 +1970,7 @@ export function useAppWorkspaceContext() {
   function cancelSingleMotorMove(channel?: string) { return cancellationRuntime.cancelSingleMotorMove(channel); }
   const {
     addArmJoint,
+    applyArmConfig,
     armServoForJoint,
     flushArmLiveMove,
     handleArmPointerDown,
@@ -1127,7 +1984,7 @@ export function useAppWorkspaceContext() {
     updateArmJointServo
   } = useArmRuntime({
     addSystemLog, armConfig, armLiveSendingRef, armLiveTimerRef, armSegmentPoses, cancelArmLiveMove,
-    draggingArmJointIdRef, pendingArmConfigRef, runArmPositionMotion, servoBusReady, servoSmoothingEnabled, servos, setArmConfig
+    draggingArmJointIdRef, pendingArmConfigRef, prepareServoPositionMode, runArmPositionMotion, servoBusConnected, servoSerialQueueBusy, servos, setArmConfig
   });
   const {
     exportArmTeachTrack,
@@ -1145,6 +2002,16 @@ export function useAppWorkspaceContext() {
     servos, setArmConfig, setArmTeachDraftName, setArmTeachDraftNotes, setArmTeachElapsedMs, setArmTeachLastSampleStatus, setArmTeachSampleCount, setArmTeachStatus,
     setArmTeachTracks, setArmTeachUnsavedTrack, setDatabaseErrorMessage, setDatabaseStatus, setSelectedArmTeachTrackId, sleepMs, t
   });
+  async function runArmPositionMotion(config: ArmConfig, live = false, extraServos: ServoProfile[] = []) {
+    const primed = await primeArmConfigRealtimeBeforeMotion(config, { extraServos, live });
+    if (!primed) {
+      return false;
+    }
+    return runArmPositionMotionUnsafe(config, live, extraServos);
+  }
+  async function primeArmForMotion() {
+    return primeArmConfigRealtimeBeforeMotion(armConfig, { live: true });
+  }
   async function sendArmPose() {
     await runArmPositionMotion(armConfig);
   }
@@ -1179,7 +2046,7 @@ export function useAppWorkspaceContext() {
   async function sendServoLinkageWheelGroup(group: ServoLinkageGroup, direction: ServoLinkageWheelDirection) { return servoActionsRuntime.sendServoLinkageWheelGroup(group, direction); }
   async function stopServo(servo: ServoProfile, state: ServoCommandState) { return servoActionsRuntime.stopServo(servo, state); }
   async function pingServo(servo: ServoProfile) { return servoActionsRuntime.pingServo(servo); }
-  async function readServo(servo: ServoProfile) { return servoActionsRuntime.readServo(servo); }
+  async function readServo(servo: ServoProfile) { return readServoRealtimeForDebug(servo, { syncArm: true }); }
   async function runArmTuningProbe() {
     const sequence = createArmTuningProbeSequence(armConfig, { servos, stepDeg: 5 });
     if (sequence.length === 0) {
@@ -1228,26 +2095,33 @@ export function useAppWorkspaceContext() {
     armTeachStatus,
     cameraConfig,
     centerCamera,
+    analyzeAiVision: aiVision.analyze,
+    captureAiVisionSample: aiVision.captureSample,
+    checkAiVisionHelper: aiVision.checkHealth,
     checkFirmwareHelper,
     checkRaspberryPiCamera,
     compileArduinoFirmware,
+    components: runtimeArchitectureComponents,
     dispatchPlatformCommand,
     emitPlatformCommandResult,
     execRaspberryPiCommandWith,
     firmwareBoard,
     firmwarePorts,
     installRaspberryPiCameraTools,
+    nextSeq,
     pauseArm,
     pauseArmForConfig,
     piRemoteFile,
     piRemoteForm,
     playArmTeachTrack,
+    pluginInstances: runtimeArchitecturePluginInstances,
     refreshFirmwarePorts,
     resetCameraSourceRuntime,
     selectedArmTeachTrack,
     selectedFirmwarePort,
     sendArmPoseForConfig,
     sendCameraGimbalMove,
+    sendMotorCommandBatch: sendSelectedMotorCommandBatch,
     servos,
     setSelectedFirmwarePort,
     setupRaspberryPiWorkspace,
@@ -1255,11 +2129,27 @@ export function useAppWorkspaceContext() {
     startRaspberryPiCameraStream,
     stopArmTeachRecording,
     stopRaspberryPiCameraStream,
+    stopMode,
     t,
     testRaspberryPiConnection,
     uploadAndExecRaspberryPiFileWith,
     uploadCompiledArduinoFirmware,
     uploadRaspberryPiFileWith
+  });
+  const diagnosticAgent = useDiagnosticAgentRuntime({
+    context: {
+      activeCameraSource,
+      activeModule,
+      activeSection,
+      cameraVideoSources,
+      currentProjectName: currentProject?.name ?? null,
+      logs,
+      motors: motors.map((motor) => ({ id: motor.channel, name: motor.name })),
+      platformState,
+      servos: servos.map((servo) => ({ id: servo.id, name: servo.name }))
+    },
+    dispatchPlatformCommand: dispatchAppPlatformCommand,
+    t
   });
   const renderPlatformPanel = createPlatformPanelRenderer({
     addLog,
@@ -1288,7 +2178,7 @@ export function useAppWorkspaceContext() {
     servoBusConnected,
     t
   });
-  return { activeModule, activeModuleLabel, activeSection, changeCurrentProject, changeLanguage, connectSerial, connected, createNewProject, currentLanguage, currentProject, databaseDetailValue, databaseStatus, databaseStatusValue, debugEnabled, debugLabel, disconnectSerial, newProjectName, projectStatusValue, projects, selectSection, setNewProjectName, t, toggleDebugMode, webSerialAvailable, activeDriveBase, activeGamepad, activeSectionLabel, renderArmCanvas, cameraPreviewCommand, cameraStreamFailed, cameraStreamLoaded, cameraStreamUrl, completeMotorMappingCount, driveCanCommand, driveInput, drivePreviewCommand, handleVirtualStickDown, handleVirtualStickMove, logs, motors, resetVirtualStick, selectDriveBase, servos, servoFeedback, setCameraStreamFailed, setCameraStreamLoaded, stopAllMotors, virtualDriveInput, activeTest, selectModule, selectTestPanel, piRemote, motorControllerReady, motorTestBoard, setMotorTestBoard, aBoardBridgeBusy, aBoardBridgeConnected, aBoardBridgeDetail, aBoardBridgeError, aBoardBridgeLabel, aBoardBridgeStatus, aBoardBridgeTone, aBoardImuAttitude, aBoardImuCalibration, aBoardImuCalibrationStatus, aBoardImuError, aBoardImuFeedback, checkAboardSerialBridge, disconnectAboardSerialBridge, nextCommandSeq, piServoBridgeBusy, piServoBridgeConnected, piServoBridgeDetail, piServoBridgeError, piServoBridgeLabel, piServoBridgeStatus, piServoBridgeTone, checkPiServoSerialBridge, disconnectPiServoSerialBridge, sendAboardBridgeCanServoCommand, startAboardImuCalibration, startAboardSerialBridge, startPiServoSerialBridge, cameraCanCommand, activeCameraRuntime, activeCameraSource, cameraConfig, cameraConfigError, cameraSourceRuntimeById, cameraStreamReloadToken, cameraValidationError, cameraVideoSources, centerCamera, driveSpeedLimit, driveTargets, nudgeCamera, saveCameraSettings, setDriveSpeedLimit, setStopMode, speedLimitPercent, stopMode, updateCameraActiveSource, updateCameraLatencyProfile, updateCameraNumber, updateCameraSourcePort, updateCameraSourceText, updateCameraStreamMode, updateCameraText, updateCameraVideoLayout, setCameraSourceRuntime, activeModuleMeta, renderPlatformPanel, applyGamepadPresetToDraft, gamepads, mappingDraft, recommendedGamepadPreset, resetMappingSettings, saveMappingSettings, savedGamepadIsCustom, selectedGamepadIndex, selectedGamepadPreset, setSelectedGamepadIndex, setSelectedGamepadPreset, updateGamepadDeadzone, addArmJoint, armConfig, armServoForJoint, moveArmJoint, removeArmJoint, setArmConfig, addServo, addServoLinkageGroup, addServoToLinkageGroup, expandedServoLinkageGroupIds, removeServo, removeServoFromLinkageGroup, removeServoLinkageGroup, selectedId, servoDraft, servoLibraryError, servoLinkageGroups, setSelectedId, setServoDraft, toggleServoLinkageGroupExpanded, updateServoDirection, updateServoLimit, updateServoLinkageGroupEnabled, updateServoLinkageGroupMode, updateServoLinkageGroupName, updateServoLinkageMemberNumber, updateServoLinkageMemberReverse, updateServoLinkageMemberWeight, updateServoLinkageWheelTurnLimit, updateServoLinkageWheelTurnTarget, addMotor, addMotorLinkageGroup, addMotorToLinkageGroup, expandedMotorLinkageGroupIds, motorDraft, motorFeedback, motorLibraryError, motorLinkageGroups, motorPinSummary, removeMotor, removeMotorFromLinkageGroup, removeMotorLinkageGroup, selectedChannel, setMotorDraft, setSelectedChannel, toggleMotorLinkageGroupExpanded, updateMotorLinkageGroupEnabled, updateMotorLinkageGroupName, updateMotorLinkageMemberReverse, updateMotorLinkageMemberWeight, armSegmentPoses, calculateArmMotionTargets, pauseArm, selectedArmJoint, sendArmPose, setArmLiveDragEnabled, armTeachDraftName, armTeachDraftNotes, armTeachElapsedMs, armTeachLastSampleStatus, armTeachSampleCount, armTeachStatus, armTeachTracks, armTeachUnsavedTrack, exportArmTeachTrack, getEnabledArmTeachJoints, pauseArmTeachPlayback, playArmTeachTrack, removeSelectedArmTeachTrack, runArmTuningProbe, saveCurrentArmTeachTrack, selectedArmTeachTrack, servoBusConnected, setArmTeachDraftName, setArmTeachDraftNotes, setSelectedArmTeachTrackId, startArmTeachRecording, stopArmTeachRecording, updateArmJoint, updateArmJointNumber, updateArmJointServo, capturingKey, setCapturingKey, updateGamepadAxis, updateGamepadButton, updateKeyboardMapping, cancelServoMotion, currentServoSafetyConfig, currentServoSmoothConfig, enabledServoLinkageGroups, formatLinkageMemberDirection, formatWheelSliderDirectionLabel, handleAngleSliderChange, handleLiveDragToggle, handleServoModeChange, handleWheelSliderChange, linkageWheelDirectionByGroup, pauseServo, pauseServoLinkageGroup, pingServo, readServo, sendMoveForServo, sendServoLinkageGroup, sendServoLinkageWheelGroup, servoCommandById, servoMotionStatusById, servoSafetyEnabled, servoSafetyPreset, servoSafetyStatusById, servoSafetyStatusLabel, servoSafetyStatusTone, servoSmoothPreset, servoSmoothingEnabled, setServoSafetyEnabled, setServoSafetyPreset, setServoSmoothPreset, setServoSmoothingEnabled, setTorqueForServo, updateServoCommandField, updateServoLinkageMaster, updateServoLogicalAngle, updateServoWheelMaxSpeed, updateServoWheelSlider, wheelTurnProgress, canCompileFirmware, canUploadFirmware, checkFirmwareHelper, compileArduinoFirmware, connectionMode, downloadArduinoFirmware, enabledMotorLinkageGroups, firmwareBoard, firmwareBusy, firmwareError, firmwareHelperHealth, firmwareHelperLabel, firmwareHelperTone, firmwareHexLabel, firmwareLogs, firmwarePorts, firmwareStatus, firmwareStatusTone, formatDirectionLabel, lastMotorError, lastMotorErrorLabel, motorConfigError, motorDebugHandshakeLabel, motorDebugHandshakeTone, motorDirection, motorDuty, motorPreviewCommand, motorSpeed, numericMotorSpeed, readMotor, refreshFirmwarePorts, saveMotorMapping, selectedFirmwarePort, selectedMotor, selectedServo, sendMotorConfig, sendMotorLinkageGroup, sendMotorSet, setFirmwareBoard, setFirmwareJob, setFirmwareStatus, setSelectedFirmwarePort, stopMotor, stopMotorLinkageGroup, updateMotorLinkageMaster, updateSelectedMotorMapping, updateSingleMotorSpeed, uploadCompiledArduinoFirmware, selectedArmFeedback, metricNumber, architecturePluginInstances, dispatchPlatformCommand: dispatchAppPlatformCommand, prepareArchitectureCommand, syncArchitecturePluginInstances };
+  return { activeModule, activeModuleLabel, activeSection, changeCurrentProject, changeLanguage, connectSerial, connected, createNewProject, currentLanguage, currentProject, databaseDetailValue, databaseStatus, databaseStatusValue, debugEnabled, debugLabel, disconnectSerial, newProjectName, projectStatusValue, projects, selectSection, setNewProjectName, t, toggleDebugMode, webSerialAvailable, aiVision, diagnosticAgent, activeDriveBase, activeGamepad, activeSectionLabel, renderArmCanvas, cameraPreviewCommand, cameraStreamFailed, cameraStreamLoaded, cameraStreamUrl, completeMotorMappingCount, driveCanCommand, driveInput, drivePreviewCommand, handleVirtualStickDown, handleVirtualStickMove, logs, motors, resetVirtualStick, selectDriveBase, servos, servoFeedback, setCameraStreamFailed, setCameraStreamLoaded, stopAllMotors, virtualDriveInput, activeTest, selectModule, selectTestPanel, piRemote, motorControllerReady, motorTestBoard, setMotorTestBoard, aBoardBridgeBusy, aBoardBridgeConnected, aBoardBridgeDetail, aBoardBridgeError, aBoardBridgeLabel, aBoardBridgeStatus, aBoardBridgeTone, aBoardImuAttitude, aBoardImuCalibration, aBoardImuCalibrationStatus, aBoardImuError, aBoardImuFeedback, checkAboardSerialBridge, disconnectAboardSerialBridge, nextCommandSeq, piServoBridgeBusy, piServoBridgeConnected, piServoBridgeDetail, piServoBridgeError, piServoBridgeLabel, piServoBridgeStatus, piServoBridgeTone, checkPiServoSerialBridge, disconnectPiServoSerialBridge, sendAboardBridgeCanServoCommand, startAboardImuCalibration, startAboardSerialBridge, startPiServoSerialBridge, cameraCanCommand, activeCameraRuntime, activeCameraSource, cameraConfig, cameraConfigError, cameraSourceRuntimeById, cameraStreamReloadToken, cameraValidationError, cameraVideoSources, centerCamera, driveSpeedLimit, driveTargets, nudgeCamera, saveCameraSettings, setDriveSpeedLimit, setStopMode, speedLimitPercent, stopMode, updateCameraActiveSource, updateCameraLatencyProfile, updateCameraNumber, updateCameraSourcePort, updateCameraSourceText, updateCameraStreamMode, updateCameraText, updateCameraVideoLayout, setCameraSourceRuntime, activeModuleMeta, renderPlatformPanel, applyGamepadPresetToDraft, gamepads, mappingDraft, recommendedGamepadPreset, resetMappingSettings, saveMappingSettings, savedGamepadIsCustom, selectedGamepadIndex, selectedGamepadPreset, setSelectedGamepadIndex, setSelectedGamepadPreset, updateGamepadDeadzone, addArmJoint, applyArmConfig, armConfig, armServoForJoint, moveArmJoint, removeArmJoint, setArmConfig, addServo, addServoLinkageGroup, addServoToLinkageGroup, expandedServoLinkageGroupIds, removeServo, removeServoFromLinkageGroup, removeServoLinkageGroup, selectedId, servoDraft, servoLibraryError, servoLinkageGroups, setSelectedId, setServoDraft, toggleServoLinkageGroupExpanded, updateServoDirection, updateServoLimit, updateServoLinkageGroupEnabled, updateServoLinkageGroupMode, updateServoLinkageGroupName, updateServoLinkageMemberNumber, updateServoLinkageMemberReverse, updateServoLinkageMemberWeight, updateServoLinkageWheelTurnLimit, updateServoLinkageWheelTurnTarget, addMotor, addMotorLinkageGroup, addMotorToLinkageGroup, expandedMotorLinkageGroupIds, motorDraft, motorFeedback, motorLibraryError, motorLinkageGroups, motorPinSummary, removeMotor, removeMotorFromLinkageGroup, removeMotorLinkageGroup, selectedChannel, setMotorDraft, setSelectedChannel, toggleMotorLinkageGroupExpanded, updateMotorLinkageGroupEnabled, updateMotorLinkageGroupName, updateMotorLinkageMemberReverse, updateMotorLinkageMemberWeight, armSegmentPoses, calculateArmMotionTargets, pauseArm, primeArmForMotion, selectedArmJoint, sendArmPose, setArmLiveDragEnabled, armTeachDraftName, armTeachDraftNotes, armTeachElapsedMs, armTeachLastSampleStatus, armTeachSampleCount, armTeachStatus, armTeachTracks, armTeachUnsavedTrack, exportArmTeachTrack, getEnabledArmTeachJoints, pauseArmTeachPlayback, playArmTeachTrack, removeSelectedArmTeachTrack, runArmTuningProbe, saveCurrentArmTeachTrack, selectedArmTeachTrack, servoBusConnected, setArmTeachDraftName, setArmTeachDraftNotes, setSelectedArmTeachTrackId, startArmTeachRecording, stopArmTeachRecording, updateArmJoint, updateArmJointNumber, updateArmJointServo, capturingKey, setCapturingKey, updateGamepadAxis, updateGamepadButton, updateKeyboardMapping, cancelServoMotion, currentServoSafetyConfig, currentServoSmoothConfig, enabledServoLinkageGroups, formatLinkageMemberDirection, formatWheelSliderDirectionLabel, handleAngleSliderChange, handleLiveDragToggle, handleServoModeChange, handleWheelSliderChange, linkageWheelDirectionByGroup, pauseServo, pauseServoLinkageGroup, pingServo, readServo, sendMoveForServo, sendServoLinkageGroup, sendServoLinkageWheelGroup, servoCommandById, servoMotionStatusById, servoSafetyEnabled, servoSafetyPreset, servoSafetyStatusById, servoSafetyStatusLabel, servoSafetyStatusTone, servoSmoothPreset, servoSmoothingEnabled, setServoSafetyEnabled, setServoSafetyPreset, setServoSmoothPreset, setServoSmoothingEnabled, setTorqueForServo, updateServoCommandField, updateServoLinkageMaster, updateServoLogicalAngle, updateServoWheelMaxSpeed, updateServoWheelSlider, wheelTurnProgress, canCompileFirmware, canUploadFirmware, checkFirmwareHelper, compileArduinoFirmware, connectionMode, downloadArduinoFirmware, enabledMotorLinkageGroups, firmwareBoard, firmwareBusy, firmwareError, firmwareHelperHealth, firmwareHelperLabel, firmwareHelperTone, firmwareHexLabel, firmwareLogs, firmwarePorts, firmwareStatus, firmwareStatusTone, formatDirectionLabel, lastMotorError, lastMotorErrorLabel, motorConfigError, motorDebugHandshakeLabel, motorDebugHandshakeTone, motorDirection, motorDuty, motorPreviewCommand, motorSpeed, numericMotorSpeed, readMotor, refreshFirmwarePorts, saveMotorMapping, selectedFirmwarePort, selectedMotor, selectedServo, sendMotorConfig, sendMotorLinkageGroup, sendMotorSet, setFirmwareBoard, setFirmwareJob, setFirmwareStatus, setSelectedFirmwarePort, stopMotor, stopMotorLinkageGroup, updateMotorLinkageMaster, updateSelectedMotorMapping, updateSingleMotorSpeed, uploadCompiledArduinoFirmware, selectedArmFeedback, metricNumber, architecturePluginInstances, dispatchPlatformCommand: dispatchAppPlatformCommand, prepareArchitectureCommand, syncArchitecturePluginInstances, syncArchitectureSnapshot };
 }
 
 export type AppWorkspaceContext = ReturnType<typeof useAppWorkspaceContext>;

@@ -29,6 +29,7 @@ const motorCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "ca
 const wheeltecMg540Catalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.wheeltec.mg540")!;
 const gamepadCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.browser.gamepad")!;
 const localCameraCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.browser.local-camera")!;
+const aiVisionCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.local.ai-vision")!;
 
 describe("three-layer architecture model", () => {
   it("filters catalog items by type, brand, and query", () => {
@@ -38,6 +39,7 @@ describe("three-layer architecture model", () => {
     expect(deviceCatalogModels(BUILTIN_DEVICE_CATALOG_ITEMS, "motor", "WHEELTEC")).toEqual(["G513XL", "MG540"]);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "gamepad", query: "browser" })[0].id).toBe(gamepadCatalog.id);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "camera", brand: "Browser", query: "local" })[0].id).toBe(localCameraCatalog.id);
+    expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "ai-vision", brand: "Local", query: "mannequin" })[0].id).toBe(aiVisionCatalog.id);
   });
 
   it("derives and filters selectable driver library files from built-in packages", () => {
@@ -47,6 +49,7 @@ describe("three-layer architecture model", () => {
     const tb6618 = drivers.find((item) => item.driverId === "driver.tb6618-motor");
     const gamepad = drivers.find((item) => item.driverId === "driver.browser-gamepad");
     const browserCamera = drivers.find((item) => item.driverId === "driver.browser-camera");
+    const aiVision = drivers.find((item) => item.driverId === "driver.ai-vision-helper");
 
     expect(feetech).toMatchObject({
       packageId: "builtin.feetech-servo",
@@ -63,6 +66,7 @@ describe("three-layer architecture model", () => {
     expect(tb6618).toMatchObject({ type: "motor", sourceFile: "plugins/builtin/tb6618Motor.ts" });
     expect(gamepad).toMatchObject({ type: "gamepad", sourceFile: "plugins/builtin/browserGamepad.ts", transportIds: ["transport.browser-gamepad-api"] });
     expect(browserCamera).toMatchObject({ type: "camera", sourceFile: "plugins/builtin/browserCamera.ts", transportIds: ["transport.browser-media"] });
+    expect(aiVision).toMatchObject({ type: "ai-vision", sourceFile: "plugins/builtin/aiVision.ts", transportIds: ["transport.local-helper"] });
     expect(filterDriverLibraryItems(drivers, { type: "servo", query: "feetechServo.ts" }).map((item) => item.driverId)).toEqual(["driver.feetech-servo"]);
   });
 
@@ -73,8 +77,18 @@ describe("three-layer architecture model", () => {
     ]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.asme-can-servo").map((item) => item.id)).toEqual(["catalog.asme.asme-se-can-servo"]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.tb6618-motor").map((item) => item.id)).toEqual(["catalog.toshiba.tb6618-motor", "catalog.wheeltec.g513xl", "catalog.wheeltec.mg540"]);
+    expect(BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.wheeltec.g513xl")?.defaultConfig).toMatchObject({
+      channel: "M1",
+      pwmPin: "PA0",
+      in1Pin: "PB0",
+      in2Pin: "PE12",
+      enablePin: "PD12",
+      encoderAPin: "PE4",
+      encoderBPin: "PF0"
+    });
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.browser-gamepad").map((item) => item.id)).toEqual(["catalog.browser.gamepad"]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.browser-camera").map((item) => item.id)).toEqual(["catalog.browser.local-camera"]);
+    expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.ai-vision-helper").map((item) => item.id)).toEqual(["catalog.local.ai-vision"]);
   });
 
   it("selects code libraries by device type and brand before model driver choice", () => {
@@ -87,6 +101,7 @@ describe("three-layer architecture model", () => {
     expect(filterDeviceCodeLibraryItems(libraries, { type: "motor", brand: "WHEELTEC" }).map((item) => item.model)).toEqual(["G513XL", "MG540"]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "motor", brand: "WHEELTEC", model: "MG540" }).map((item) => item.catalogItemId)).toEqual([wheeltecMg540Catalog.id]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "Feetech", query: "3215" }).map((item) => item.catalogItemId)).toEqual(["catalog.feetech.sts3215"]);
+    expect(filterDeviceCodeLibraryItems(libraries, { type: "ai-vision", brand: "Local", query: "aiVision.ts" }).map((item) => item.catalogItemId)).toEqual([aiVisionCatalog.id]);
   });
 
   it("creates plugin instances from catalog defaults and validates duplicate hardware", () => {
@@ -106,10 +121,11 @@ describe("three-layer architecture model", () => {
       id: "can-servo",
       name: "CAN joint",
       catalogItem: asmeServoCatalog,
-      config: { servoId: 22 }
+      config: { servoId: 22, direction: "-1", minDeg: "15", maxDeg: "180" }
     });
 
     expect(servo.config).toMatchObject({ servoId: 22, direction: -1 });
+    expect(canServo.config).toMatchObject({ servoId: 22, direction: -1, minDeg: 15, maxDeg: 180, bitrateKbps: 250, canBus: "CAN1" });
     expect(validatePluginInstance(servo)).toBeNull();
     expect(validatePluginInstance(duplicate, [servo])).toBe("duplicate servo ID: 22");
     expect(validatePluginInstance(canServo, [servo])).toBeNull();
@@ -134,6 +150,63 @@ describe("three-layer architecture model", () => {
     expect(availablePluginInstancesForComponent([servo, motor], components, robots).map((item) => item.id)).toEqual([]);
     expect(validateComponentDefinition({ id: "arm", kind: "robot-arm", name: "Arm", pluginInstanceIds: ["servo-a"], tags: [], config: {} }, [servo, motor])).toBeNull();
     expect(validateComponentDefinition({ id: "bad-arm", kind: "robot-arm", name: "Bad Arm", pluginInstanceIds: ["motor-a"], tags: [], config: {} }, [servo, motor])).toContain("requires Feetech servo");
+    const wheelMotors = ["M1", "M2", "M3", "M4"].map((channel) => createPluginInstanceFromCatalog({ id: `motor-${channel}`, name: channel, catalogItem: motorCatalog, config: { channel, pwmPin: `P${channel}`, in1Pin: `A${channel}`, in2Pin: `B${channel}` } }));
+    expect(validateComponentDefinition({
+      id: "mecanum",
+      kind: "mecanum-drive",
+      name: "Mecanum",
+      pluginInstanceIds: wheelMotors.map((plugin) => plugin.id),
+      tags: [],
+      config: {
+        wheels: {
+          frontLeft: "motor-M1",
+          frontRight: "motor-M4",
+          rearLeft: "motor-M2",
+          rearRight: "motor-M3"
+        },
+        directions: {},
+        closedLoop: true,
+        maxRpm: 6000,
+        encoderTicksPerRev: 52
+      }
+    }, [...wheelMotors, servo])).toBeNull();
+    expect(validateComponentDefinition({
+      id: "bad-mecanum",
+      kind: "mecanum-drive",
+      name: "Bad Mecanum",
+      pluginInstanceIds: ["motor-M1", "motor-M2", "motor-M3", "motor-M4"],
+      tags: [],
+      config: {
+        wheels: {
+          frontLeft: "motor-M1",
+          frontRight: "motor-M2",
+          rearLeft: "motor-M3",
+          rearRight: "motor-M1"
+        }
+      }
+    }, wheelMotors)).toContain("unique");
+    const canServos = [1, 2, 3, 4].map((id) => createPluginInstanceFromCatalog({
+      id: `can-${id}`,
+      name: `CAN ${id}`,
+      catalogItem: asmeServoCatalog,
+      config: { servoId: id }
+    }));
+    expect(validateComponentDefinition({
+      id: "can-group",
+      kind: "can-servo-group",
+      name: "CAN Group",
+      pluginInstanceIds: canServos.map((plugin) => plugin.id),
+      tags: [],
+      config: { servos: { servo1: "can-1", servo2: "can-2", servo3: "can-3", servo4: "can-4" } }
+    }, canServos)).toBeNull();
+    expect(validateComponentDefinition({
+      id: "bad-can-group",
+      kind: "can-servo-group",
+      name: "Bad CAN Group",
+      pluginInstanceIds: ["can-1", "can-2", "can-3", "motor-M1"],
+      tags: [],
+      config: { servos: { servo1: "can-1", servo2: "can-2", servo3: "can-3", servo4: "motor-M1" } }
+    }, [...canServos, ...wheelMotors])).toContain("requires ASME CAN servo");
     expect(validatePhysicalInstanceAssignments(components, robots)).toBeNull();
     expect(validatePhysicalInstanceAssignments([...components, { id: "dup", kind: "custom" as const, name: "Dup", pluginInstanceIds: ["motor-a"], tags: [], config: {} }], robots)).toContain("already assigned");
   });

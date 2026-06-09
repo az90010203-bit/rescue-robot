@@ -46,6 +46,14 @@ export interface PlatformStateInput {
   firmwareHexSizeBytes?: number | null;
   firmwareLogs?: string | null;
   activeGamepad?: PlatformGamepadStateInput | null;
+  aiVisionHelperReady?: boolean;
+  aiVisionMode?: string | null;
+  aiVisionSampleDir?: string | null;
+  aiVisionDetectionCount?: number | null;
+  aiVisionLastLabel?: string | null;
+  aiVisionLastConfidence?: number | null;
+  aiVisionLastCapturePath?: string | null;
+  aiVisionSourceId?: string | null;
   updatedAt?: number;
 }
 
@@ -136,6 +144,21 @@ export function createPlatformStateSnapshot(input: PlatformStateInput): Record<s
         cameraPan: input.activeGamepad?.input?.cameraPan ?? null,
         cameraTilt: input.activeGamepad?.input?.cameraTilt ?? null,
         stop: input.activeGamepad?.input?.stop ?? null
+      },
+      updatedAt
+    },
+    "ai-vision:local": {
+      deviceId: "ai-vision:local",
+      status: input.aiVisionHelperReady ? "online" : "offline",
+      values: {
+        helperReady: input.aiVisionHelperReady ?? false,
+        mode: input.aiVisionMode ?? null,
+        sampleDir: input.aiVisionSampleDir ?? null,
+        sourceId: input.aiVisionSourceId ?? mainCameraSource?.id ?? MAIN_CAMERA_SOURCE_ID,
+        detectionCount: input.aiVisionDetectionCount ?? null,
+        lastLabel: input.aiVisionLastLabel ?? null,
+        lastConfidence: input.aiVisionLastConfidence ?? null,
+        lastCapturePath: input.aiVisionLastCapturePath ?? null
       },
       updatedAt
     }

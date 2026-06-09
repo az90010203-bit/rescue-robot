@@ -1,5 +1,5 @@
 import { MutableRefObject } from "react";
-import { FeetechStatusPacket, ServoProfile, MotorStopMode, PcCommand, applyServoWheelDirection, buildEepromLockFrame, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildServoIdWriteFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle, toHex } from "@adapters/hardware/protocol";
+import { FeetechStatusPacket, ServoProfile, MotorStopMode, PcCommand, TORQUE_ENABLE_ADDR, applyServoWheelDirection, buildEepromLockFrame, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildReadRegisterFrame, buildServoIdWriteFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle, toHex } from "@adapters/hardware/protocol";
 import { PlatformCommand, PlatformCommandResult, platformCommandEventType, validatePlatformCommand } from "@platform/commands";
 import { PlatformEventBus } from "@platform/events";
 import { InboundMessage } from "@adapters/hardware/protocol";
@@ -94,8 +94,32 @@ export function usePlatformCommands({
 
       if (command.type === "servo.set_torque") {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
-        const packet = await sendServoFrames(buildTorqueFrame(servoId, Boolean(command.payload.enabled)));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: packet ? "sent" : "timeout", response: packet ?? undefined };
+        const expected = Boolean(command.payload.enabled) ? 1 : 0;
+        const response = await enqueueServoSerialTask(async () => {
+          const writePacket = await sendServoFrameUnlocked(buildTorqueFrame(servoId, Boolean(command.payload.enabled)), 120, true);
+          let verifyPacket = await sendServoFrameUnlocked(buildReadRegisterFrame(servoId, TORQUE_ENABLE_ADDR, 1), 180, true);
+          if (!torqueVerifyPacketHasValue(verifyPacket)) {
+            await sleepMs(80);
+            verifyPacket = await sendServoFrameUnlocked(buildReadRegisterFrame(servoId, TORQUE_ENABLE_ADDR, 1), 220, true);
+          }
+          const actual = verifyPacket?.params[0];
+          return {
+            actual,
+            expected,
+            ok: verifyPacket?.status === 0 && actual === expected,
+            verifyPacket,
+            writePacket
+          };
+        });
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: response.ok ? "sent" : response.verifyPacket ? "failed" : "timeout",
+          message: response.ok
+            ? `ID${servoId} torque=${response.actual}`
+            : `ID${servoId} torque verify failed: expected ${expected}, got ${torqueVerifyValueLabel(response.verifyPacket, response.actual)}`,
+          response
+        };
         emitPlatformCommandResult(command, result);
         return result;
       }
@@ -194,7 +218,13 @@ export function usePlatformCommands({
       const channel = command.targetDeviceId.replace("motor:", "");
       const sendSelectedMotorCommand = sendAboardBridgeMotorCommand ?? sendMotorCommand;
       if (command.type === "motor.set_speed") {
-        const response = await sendSelectedMotorCommand(buildMotorSetCommand(nextSeq(), { channel, speedPercent: Number(command.payload.speedPercent), stopMode: command.payload.stopMode as MotorStopMode | undefined }));
+        const response = await sendSelectedMotorCommand(buildMotorSetCommand(nextSeq(), {
+          channel,
+          speedPercent: Number(command.payload.speedPercent),
+          stopMode: command.payload.stopMode as MotorStopMode | undefined,
+          closedLoop: typeof command.payload.closedLoop === "boolean" ? command.payload.closedLoop : undefined,
+          targetRpm: typeof command.payload.targetRpm === "number" ? command.payload.targetRpm : undefined
+        }));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
@@ -221,7 +251,10 @@ export function usePlatformCommands({
           enablePin: typeof command.payload.enablePin === "string" ? command.payload.enablePin : undefined,
           sensorPin: typeof command.payload.sensorPin === "string" ? command.payload.sensorPin : undefined,
           encoderAPin: typeof command.payload.encoderAPin === "string" ? command.payload.encoderAPin : undefined,
-          encoderBPin: typeof command.payload.encoderBPin === "string" ? command.payload.encoderBPin : undefined
+          encoderBPin: typeof command.payload.encoderBPin === "string" ? command.payload.encoderBPin : undefined,
+          closedLoop: typeof command.payload.closedLoop === "boolean" ? command.payload.closedLoop : undefined,
+          maxRpm: typeof command.payload.maxRpm === "number" ? command.payload.maxRpm : undefined,
+          encoderTicksPerRev: typeof command.payload.encoderTicksPerRev === "number" ? command.payload.encoderTicksPerRev : undefined
         }));
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
         emitPlatformCommandResult(command, result);
@@ -246,6 +279,24 @@ export function usePlatformCommands({
 
 function packetOk(packet: FeetechStatusPacket | null): boolean {
   return Boolean(packet && packet.status === 0);
+}
+
+function torqueVerifyPacketHasValue(packet: FeetechStatusPacket | null): boolean {
+  return Boolean(packet && packet.status === 0 && packet.params.length >= 1);
+}
+
+function torqueVerifyValueLabel(packet: FeetechStatusPacket | null, actual: number | undefined): string {
+  if (!packet) {
+    return "no response";
+  }
+  if (packet.status !== 0) {
+    return `status ${packet.status}`;
+  }
+  return actual === undefined ? "no register value" : String(actual);
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function packetToHex(packet: FeetechStatusPacket): string {

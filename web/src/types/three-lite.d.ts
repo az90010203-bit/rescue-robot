@@ -5,6 +5,13 @@ declare module "three" {
   export const PCFShadowMap: ShadowMapType;
   export const PCFSoftShadowMap: ShadowMapType;
 
+  export class Vector2 {
+    constructor(x?: number, y?: number);
+    x: number;
+    y: number;
+    set(x: number, y: number): this;
+  }
+
   export class Vector3 {
     constructor(x?: number, y?: number, z?: number);
     x: number;
@@ -27,6 +34,7 @@ declare module "three" {
     position: Vector3;
     quaternion: Quaternion;
     receiveShadow: boolean;
+    userData: Record<string, unknown>;
     add(...objects: Object3D[]): this;
     remove(...objects: Object3D[]): this;
     traverse(callback: (object: Object3D) => void): void;
@@ -40,6 +48,24 @@ declare module "three" {
   export class Group extends Object3D {}
 
   export class Camera extends Object3D {}
+
+  export class Plane {
+    constructor(normal?: Vector3, constant?: number);
+  }
+
+  export class Ray {
+    intersectPlane(plane: Plane, target: Vector3): Vector3 | null;
+  }
+
+  export interface Intersection<TIntersected extends Object3D = Object3D> {
+    object: TIntersected;
+  }
+
+  export class Raycaster {
+    ray: Ray;
+    setFromCamera(coords: Vector2, camera: Camera): void;
+    intersectObjects<TIntersected extends Object3D = Object3D>(objects: Object3D[], recursive?: boolean): Intersection<TIntersected>[];
+  }
 
   export class PerspectiveCamera extends Camera {
     constructor(fov: number, aspect: number, near: number, far: number);
@@ -117,6 +143,7 @@ declare module "three/examples/jsm/controls/OrbitControls.js" {
 
   export class OrbitControls {
     constructor(camera: Camera, domElement: WebGLRenderer["domElement"]);
+    enabled: boolean;
     enableDamping: boolean;
     maxDistance: number;
     minDistance: number;

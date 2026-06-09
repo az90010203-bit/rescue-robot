@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   PiExecResult,
@@ -54,6 +54,17 @@ interface UsePiRemoteOptions {
   setCameraStreamReloadToken?: Dispatch<SetStateAction<number>>;
 }
 
+export interface PiAutoRestoreState {
+  busy: boolean;
+  connectionReady: boolean;
+  enabled: boolean;
+  attempted: boolean;
+}
+
+export function shouldAutoRestorePiConnection(state: PiAutoRestoreState): boolean {
+  return state.enabled && !state.attempted && state.connectionReady && !state.busy;
+}
+
 export function usePiRemote({
   addLog,
   addSystemLog,
@@ -79,6 +90,7 @@ export function usePiRemote({
   const [piAdvancedOpen, setPiAdvancedOpen] = useState(false);
   const [piRemoteConfigSaved, setPiRemoteConfigSaved] = useState(false);
   const [piRemoteProfileLoaded, setPiRemoteProfileLoaded] = useState(false);
+  const [piAutoRestoreEnabled, setPiAutoRestoreEnabled] = useState(false);
   const [piCameraStatus, setPiCameraStatus] = useState<PiCameraStatus>("idle");
   const [piCameraCheck, setPiCameraCheck] = useState<PiCameraCheckResult | null>(null);
   const [piCameraExecResult, setPiCameraExecResult] = useState<PiExecResult | null>(null);
@@ -87,8 +99,12 @@ export function usePiRemote({
   const [piDiscoveryStatus, setPiDiscoveryStatus] = useState<"idle" | "scanning" | "complete" | "error">("idle");
   const [piDiscoveryResults, setPiDiscoveryResults] = useState<PiDiscoveryProbeResult[]>([]);
   const [piDiscoveryError, setPiDiscoveryError] = useState<string | null>(null);
+  const piAutoRestoreAttemptedRef = useRef(false);
+  const [piManagementBusy, setPiManagementBusy] = useState(false);
+  const piManagementBusyRef = useRef(false);
 
-  const piRemoteBusy = piRemoteStatus === "checking" || piRemoteStatus === "settingUp" || piRemoteStatus === "uploading" || piRemoteStatus === "running";
+  const piRemoteStatusBusy = piRemoteStatus === "checking" || piRemoteStatus === "settingUp" || piRemoteStatus === "uploading" || piRemoteStatus === "running";
+  const piRemoteBusy = piRemoteStatusBusy || piManagementBusy;
   const piDiscoveryBusy = piDiscoveryStatus === "scanning";
   const piDiscoveryRecommended = recommendedPiDiscoveryResult(piDiscoveryResults);
   const piRemoteStatusTone: "neutral" | "online" | "warning" | "danger" =
@@ -104,15 +120,15 @@ export function usePiRemote({
   const piCameraBusy = piCameraStatus === "checking" || piCameraStatus === "installing" || piCameraStatus === "starting" || piCameraStatus === "stopping";
   const piFileReady = Boolean(piRemoteFile);
   const piCommandReady = Boolean(piRemoteForm.command.trim());
-  const canTestPiConnection = !piRemoteBusy && piConnectionReady;
-  const canUploadPiFile = !piRemoteBusy && piConnectionReady && piFileReady;
-  const canExecPiCommand = !piRemoteBusy && piConnectionReady && piCommandReady;
-  const canSetupPiWorkspace = !piRemoteBusy && piConnectionReady;
-  const canRunPiFile = !piRemoteBusy && piConnectionReady && piFileReady;
+  const canTestPiConnection = !piRemoteBusy && !piCameraBusy && piConnectionReady;
+  const canUploadPiFile = !piRemoteBusy && !piCameraBusy && piConnectionReady && piFileReady;
+  const canExecPiCommand = !piRemoteBusy && !piCameraBusy && piConnectionReady && piCommandReady;
+  const canSetupPiWorkspace = !piRemoteBusy && !piCameraBusy && piConnectionReady;
+  const canRunPiFile = !piRemoteBusy && !piCameraBusy && piConnectionReady && piFileReady;
   const canUploadAndExecPiFile = canUploadPiFile && piCommandReady;
-  const canUsePiCamera = piConnectionReady && !piCameraBusy;
+  const canUsePiCamera = piConnectionReady && !piRemoteBusy && !piCameraBusy;
   const canDiscoverPi = !piRemoteBusy && !piDiscoveryBusy;
-  const canSetupPiUsbGadget = !piRemoteBusy && piConnectionReady;
+  const canSetupPiUsbGadget = !piRemoteBusy && !piCameraBusy && piConnectionReady;
   const piOutputLabel = piRemoteExecResult
     ? t("piRemote.exitCode") + " " + piRemoteExecResult.exitCode + " ? " + Math.max(1, Math.round(piRemoteExecResult.durationMs)) + " ms"
     : "--";
@@ -180,12 +196,14 @@ export function usePiRemote({
     try {
       const profile = readSavedPiRemoteConfig();
       setPiRemoteConfigSaved(Boolean(profile));
+      setPiAutoRestoreEnabled(Boolean(profile));
       if (profile) {
         setPiRemoteForm((current) => normalizeSavedPiRemoteForm(profile, current));
       }
     } catch {
       window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
       setPiRemoteConfigSaved(false);
+      setPiAutoRestoreEnabled(false);
     } finally {
       setPiRemoteProfileLoaded(true);
     }
@@ -205,6 +223,32 @@ export function usePiRemote({
     };
     writeSavedPiRemoteConfig(profile);
   }, [piRemoteForm.authMode, piRemoteForm.host, piRemoteForm.privateKeyPath, piRemoteForm.username, piRemoteForm.workspaceDir, piRemoteProfileLoaded]);
+
+  useEffect(() => {
+    if (
+      !shouldAutoRestorePiConnection({
+        attempted: piAutoRestoreAttemptedRef.current,
+        busy: piRemoteBusy,
+        connectionReady: piConnectionReady,
+        enabled: piAutoRestoreEnabled
+      })
+    ) {
+      return;
+    }
+    piAutoRestoreAttemptedRef.current = true;
+    void verifyRaspberryPiConnection({ log: false });
+  }, [
+    piAutoRestoreEnabled,
+    piConnectionReady,
+    piRemoteBusy,
+    piRemoteForm.authMode,
+    piRemoteForm.host,
+    piRemoteForm.password,
+    piRemoteForm.port,
+    piRemoteForm.privateKeyPath,
+    piRemoteForm.username,
+    piRemoteForm.workspaceDir
+  ]);
 
   useEffect(() => {
     if (!piRemoteProfileLoaded) {
@@ -234,6 +278,20 @@ export function usePiRemote({
     setPiRemoteStatus("error");
     setPiRemoteError(message);
     addLog("system", message, "error");
+  }
+
+  function beginPiManagementAction(): boolean {
+    if (piManagementBusyRef.current) {
+      return false;
+    }
+    piManagementBusyRef.current = true;
+    setPiManagementBusy(true);
+    return true;
+  }
+
+  function endPiManagementAction() {
+    piManagementBusyRef.current = false;
+    setPiManagementBusy(false);
   }
 
   function piConnectionRequest() {
@@ -281,12 +339,15 @@ export function usePiRemote({
 
   function savePiRemoteConfig() {
     writeSavedPiRemoteConfig({ ...piRemoteForm });
+    setPiAutoRestoreEnabled(true);
     addSystemLog("logs.piRemoteConfigSaved");
   }
 
   function clearPiRemoteConfig() {
     window.localStorage.removeItem(PI_SETUP_PROFILE_STORAGE_KEY);
     setPiRemoteConfigSaved(false);
+    setPiAutoRestoreEnabled(false);
+    piAutoRestoreAttemptedRef.current = false;
     addSystemLog("logs.piRemoteConfigCleared");
   }
 
@@ -299,28 +360,33 @@ export function usePiRemote({
   }
 
   async function checkPiHelper(log = true): Promise<PiHelperHealth | null> {
-    setPiRemoteStatus("checking");
+    if (log) {
+      setPiRemoteStatus("checking");
+    }
     setPiRemoteError(null);
     try {
       const health = await requestPiHelperHealth();
       setPiHelperHealth(health);
-      setPiRemoteStatus("idle");
       if (log) {
+        setPiRemoteStatus("idle");
         addSystemLog("logs.piHelperReady");
       }
       return health;
     } catch (error) {
       setPiHelperHealth(null);
-      setPiRemoteStatus("error");
-      setPiRemoteError(t("piRemote.errors.helperUnavailable"));
       if (log) {
+        setPiRemoteStatus("error");
+        setPiRemoteError(t("piRemote.errors.helperUnavailable"));
         addSystemLog("logs.piHelperUnavailable", "warn");
       }
       return null;
     }
   }
 
-  async function testRaspberryPiConnection() {
+  async function verifyRaspberryPiConnection({ log = true }: { log?: boolean } = {}) {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("checking");
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -330,7 +396,9 @@ export function usePiRemote({
       setPiReadiness(result);
       setPiSetupComplete(result.pythonAvailable && result.workspaceReady);
       setPiRemoteStatus(result.pythonAvailable ? "ready" : "error");
-      addSystemLog("logs.piConnectionReady", "info", { host: piRemoteForm.host.trim(), ms: Math.round(result.connection.durationMs) });
+      if (log) {
+        addSystemLog("logs.piConnectionReady", "info", { host: piRemoteForm.host.trim(), ms: Math.round(result.connection.durationMs) });
+      }
       if (!result.pythonAvailable) {
         setPiRemoteError(t("piRemote.errors.pythonMissing"));
       } else if (!result.workspaceReady) {
@@ -338,7 +406,13 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
+  }
+
+  async function testRaspberryPiConnection() {
+    await verifyRaspberryPiConnection();
   }
 
   async function discoverRaspberryPiHosts() {
@@ -387,6 +461,9 @@ export function usePiRemote({
     if (!window.confirm(t("piRemote.usbRecovery.setupConfirm"))) {
       return;
     }
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -400,10 +477,15 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function setupRaspberryPiWorkspace() {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("settingUp");
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -418,6 +500,8 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
@@ -428,6 +512,9 @@ export function usePiRemote({
       return;
     }
 
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("uploading");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -442,10 +529,15 @@ export function usePiRemote({
       addSystemLog("logs.piFileUploaded", "info", { path: result.remotePath, size: result.sizeBytes });
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function execRaspberryPiCommand() {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -456,6 +548,8 @@ export function usePiRemote({
       addSystemLog("logs.piCommandComplete", result.exitCode === 0 ? "info" : "warn", { code: result.exitCode });
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
@@ -466,6 +560,9 @@ export function usePiRemote({
       return;
     }
 
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -491,6 +588,8 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
@@ -501,6 +600,9 @@ export function usePiRemote({
   async function uploadRaspberryPiFileWith(file: File) {
     setPiRemoteFile(file);
     setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || defaultPiRemoteForm.username));
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("uploading");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -515,12 +617,17 @@ export function usePiRemote({
       addSystemLog("logs.piFileUploaded", "info", { path: result.remotePath, size: result.sizeBytes });
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function execRaspberryPiCommandWith(command: string) {
     const timeoutSeconds = Number(piRemoteForm.timeoutSeconds);
     setPiRemoteForm((current) => ({ ...current, command }));
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteExecResult(null);
@@ -536,6 +643,8 @@ export function usePiRemote({
       addSystemLog("logs.piCommandComplete", result.exitCode === 0 ? "info" : "warn", { code: result.exitCode });
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
@@ -544,6 +653,9 @@ export function usePiRemote({
     setPiRemoteFile(file);
     setPiRemoteForm((current) => ({ ...current, command }));
     setPiRunPlan(createPiRunPlan(file.name, piRemoteForm.workspaceDir, piRemoteForm.username || defaultPiRemoteForm.username));
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiRemoteStatus("running");
     setPiRemoteError(null);
     setPiRemoteUploadResult(null);
@@ -563,6 +675,8 @@ export function usePiRemote({
       addSystemLog("logs.piUploadAndExecComplete", result.exec.exitCode === 0 ? "info" : "warn", { code: result.exec.exitCode });
     } catch (error) {
       setPiRemoteFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
@@ -582,6 +696,9 @@ export function usePiRemote({
   }
 
   async function checkRaspberryPiCamera(source: CameraVideoSource = activeCameraSource) {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiCameraStatus("checking");
     setPiCameraError(null);
     setPiCameraExecResult(null);
@@ -599,10 +716,15 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiCameraFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function startRaspberryPiCameraStream(source: CameraVideoSource = activeCameraSource, profile: CameraLatencyProfile = cameraConfig.latencyProfile) {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     const profileSettings = CAMERA_LATENCY_PROFILE_SETTINGS[profile] ?? CAMERA_LATENCY_PROFILE_SETTINGS.lowLatency;
     setPiCameraStatus("starting");
     setPiCameraError(null);
@@ -643,10 +765,15 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiCameraFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function stopRaspberryPiCameraStream(source: CameraVideoSource = activeCameraSource) {
+    if (!beginPiManagementAction()) {
+      return;
+    }
     setPiCameraStatus("stopping");
     setPiCameraError(null);
     try {
@@ -660,11 +787,16 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiCameraFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 
   async function installRaspberryPiCameraTools() {
     if (!window.confirm(t("piRemote.camera.installConfirm"))) {
+      return;
+    }
+    if (!beginPiManagementAction()) {
       return;
     }
     setPiCameraStatus("installing");
@@ -680,6 +812,8 @@ export function usePiRemote({
       }
     } catch (error) {
       setPiCameraFailure(error);
+    } finally {
+      endPiManagementAction();
     }
   }
 

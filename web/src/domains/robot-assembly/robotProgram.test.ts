@@ -98,6 +98,35 @@ describe("robot graphical program model", () => {
     expect(dispatched).toEqual(expect.arrayContaining(["motor.stop:motor:M2", "robot-arm.pause:robot-arm:arm"]));
   });
 
+  it("compiles mecanum drive blocks into component-level velocity commands", async () => {
+    const root: RobotProgramBlockSnapshot = {
+      id: "mecanum",
+      type: "robot_mecanum_drive",
+      fields: { COMPONENT: mecanumComponent.id, FORWARD: 0.5, STRAFE: 0.25, TURN: -0.25, SPEED: 70, DURATION: 250, STOP_MODE: "brake" }
+    };
+    const compiled = compileRobotProgramFromBlocks({ id: "program:mecanum", name: "Mecanum" }, root, mecanumContext);
+    const dispatched: string[] = [];
+    const waited: number[] = [];
+
+    expect(compiled.blocked).toBe(false);
+    expect(compiled.commandCount).toBe(2);
+    expect(compiled.previewLines).toEqual(expect.arrayContaining(["Mecanum Base mecanum f0.5 s0.25 r-0.25 @ 70%", "Wait 250 ms", "Mecanum Base mecanum stop brake"]));
+
+    const result = await runWorkflow(compiled.workflow, {
+      dispatchCommand: async (command) => {
+        dispatched.push(`${command.type}:${command.targetDeviceId}`);
+        return { commandId: command.id, deviceId: command.targetDeviceId, status: "sent" };
+      },
+      wait: async (ms) => {
+        waited.push(ms);
+      }
+    });
+
+    expect(result.status).toBe("completed");
+    expect(dispatched).toEqual(["mecanum-drive.set_velocity:mecanum-drive:mecanum", "mecanum-drive.stop:mecanum-drive:mecanum"]);
+    expect(waited).toEqual([250]);
+  });
+
   it("blocks invalid targets and normalizes stored program targets to PC runtime", () => {
     const compiled = compileRobotProgramFromBlocks(
       { id: "program:bad", name: "Bad" },
@@ -133,6 +162,20 @@ const rightMotor: PluginInstance = {
   config: { channel: "M2" }
 };
 
+const rearRightMotor: PluginInstance = {
+  ...leftMotor,
+  id: "rear-right",
+  name: "Rear Right",
+  config: { channel: "M3" }
+};
+
+const frontRightMotor: PluginInstance = {
+  ...leftMotor,
+  id: "front-right",
+  name: "Front Right",
+  config: { channel: "M4" }
+};
+
 const servoPlugin: PluginInstance = {
   id: "servo",
   name: "Arm Servo",
@@ -165,6 +208,25 @@ const armComponent: ComponentDefinition = {
   tags: []
 };
 
+const mecanumComponent: ComponentDefinition = {
+  id: "mecanum",
+  name: "Mecanum Base",
+  kind: "mecanum-drive",
+  pluginInstanceIds: [leftMotor.id, rightMotor.id, rearRightMotor.id, frontRightMotor.id],
+  config: {
+    wheels: {
+      frontLeft: leftMotor.id,
+      frontRight: frontRightMotor.id,
+      rearLeft: rightMotor.id,
+      rearRight: rearRightMotor.id
+    },
+    closedLoop: true,
+    maxRpm: 6000,
+    encoderTicksPerRev: 52
+  },
+  tags: []
+};
+
 const robot: RobotDefinition = {
   id: "robot",
   name: "Robot",
@@ -178,4 +240,13 @@ const context = {
   robot,
   components: [driveComponent, armComponent],
   pluginInstances: [leftMotor, rightMotor, servoPlugin]
+};
+
+const mecanumContext = {
+  robot: {
+    ...robot,
+    componentIds: [mecanumComponent.id]
+  },
+  components: [mecanumComponent],
+  pluginInstances: [leftMotor, rightMotor, rearRightMotor, frontRightMotor]
 };

@@ -11,7 +11,7 @@ import type { PlatformCommand, PlatformCommandResult } from "@platform/commands"
 import { BUILTIN_UI_PANELS } from "@platform/builtinPlugins";
 import type { CapabilityId } from "@platform/types";
 import type { DatabaseSaveStatus, GamepadSummary } from "@app/appModel";
-import type { PluginInstance } from "@platform/architecture";
+import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 import type { MotorFeedbackMap, ServoFeedbackMap } from "@platform/stateStore";
 
 const ThreeLayerWorkspace = lazy(async () => {
@@ -30,6 +30,7 @@ interface ArchitectureWorkspacePageProps {
   gamepads: GamepadSummary[];
   motorFeedback: MotorFeedbackMap;
   nextCommandSeq: () => number;
+  onArchitectureChange: (instances: PluginInstance[], components?: ComponentDefinition[]) => void;
   onPluginInstancesChange: (instances: PluginInstance[]) => void;
   onPrepareCommand: (capability: CapabilityId) => Promise<void> | void;
   piRemoteProfile: PiSetupProfile;
@@ -49,6 +50,7 @@ export function ArchitectureWorkspacePage({
   gamepads,
   motorFeedback,
   nextCommandSeq,
+  onArchitectureChange,
   onPluginInstancesChange,
   onPrepareCommand,
   piRemoteProfile,
@@ -79,6 +81,7 @@ export function ArchitectureWorkspacePage({
         layer={activeSection}
         motorFeedback={motorFeedback}
         nextCommandSeq={nextCommandSeq}
+        onArchitectureChange={onArchitectureChange}
         onPluginInstancesChange={onPluginInstancesChange}
         onPrepareCommand={onPrepareCommand}
         piRemoteProfile={piRemoteProfile}
@@ -92,6 +95,9 @@ export function ArchitectureWorkspacePage({
               aBoardBridge={aBoardBridge}
               host={canServoHost}
               initialBitrateKbps={asmgBaudFromConfig(instance.config.bitrateKbps)}
+              initialDirection={asmgDirectionFromConfig(instance.config.direction)}
+              initialMaxDeg={asmgAngleFromConfig(instance.config.maxDeg, 360)}
+              initialMinDeg={asmgAngleFromConfig(instance.config.minDeg, 0)}
               initialTargetId={servoIdFromConfig(instance.config.servoId)}
               key={instance.id}
               nextCommandSeq={nextCommandSeq}
@@ -120,4 +126,13 @@ function asmgBaudFromConfig(value: unknown): AsmgMdBaudKbps {
     return bitrate;
   }
   return 250;
+}
+
+function asmgDirectionFromConfig(value: unknown): 1 | -1 {
+  return Number(value) === -1 ? -1 : 1;
+}
+
+function asmgAngleFromConfig(value: unknown, fallback: number): number {
+  const angle = Number(value);
+  return Number.isFinite(angle) && angle >= 0 && angle <= 360 ? angle : fallback;
 }

@@ -3,6 +3,7 @@ export const zhCNResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "救援机器人控制台",
+      "documentTitle": "救援机器人控制台",
       "systemLine": "USB Serial · 115200 baud · {{module}}",
       "servoBridgeSystemLine": "Pi 舵机桥 · 115200 UART · {{module}}",
       "servoBusSystemLine": "USB 串口 · 1000000 baud · {{module}}",
@@ -31,6 +32,147 @@ export const zhCNResource = {
       "no": "否",
       "delete": "删除"
     },
+    "diagnosticAgent": {
+      "title": "诊断副驾驶",
+      "meta": "本地规则",
+      "expand": "展开",
+      "collapse": "收起",
+      "placeholder": "问摄像头、舵机反馈、Pi、固件...",
+      "messages": {
+        "initial": "我是本地规则诊断副驾驶，不连接外部大模型。我会读取当前状态、日志和低风险检查结果，再给出下一步。",
+        "actionNeedsConfirm": "{{label}} 需要人工确认后再执行，我不会自动发送这个动作。",
+        "actionCannotAutoRun": "{{label}} 不能由诊断副驾驶自动执行。",
+        "actionResult": "{{label}} -> {{status}}{{message}}",
+        "lowRiskComplete": "低风险检查已完成：{{results}}"
+      },
+      "summaries": {
+        "blocking": "我看了一轮，先处理 {{title}}。还有 {{blockingExtra}} 个高优先级项，{{lowRiskCount}} 个低风险检查可以自动跑。",
+        "warning": "我看到 {{warningCount}} 个需要确认的状态，优先看 {{title}}。{{hint}}",
+        "unknown": "我没有把这句话归到具体设备，但当前状态没有明显阻塞。可以让我检查摄像头、舵机反馈、Pi 或固件 helper。",
+        "ready": "我看了一轮，当前没有明显阻塞。{{hint}}",
+        "warningLowRiskHint": "低风险检查我可以直接执行。",
+        "warningManualHint": "当前主要需要人工确认配置或接线。",
+        "readyLowRiskHint": "可以继续跑低风险检查做确认。",
+        "readyManualHint": "下一步要看具体动作的返回结果。"
+      },
+      "issues": {
+        "serialOffline": {
+          "title": "控制串口离线",
+          "message": "当前串口没有在线，舵机、电机和云台动作不会发到控制器。",
+          "actionHint": "先连接浏览器串口或 Pi 舵机桥，再重试硬件动作。"
+        },
+        "piHelperOffline": {
+          "title": "Pi helper 未就绪",
+          "message": "本机到树莓派 helper 的检查通道不可用，摄像头和远程动作可能无法确认。",
+          "actionHint": "运行 Pi 连接检查，确认本地 helper 与 SSH 目标。"
+        },
+        "piConnectionOffline": {
+          "title": "Pi 连接未确认",
+          "message": "Pi helper 存在，但 SSH/目标连接还没有确认在线。",
+          "actionHint": "先做一次 Pi 连接检查。"
+        },
+        "cameraStreamUrlMissing": {
+          "title": "摄像头地址为空",
+          "message": "当前视频源没有 streamUrl，画面和视觉分析都没有输入。",
+          "actionHint": "先在摄像头设置里填写或恢复 MJPEG stream 地址。"
+        },
+        "cameraStreamNotReady": {
+          "title": "摄像头未确认在线",
+          "message": "视频地址存在，但当前状态不是 online，可能需要检查 Pi 摄像头服务。",
+          "actionHint": "运行摄像头检查，确认设备、端口和 stream 服务。"
+        },
+        "firmwareHelperOffline": {
+          "title": "固件 helper 离线",
+          "message": "本地固件编译/端口刷新 helper 没有就绪。",
+          "actionHint": "先检查固件 helper，再刷新端口。"
+        },
+        "aiVisionHelperOffline": {
+          "title": "AI Vision helper 离线",
+          "message": "本地视觉 helper 不在线，无法抓帧分析。",
+          "actionHint": "先检查 AI Vision helper。"
+        },
+        "aiVisionNoDetections": {
+          "title": "视觉当前没有检测结果",
+          "message": "AI Vision helper 在线，但最近一次分析没有目标。",
+          "actionHint": "确认视频源后重新分析当前画面。"
+        },
+        "servoFeedbackMissing": {
+          "title": "舵机 {{servoId}} 缺少反馈",
+          "message": "{{targetDeviceId}} 还没有 positionRaw 反馈。",
+          "actionHint": "读取一次舵机反馈，确认 ID、总线和供电。"
+        },
+        "motorFeedbackMissing": {
+          "title": "电机 {{motorChannel}} 缺少反馈",
+          "message": "{{targetDeviceId}} 还没有最近反馈。",
+          "actionHint": "读取一次电机反馈或确认 A 板桥接状态。"
+        },
+        "recentLogs": {
+          "title": "最近日志有异常",
+          "message": "系统日志里有新的警告或错误，可能和当前问题相关。",
+          "actionHint": "先对照最后一条错误检查对应 helper 或设备。"
+        },
+        "systemReady": {
+          "title": "当前没有明显阻塞",
+          "message": "平台状态里没有发现会直接阻塞诊断的异常。",
+          "actionHint": "如果硬件仍然不动，下一步看具体命令结果和现场接线。"
+        }
+      },
+      "status": {
+        "issues": "{{count}} 个问题",
+        "lowRisk": "{{count}} 个检查"
+      },
+      "actions": {
+        "quickCheck": "一键诊断",
+        "reset": "重置",
+        "send": "发送",
+        "run": "运行",
+        "running": "运行中",
+        "checkPi": {
+          "label": "检查 Pi 连接",
+          "description": "读取 Pi helper 与 SSH 目标状态。"
+        },
+        "checkCamera": {
+          "label": "检查摄像头",
+          "description": "让 Pi helper 检查摄像头设备和服务。"
+        },
+        "configureVideoSource": {
+          "label": "配置视频源",
+          "description": "需要在摄像头设置里填写 streamUrl。"
+        },
+        "checkFirmwareHelper": {
+          "label": "检查固件 helper",
+          "description": "确认本地 firmware-helper 是否在线。"
+        },
+        "checkAiVision": {
+          "label": "检查 AI Vision",
+          "description": "确认本地视觉 helper 是否在线。"
+        },
+        "analyzeFrame": {
+          "label": "重新分析画面",
+          "description": "抓取当前视频源的一帧并更新检测结果。"
+        },
+        "readServoFeedback": {
+          "label": "读取舵机反馈",
+          "description": "读取 {{targetDeviceId}} 的当前位置反馈。"
+        },
+        "readMotorFeedback": {
+          "label": "读取电机反馈",
+          "description": "读取 {{targetDeviceId}} 的最近反馈。"
+        },
+        "connectSerial": {
+          "label": "连接控制串口",
+          "description": "浏览器串口授权必须由操作员手动确认。"
+        },
+        "refreshFirmwarePorts": {
+          "label": "刷新固件端口",
+          "description": "重新读取本机可用烧录端口。"
+        }
+      },
+      "risk": {
+        "confirm": "需确认",
+        "blocked": "手动"
+      }
+    },
     "language": {
       "label": "语言",
       "select": "选择语言"
@@ -38,7 +180,9 @@ export const zhCNResource = {
     "loading": {
       "console": "正在加载主控台...",
       "arm3d": "正在加载 3D 机械臂...",
-      "architecture": "正在加载三层架构工作区..."
+      "architecture": "正在加载三层架构工作区...",
+      "workspaceErrorTitle": "工作区加载失败",
+      "workspaceErrorHint": "可以刷新页面，或切换到其他工作区后再回来重试。"
     },
     "sections": {
       "console": "主控台",
@@ -94,7 +238,16 @@ export const zhCNResource = {
         "error": "布局保存失败"
       },
       "targets": {
-        "mainArm": "主机械臂"
+        "mainArm": "主机械臂",
+        "mainCamera": "主摄像头",
+        "secondaryCamera": "第二摄像头"
+      },
+      "targetMeta": {
+        "telemetry": "平台实时状态",
+        "attitude": "A 板 IMU 反馈",
+        "joystick": "底盘与云台合成输入",
+        "eventLog": "最近控制台事件",
+        "mainArm": "当前控制台机械臂"
       },
       "actions": {
         "addPanel": "添加面板",
@@ -186,6 +339,7 @@ export const zhCNResource = {
     "actions": {
       "connectSerial": "连接串口",
       "disconnectSerial": "断开串口",
+      "reloadPage": "重新加载页面",
       "enterDebug": "进入调试",
       "exitDebug": "退出调试",
       "sendCommand": "发送指令",
@@ -214,11 +368,11 @@ export const zhCNResource = {
       "sendPortMapping": "发送端口配置",
       "downloadArduinoFirmware": "下载 Arduino 代码",
       "checkAboardBridge": "检查 A 板桥",
-      "startAboardBridge": "安装/启动持久 A 板桥",
+      "startAboardBridge": "升级/修复 A 板桥",
       "disconnectAboardBridge": "断开桥",
       "connectAboard": "连接 A 板",
       "checkPiServoBridge": "检查舵机桥",
-      "startPiServoBridge": "安装/启动 Pi 舵机桥",
+      "startPiServoBridge": "升级/修复 Pi 舵机桥",
       "disconnectPiServoBridge": "断开舵机桥",
       "connectPiServo": "连接舵机桥",
       "checkFirmwareHelper": "检查刷写助手",
@@ -347,6 +501,8 @@ export const zhCNResource = {
         "motor": "电机",
         "camera": "摄像头",
         "robot-arm": "机械臂",
+        "mecanum-drive": "麦克纳姆轮",
+        "can-servo-group": "CAN 舵机组",
         "raspberry-pi": "树莓派",
         "firmware": "固件",
         "gamepad": "手柄",
@@ -596,16 +752,50 @@ export const zhCNResource = {
         "name": "组件名称",
         "kind": {
           "custom": "普通组件",
-          "robotArm": "机械臂"
+          "robotArm": "机械臂",
+          "mecanumDrive": "麦克纳姆轮"
         },
         "noAvailablePluginInstances": "没有可用插件实例",
         "createRobotArm": "生成机械臂",
+        "createMecanumDrive": "生成麦克纳姆轮",
         "createComponent": "生成组件",
         "count": "{{count}} 个组件",
         "panelTitle": "组件面板",
         "empty": "还没有组件",
         "pluginCount": "{{count}} 个插件",
         "selectComponent": "请选择组件"
+      },
+      "mecanum": {
+        "wheels": {
+          "frontLeft": "左前",
+          "frontRight": "右前",
+          "rearLeft": "左后",
+          "rearRight": "右后"
+        },
+        "incomplete": "未完成",
+        "ready": "就绪",
+        "closedLoop": "闭环",
+        "maxRpm": "最大转速",
+        "encoderTicksPerRev": "编码器每圈脉冲",
+        "closedLoopDefault": "启用组件闭环速度控制",
+        "linkedSpeed": "联动速度",
+        "speedPercent": "速度",
+        "forward": "前进",
+        "backward": "后退",
+        "strafeLeft": "左移",
+        "strafeRight": "右移",
+        "rotateLeft": "左旋",
+        "rotateRight": "右旋",
+        "stop": "停止",
+        "channel": "通道",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "编码器 A / B",
+        "rpm": "RPM",
+        "ticks": "计数",
+        "targetRpm": "目标",
+        "reverse": "反向",
+        "save": "保存麦轮底盘"
       },
       "robots": {
         "steps": {
@@ -792,6 +982,9 @@ export const zhCNResource = {
       "maxAngle": "最大角",
       "neutralDeg": "归零角 deg",
       "segmentLength": "棍段长度 px",
+      "startDirection": "起始方向",
+      "baseDirection": "整体起始方向",
+      "jointStartDirection": "关节起始方向",
       "liveDrag": "实时拖动",
       "targetX": "目标 X",
       "targetY": "目标 Y",
@@ -817,6 +1010,13 @@ export const zhCNResource = {
       "asmgSpeedSlider": "速度拖动条",
       "asmgLiveDrag": "实时拖动",
       "asmgAngleLive": "实时读角度",
+      "asmgStallProtection": "卡滞保护",
+      "asmgStallCurrent": "卡滞电流阈值",
+      "asmgLivePrime": "实时初始化",
+      "asmgLiveFeedback": "实时反馈",
+      "asmgLivePosition": "实时位置",
+      "asmgLiveCurrent": "实时电流",
+      "asmgLiveFeedbackAge": "反馈年龄",
       "canAutoConfigure": "发送前自动配置 CAN",
       "asmgCurrent": "电流",
       "asmgP": "P",
@@ -873,7 +1073,8 @@ export const zhCNResource = {
       "motionStatus": {
         "idle": "空闲",
         "smoothing": "平滑中",
-        "paused": "急停后空闲"
+        "paused": "急停后空闲",
+        "unreachable": "无响应"
       },
       "smoothPresets": {
         "soft": "柔和",
@@ -1002,13 +1203,19 @@ export const zhCNResource = {
         "newId": "新 ID 必须是 0..253。",
         "dangerConfirm": "先确认单舵机总线，并输入当前目标 ID。",
         "liveUnavailable": "实时拖动需要 A 板桥在线并且目标 ID 有效。",
+        "livePrimeFailed": "未能读取当前位置，实时拖动没有开启。",
+        "liveFeedbackStale": "位置反馈已过期，本次实时拖动发送已停止。",
+        "liveStalled": "实时拖动已保护停止：目标没有移动且电流偏高，正在保持最新反馈位置。",
+        "liveFeedbackLost": "实时拖动已保护停止：位置/电流反馈丢失，正在保持最后已知位置。",
         "commandFailed": "CAN 舵机命令失败。"
       },
       "live": {
         "off": "实时关闭",
+        "priming": "读取位置中",
         "ready": "实时就绪",
         "configuring": "配置中",
         "sending": "发送中",
+        "stalled": "保护停止",
         "error": "实时错误"
       },
       "parsed": {
@@ -1041,8 +1248,8 @@ export const zhCNResource = {
     "encoderDiagnostics": {
       "noFeedback": "还没有编码器反馈。点击读取编码器，或先确认 A 板桥在线。",
       "oldFirmware": "已经有反馈，但缺少 A/B 诊断字段。请烧录最新 A 板固件。",
-      "noMovement": "A/B 电平和计数都还没变化。优先查编码器供电、E1A/E1B 接线和电平。",
-      "levelsOnly": "A/B 电平变了，但 TIM2 计数没变。优先查 PA0/PA1 映射或编码器模式配置。",
+      "noMovement": "A/B 电平和计数都还没变化。优先查编码器供电、当前通道的 E*A/E*B 接线和电平。",
+      "levelsOnly": "A/B 电平变了，但软件计数没变。优先查当前通道的编码器 A/B 映射和相序。",
       "slowOrSparse": "计数变了，但 pulseHz 还是 0。转快一点，或等待下一次刷新采样。",
       "ok": "计数和脉冲频率都在变化，编码器反馈链路基本正常。"
     },
@@ -1556,6 +1763,18 @@ export const zhCNResource = {
         "runLog": {
           "start": "运行 {{name}}"
         },
+        "smartCheck": {
+          "title": "智能检查",
+          "ok": "READY",
+          "ready": "智能检查通过。",
+          "blocked": "智能检查已阻止运行。",
+          "blockedCount": "{{count}} 阻塞",
+          "warningCount": "{{count}} 提示",
+          "runDiagnosis": "运行诊断",
+          "noRunIssues": "本次运行没有诊断项。",
+          "logPrefix": "智能诊断",
+          "inspectLastStep": "查看运行日志中的最后一步，再检查对应设备。"
+        },
         "categories": {
           "actions": "机器人动作",
           "flow": "流程"
@@ -1564,6 +1783,7 @@ export const zhCNResource = {
           "start": "程序开始",
           "motorSet": "设置电机",
           "motorStop": "停止电机",
+          "mecanumDrive": "麦轮底盘",
           "servoMove": "移动舵机",
           "armPose": "发送机械臂姿态",
           "cameraGimbal": "设置云台",
@@ -1576,6 +1796,10 @@ export const zhCNResource = {
         "fields": {
           "ms": "毫秒",
           "speed": "速度",
+          "forward": "前进",
+          "strafe": "横移",
+          "turn": "旋转",
+          "duration": "持续",
           "angle": "角度",
           "acc": "加速度",
           "pan": "水平",

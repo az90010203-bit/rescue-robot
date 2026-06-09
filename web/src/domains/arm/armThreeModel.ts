@@ -38,13 +38,13 @@ export interface ArmThreeModel {
   links: ArmThreeLink[];
 }
 
-interface ArmThreeModelOptions {
+export interface ArmThreeModelOptions {
   origin?: ArmPoint;
   scale?: number;
 }
 
-const DEFAULT_ARM_THREE_ORIGIN: ArmPoint = { x: 300, y: 250 };
-const DEFAULT_ARM_THREE_SCALE = 0.018;
+export const DEFAULT_ARM_THREE_ORIGIN: ArmPoint = { x: 300, y: 250 };
+export const DEFAULT_ARM_THREE_SCALE = 0.018;
 
 export function buildArmThreeModel(
   armConfig: ArmConfig,
@@ -54,7 +54,7 @@ export function buildArmThreeModel(
   const origin = options.origin ?? DEFAULT_ARM_THREE_ORIGIN;
   const scale = positiveNumber(options.scale, DEFAULT_ARM_THREE_SCALE);
   const jointById = new Map(armConfig.joints.map((joint) => [joint.id, joint]));
-  const base = toThreePoint(origin, origin, scale);
+  const base = armPointToThreePoint(origin, { origin, scale });
   const links: ArmThreeLink[] = [];
   const jointMarkers: ArmThreeJointMarker[] = [];
 
@@ -68,14 +68,14 @@ export function buildArmThreeModel(
       id: `${pose.jointId}:joint`,
       jointId: pose.jointId,
       name: pose.name,
-      point: toThreePoint({ x: pose.startX, y: pose.startY }, origin, scale),
+      point: armPointToThreePoint({ x: pose.startX, y: pose.startY }, { origin, scale }),
       selected,
       servoId: pose.servoId
     });
 
     pose.shapeSegments.forEach((segment, index) => {
-      const start = toThreePoint({ x: segment.startX, y: segment.startY }, origin, scale);
-      const end = toThreePoint({ x: segment.endX, y: segment.endY }, origin, scale);
+      const start = armPointToThreePoint({ x: segment.startX, y: segment.startY }, { origin, scale });
+      const end = armPointToThreePoint({ x: segment.endX, y: segment.endY }, { origin, scale });
       links.push({
         angleDeg: segment.globalDeg,
         enabled,
@@ -93,7 +93,7 @@ export function buildArmThreeModel(
   }
 
   const lastPose = armSegmentPoses[armSegmentPoses.length - 1];
-  const endEffector = lastPose ? toThreePoint({ x: lastPose.endX, y: lastPose.endY }, origin, scale) : base;
+  const endEffector = lastPose ? armPointToThreePoint({ x: lastPose.endX, y: lastPose.endY }, { origin, scale }) : base;
 
   return {
     base,
@@ -104,11 +104,22 @@ export function buildArmThreeModel(
   };
 }
 
-function toThreePoint(point: ArmPoint, origin: ArmPoint, scale: number): ArmThreePoint {
+export function armPointToThreePoint(point: ArmPoint, options: ArmThreeModelOptions = {}): ArmThreePoint {
+  const origin = options.origin ?? DEFAULT_ARM_THREE_ORIGIN;
+  const scale = positiveNumber(options.scale, DEFAULT_ARM_THREE_SCALE);
   return {
     x: (point.x - origin.x) * scale,
     y: (origin.y - point.y) * scale,
     z: 0
+  };
+}
+
+export function threePointToArmPoint(point: ArmThreePoint, options: ArmThreeModelOptions = {}): ArmPoint {
+  const origin = options.origin ?? DEFAULT_ARM_THREE_ORIGIN;
+  const scale = positiveNumber(options.scale, DEFAULT_ARM_THREE_SCALE);
+  return {
+    x: origin.x + point.x / scale,
+    y: origin.y - point.y / scale
   };
 }
 

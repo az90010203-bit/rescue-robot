@@ -26,7 +26,7 @@ interface UseServoActionsRuntimeOptions {
   pauseWheelServo: (servo: ServoProfile, state: ServoCommandState) => Promise<void>;
   runServoLinkagePositionMotion: (group: ServoLinkageGroup, live?: boolean) => Promise<unknown>;
   runServoLinkageWheelMotion: (group: ServoLinkageGroup, direction: ServoLinkageWheelDirection) => Promise<unknown>;
-  runServoPositionMotion: (servo: ServoProfile, state: ServoCommandState, angle: number) => Promise<unknown>;
+  runServoPositionMotion: (servo: ServoProfile, state: ServoCommandState, angle: number, options?: { live?: boolean }) => Promise<unknown>;
   runServoWheelMotion: (servo: ServoProfile, state: ServoCommandState, speed: number, options?: { live?: boolean; log?: boolean }) => Promise<unknown>;
   servos: ServoProfile[];
   setLinkageWheelDirectionByGroup: (updater: (current: Record<string, any>) => Record<string, any>) => void;
@@ -71,7 +71,7 @@ export function useServoActionsRuntime({
       const sent =
         state.mode === "wheel"
           ? await runServoWheelMotion(servo, { ...state, speedRaw: String(wheelMaxSpeedRaw) }, effectiveWheelSpeed, { live, log: !live })
-          : await runServoPositionMotion(servo, state, Number(state.angleDeg));
+          : await runServoPositionMotion(servo, state, Number(state.angleDeg), { live });
 
       if (!sent) {
         return;
@@ -183,13 +183,17 @@ export function useServoActionsRuntime({
   }
 
   async function setTorqueForServo(servo: ServoProfile, enabled: boolean) {
-    await dispatchPlatformCommand(createPlatformCommand("servo.set_torque", `servo:${servo.id}`, { enabled }));
     if (!enabled) {
       cancelLiveAngleMove(servo.id);
       cancelLiveWheelMove(servo.id);
       cancelServoSafetyMonitor(servo.id);
       cancelServoMotionForServo(servo.id, "idle");
       cancelWheelTurnMonitor(singleWheelTurnProgressKey(servo.id));
+      livePositionModeServoRef.current.delete(servo.id);
+    }
+    await dispatchPlatformCommand(createPlatformCommand("servo.set_torque", `servo:${servo.id}`, { enabled }));
+    if (!enabled) {
+      cancelServoSafetyMonitor(servo.id);
       livePositionModeServoRef.current.delete(servo.id);
     }
   }

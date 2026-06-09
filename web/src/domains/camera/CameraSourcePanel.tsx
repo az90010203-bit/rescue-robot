@@ -1,6 +1,6 @@
 import { VideoOff } from "lucide-react";
 import type { TFunction } from "i18next";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import { Metric } from "@shared/ui/AppChrome";
 import {
   MAIN_CAMERA_SOURCE_ID,
@@ -41,6 +41,8 @@ export function CameraSourcePanel({
 }: CameraSourcePanelProps) {
   const sourceMode: CameraStreamMode = source.id === MAIN_CAMERA_SOURCE_ID ? cameraConfig.streamMode : "mjpeg";
   const effectiveMode: CameraEffectiveMode = sourceMode === "webrtc" && runtime.webrtcFallback ? "mjpegFallback" : sourceMode;
+  const lastReloadTokenRef = useRef(cameraStreamReloadToken);
+  const sourceLabel = displayCameraSourceLabel(source, t);
   const modeLabel =
     effectiveMode === "webrtc"
       ? t("camera.streamModes.webrtc")
@@ -66,11 +68,19 @@ export function CameraSourcePanel({
     { id: "sourcePort", node: <Metric label={t("fields.sourcePort")} value={source.port} /> }
   ];
 
+  useEffect(() => {
+    if (lastReloadTokenRef.current !== cameraStreamReloadToken) {
+      lastReloadTokenRef.current = cameraStreamReloadToken;
+      setCameraSourceRuntime(source.id, { failed: false, loaded: false });
+    }
+  }, [cameraStreamReloadToken, setCameraSourceRuntime, source.id]);
+
   return (
     <div className={["camera-source-panel", className].filter(Boolean).join(" ")} data-stream-url={source.streamUrl}>
       <div className="camera-viewer camera-source-viewer">
         <CameraViewer
-          alt={`${source.label} ${t("camera.streamAlt")}`}
+          alt={`${sourceLabel} ${t("camera.streamAlt")}`}
+          failed={runtime.failed}
           forceMjpeg={runtime.webrtcFallback || source.id !== MAIN_CAMERA_SOURCE_ID}
           key={`${source.id}-${sourceMode}-${cameraConfig.latencyProfile}-${source.streamUrl}-${cameraStreamReloadToken}`}
           mode={sourceMode}
@@ -86,7 +96,7 @@ export function CameraSourcePanel({
           }
           streamUrl={source.streamUrl.trim()}
         />
-        <span className="camera-source-name">{source.label}</span>
+        <span className="camera-source-name">{sourceLabel}</span>
         <span className={runtime.failed ? "camera-stream-badge error" : runtime.loaded ? "camera-stream-badge online" : "camera-stream-badge"}>
           {source.streamUrl.trim()
             ? runtime.failed
@@ -112,4 +122,14 @@ function visibleCameraMetrics(metrics: CameraSourceMetric[], visibleItemIds?: re
   }
   const visible = new Set(visibleItemIds);
   return metrics.filter((metric) => visible.has(metric.id));
+}
+
+function displayCameraSourceLabel(source: CameraVideoSource, t: TFunction): string {
+  if (source.id === "main" && source.label === "Main Camera") {
+    return t("dashboard.targets.mainCamera");
+  }
+  if (source.id === "secondary" && source.label === "Second Camera") {
+    return t("dashboard.targets.secondaryCamera");
+  }
+  return source.label;
 }

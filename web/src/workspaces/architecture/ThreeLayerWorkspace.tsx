@@ -1,4 +1,4 @@
-import { Activity, ArrowDown, ArrowLeft, ArrowUp, Bot, Boxes, Code2, Crosshair, Filter, GripVertical, Play, Plus, Radar, RotateCcw, Save, Send, Square, Trash2, Wrench } from "lucide-react";
+import { Activity, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bot, Boxes, Code2, Crosshair, Filter, GripVertical, Play, Plus, Radar, RotateCcw, RotateCw, Save, Send, Square, Trash2, Wrench } from "lucide-react";
 import { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -120,12 +120,38 @@ import {
   type ComponentArmTrajectoryArchive,
   type ComponentArmTrajectorySample
 } from "@domains/arm/componentArmAuto";
+import {
+  CAN_SERVO_GROUP_DEFAULT_SPEED_RAW,
+  CAN_SERVO_GROUP_SLOT_LABELS,
+  CAN_SERVO_GROUP_SLOTS,
+  canServoGroupPluginIds,
+  canServoGroupTargets,
+  canServoPluginInstances,
+  canServoPluginToProfile,
+  createDefaultCanServoGroupConfig,
+  normalizeCanServoGroupConfig,
+  validateCanServoGroupComponentConfig,
+  type CanServoGroupComponentConfig,
+  type CanServoGroupSlot
+} from "@domains/can-servo/canServoGroupComponent";
+import {
+  MECANUM_WHEEL_POSITIONS,
+  createDefaultMecanumDriveConfig,
+  mecanumDrivePluginIds,
+  normalizeMecanumDriveConfig,
+  validateMecanumDriveComponentConfig,
+  type MecanumDriveComponentConfig,
+  type MecanumWheelPosition
+} from "@domains/drive/mecanumComponent";
 import { solvePlanarIk, type ArmIkSolution } from "@domains/arm/armKinematics";
 import type { MotorFeedbackMap, ServoFeedbackMap } from "@platform/stateStore";
 
 export type ArchitectureLayer = "plugins" | "components" | "robots";
 type SaveState = "idle" | "loading" | "saving" | "error";
 type ServoFeedbackValue = ReturnType<typeof parseServoFeedback>;
+type MecanumDriveTestVector = { forward: number; strafe: number; turn: number };
+type MecanumDriveTestDraft = { speedPercent: number };
+type CanServoGroupTestDraft = { positions: Record<CanServoGroupSlot, number>; speedRaw: number };
 
 interface ThreeLayerWorkspaceProps {
   layer: ArchitectureLayer;
@@ -137,6 +163,7 @@ interface ThreeLayerWorkspaceProps {
   motorFeedback?: MotorFeedbackMap;
   dispatchPlatformCommand: (command: PlatformCommand) => Promise<PlatformCommandResult>;
   nextCommandSeq?: () => number;
+  onArchitectureChange?: (instances: PluginInstance[], components?: ComponentDefinition[]) => void;
   onPluginInstancesChange?: (instances: PluginInstance[]) => void;
   onPrepareCommand?: (capability: CapabilityId) => Promise<void> | void;
   piRemoteProfile?: PiDetectionProfile | null;
@@ -145,16 +172,24 @@ interface ThreeLayerWorkspaceProps {
   servoFeedback?: ServoFeedbackMap;
 }
 
-const deviceTypes: CapabilityId[] = ["servo", "motor", "camera", "gamepad", "sensor"];
+const deviceTypes: CapabilityId[] = ["servo", "motor", "camera", "gamepad", "ai-vision", "sensor"];
 const ARM_WORKSPACE_ORIGIN: ArmPoint = { x: 300, y: 250 };
-const fallbackTypeLabels: Record<CapabilityId, string> = {
+const MECANUM_WHEEL_LABEL_KEYS: Record<MecanumWheelPosition, string> = {
+  frontLeft: "frontLeft",
+  frontRight: "frontRight",
+  rearLeft: "rearLeft",
+  rearRight: "rearRight"
+};
+const fallbackTypeLabels: Partial<Record<CapabilityId, string>> = {
   servo: "舵机",
   motor: "电机",
   camera: "摄像头",
   "robot-arm": "机械臂",
+  "can-servo-group": "CAN 舵机组",
   "raspberry-pi": "树莓派",
   firmware: "固件",
   gamepad: "Gamepad",
+  "ai-vision": "AI Vision",
   gpio: "GPIO",
   sensor: "传感器"
 };
@@ -203,6 +238,7 @@ export function ThreeLayerWorkspace({
   motorFeedback = {},
   dispatchPlatformCommand,
   nextCommandSeq,
+  onArchitectureChange,
   onPluginInstancesChange,
   onPrepareCommand,
   piRemoteProfile,
@@ -245,6 +281,10 @@ export function ThreeLayerWorkspace({
   const [armIkSolutionByComponentId, setArmIkSolutionByComponentId] = useState<Record<string, ArmIkSolution>>({});
   const [armAutoSamplesByComponentId, setArmAutoSamplesByComponentId] = useState<Record<string, ComponentArmTrajectorySample[]>>({});
   const [armAutoArchiveDraftByComponentId, setArmAutoArchiveDraftByComponentId] = useState<Record<string, { name: string; notes: string; selectedArchiveId: string }>>({});
+  const [mecanumDraftByComponentId, setMecanumDraftByComponentId] = useState<Record<string, MecanumDriveComponentConfig>>({});
+  const [mecanumTestDraftByComponentId, setMecanumTestDraftByComponentId] = useState<Record<string, MecanumDriveTestDraft>>({});
+  const [canServoGroupDraftByComponentId, setCanServoGroupDraftByComponentId] = useState<Record<string, CanServoGroupComponentConfig>>({});
+  const [canServoGroupTestDraftByComponentId, setCanServoGroupTestDraftByComponentId] = useState<Record<string, CanServoGroupTestDraft>>({});
   const [componentServoLimitDraftByInstanceId, setComponentServoLimitDraftByInstanceId] = useState<Record<string, { minDeg: string; maxDeg: string }>>({});
   const [componentServoLimitErrorByInstanceId, setComponentServoLimitErrorByInstanceId] = useState<Record<string, string>>({});
   const [draggingArmJointId, setDraggingArmJointId] = useState<string | null>(null);
@@ -270,7 +310,17 @@ export function ThreeLayerWorkspace({
   const armArchivePlaybackGenerationRef = useRef(0);
   const layerTitle = layer === "plugins" ? uiText("sections.plugins", "插件") : layer === "components" ? uiText("sections.components", "组件") : uiText("sections.robots", "机器人");
   const platformTypeLabel = (type: CapabilityId) => uiText(`platform.types.${type}`, fallbackTypeLabels[type] ?? type);
-  const componentKindLabel = (kind: ComponentKind) => uiText(kind === "robot-arm" ? "architecture.components.kind.robotArm" : "architecture.components.kind.custom", kind === "robot-arm" ? "机械臂" : "普通组件");
+  const componentKindLabel = (kind: ComponentKind) => (
+    kind === "robot-arm"
+      ? uiText("architecture.components.kind.robotArm", "机械臂")
+      : kind === "mecanum-drive"
+        ? uiText("architecture.components.kind.mecanumDrive", "麦克纳姆轮")
+        : uiText("architecture.components.kind.custom", "普通组件")
+  );
+
+  const componentKindDisplayLabel = (kind: ComponentKind) => (
+    kind === "can-servo-group" ? uiText("architecture.components.kind.canServoGroup", "CAN servo group") : componentKindLabel(kind)
+  );
 
   const driverLibrary = useMemo(() => driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES), []);
   const codeLibraries = useMemo(() => deviceCodeLibraryItemsFromCatalog(catalog, driverLibrary), [catalog, driverLibrary]);
@@ -295,7 +345,22 @@ export function ThreeLayerWorkspace({
     () => availableForComponents.filter((instance) => instance.type === "servo" && instance.driverId === "driver.feetech-servo"),
     [availableForComponents]
   );
-  const componentSelectableInstances = componentKind === "robot-arm" ? availableServoPluginsForComponents : availableForComponents;
+  const availableMotorPluginsForComponents = useMemo(
+    () => availableForComponents.filter((instance) => instance.type === "motor"),
+    [availableForComponents]
+  );
+  const availableCanServoPluginsForComponents = useMemo(
+    () => canServoPluginInstances(availableForComponents),
+    [availableForComponents]
+  );
+  const componentSelectableInstances =
+    componentKind === "robot-arm"
+      ? availableServoPluginsForComponents
+      : componentKind === "mecanum-drive"
+        ? availableMotorPluginsForComponents
+        : componentKind === "can-servo-group"
+          ? availableCanServoPluginsForComponents
+          : availableForComponents;
   const selectedComponent = components.find((component) => component.id === selectedComponentId) ?? components[0];
   const selectedRobot = robots.find((robot) => robot.id === selectedRobotId) ?? robots[0];
   const selectedPlugin = pluginInstances.find((instance) => instance.id === selectedPluginId) ?? null;
@@ -333,8 +398,8 @@ export function ThreeLayerWorkspace({
   }, []);
 
   useEffect(() => {
-    if (selectedComponent?.kind === "robot-arm") {
-      void onPrepareCommand?.("robot-arm");
+    if (selectedComponent?.kind === "robot-arm" || selectedComponent?.kind === "can-servo-group") {
+      void onPrepareCommand?.(selectedComponent.kind);
     }
   }, [selectedComponent?.id, selectedComponent?.kind]);
 
@@ -376,12 +441,29 @@ export function ThreeLayerWorkspace({
   }, [selectedCodeLibrary?.catalogItemId, selectedCatalogId]);
 
   useEffect(() => {
-    if (componentKind !== "robot-arm") {
+    if (componentKind === "robot-arm") {
+      const servoIds = new Set(availableServoPluginsForComponents.map((instance) => instance.id));
+      setComponentPluginIds((current) => new Set(Array.from(current).filter((id) => servoIds.has(id))));
       return;
     }
-    const servoIds = new Set(availableServoPluginsForComponents.map((instance) => instance.id));
-    setComponentPluginIds((current) => new Set(Array.from(current).filter((id) => servoIds.has(id))));
-  }, [availableServoPluginsForComponents, componentKind]);
+    if (componentKind === "mecanum-drive") {
+      const motorIds = new Set(availableMotorPluginsForComponents.map((instance) => instance.id));
+      const defaults = mecanumDrivePluginIds(createDefaultMecanumDriveConfig(availableMotorPluginsForComponents));
+      setComponentPluginIds((current) => {
+        const filtered = Array.from(current).filter((id) => motorIds.has(id));
+        return new Set(filtered.length > 0 ? filtered : defaults);
+      });
+      return;
+    }
+    if (componentKind === "can-servo-group") {
+      const servoIds = new Set(availableCanServoPluginsForComponents.map((instance) => instance.id));
+      const defaults = canServoGroupPluginIds(createDefaultCanServoGroupConfig(availableCanServoPluginsForComponents));
+      setComponentPluginIds((current) => {
+        const filtered = Array.from(current).filter((id) => servoIds.has(id));
+        return new Set(filtered.length > 0 ? filtered : defaults);
+      });
+    }
+  }, [availableCanServoPluginsForComponents, availableMotorPluginsForComponents, availableServoPluginsForComponents, componentKind]);
 
   useEffect(() => {
     if (selectedCodeLibrary && !customCatalogEnabled) {
@@ -429,6 +511,7 @@ export function ThreeLayerWorkspace({
       setPluginInstances(nextPlugins);
       setComponents(nextComponents);
       setRobots(nextRobots);
+      onArchitectureChange?.(nextPlugins, nextComponents);
       onPluginInstancesChange?.(nextPlugins);
       setSelectedPluginId((current) => (nextPlugins.some((plugin) => plugin.id === current) ? current : ""));
       setSelectedComponentId((current) => current || nextComponents[0]?.id || "");
@@ -480,6 +563,238 @@ export function ThreeLayerWorkspace({
     return effectivePluginInstancesForComponent(component, pluginInstances);
   }
 
+  function mecanumWheelLabel(position: MecanumWheelPosition): string {
+    const fallback: Record<MecanumWheelPosition, string> = {
+      frontLeft: "Front left",
+      frontRight: "Front right",
+      rearLeft: "Rear left",
+      rearRight: "Rear right"
+    };
+    return uiText(`architecture.mecanum.wheels.${MECANUM_WHEEL_LABEL_KEYS[position]}`, fallback[position]);
+  }
+
+  function mecanumMotorOptions(component: ComponentDefinition): PluginInstance[] {
+    const ownedMotorIds = new Set(component.pluginInstanceIds);
+    const ownedMotors = pluginInstances.filter((instance) => ownedMotorIds.has(instance.id) && instance.type === "motor");
+    const availableMotors = availablePluginInstancesForComponent(pluginInstances, components, robots, component.id).filter((instance) => instance.type === "motor");
+    const seen = new Set<string>();
+    return [...ownedMotors, ...availableMotors].filter((instance) => {
+      if (seen.has(instance.id)) {
+        return false;
+      }
+      seen.add(instance.id);
+      return true;
+    });
+  }
+
+  function mecanumDraftForComponent(component: ComponentDefinition): MecanumDriveComponentConfig {
+    return mecanumDraftByComponentId[component.id] ?? normalizeMecanumDriveConfig(component.config, pluginInstances);
+  }
+
+  function updateMecanumDraft(component: ComponentDefinition, patch: Partial<MecanumDriveComponentConfig>) {
+    setMecanumDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...mecanumDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  function mecanumTestDraftForComponent(component: ComponentDefinition): MecanumDriveTestDraft {
+    return mecanumTestDraftByComponentId[component.id] ?? { speedPercent: 35 };
+  }
+
+  function updateMecanumTestDraft(component: ComponentDefinition, patch: Partial<MecanumDriveTestDraft>) {
+    setMecanumTestDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...mecanumTestDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  async function sendMecanumDriveVelocity(component: ComponentDefinition, vector: MecanumDriveTestVector) {
+    const config = normalizeMecanumDriveConfig(mecanumDraftForComponent(component), pluginInstances);
+    const validation = validateMecanumDriveComponentConfig({ ...component, kind: "mecanum-drive", pluginInstanceIds: mecanumDrivePluginIds(config), config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    try {
+      await onPrepareCommand?.("mecanum-drive");
+      const speedPercent = clamp(Math.round(mecanumTestDraftForComponent(component).speedPercent), 0, 100);
+      const result = await dispatchPlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", `mecanum-drive:${component.id}`, {
+        ...vector,
+        config,
+        speedLimitPercent: speedPercent,
+        stopMode: "brake"
+      }));
+      setError(result.message ?? "");
+      setStatus(result.status === "failed" ? "error" : "idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "mecanum drive velocity command failed");
+      setStatus("error");
+    }
+  }
+
+  async function stopMecanumDrive(component: ComponentDefinition) {
+    try {
+      await onPrepareCommand?.("mecanum-drive");
+      const config = normalizeMecanumDriveConfig(mecanumDraftForComponent(component), pluginInstances);
+      const result = await dispatchPlatformCommand(createPlatformCommand("mecanum-drive.stop", `mecanum-drive:${component.id}`, { config, stopMode: "brake" }));
+      setError(result.message ?? "");
+      setStatus(result.status === "failed" ? "error" : "idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "mecanum drive stop command failed");
+      setStatus("error");
+    }
+  }
+
+  async function saveMecanumDriveComponent(component: ComponentDefinition) {
+    if (!project) {
+      return;
+    }
+    const config = normalizeMecanumDriveConfig(mecanumDraftForComponent(component), pluginInstances);
+    const pluginIds = mecanumDrivePluginIds(config);
+    const validation = validateMecanumDriveComponentConfig({ ...component, kind: "mecanum-drive", pluginInstanceIds: pluginIds, config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    setStatus("saving");
+    try {
+      const updated = await updateComponent(project.id, component.id, {
+        kind: "mecanum-drive",
+        pluginInstanceIds: pluginIds,
+        config
+      });
+      setMecanumDraftByComponentId((current) => {
+        const next = { ...current };
+        delete next[component.id];
+        return next;
+      });
+      replaceComponent(updated);
+      await refreshArchitecture(project.id);
+      setStatus("idle");
+      setError("");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "mecanum drive save failed");
+      setStatus("error");
+    }
+  }
+
+  function canServoGroupOptions(component: ComponentDefinition): PluginInstance[] {
+    const ownedIds = new Set(component.pluginInstanceIds);
+    const ownedServos = pluginInstances.filter((instance) => ownedIds.has(instance.id) && canServoPluginToProfile(instance));
+    const availableServos = canServoPluginInstances(availablePluginInstancesForComponent(pluginInstances, components, robots, component.id));
+    const seen = new Set<string>();
+    return [...ownedServos, ...availableServos].filter((instance) => {
+      if (seen.has(instance.id)) {
+        return false;
+      }
+      seen.add(instance.id);
+      return true;
+    });
+  }
+
+  function canServoGroupDraftForComponent(component: ComponentDefinition): CanServoGroupComponentConfig {
+    return canServoGroupDraftByComponentId[component.id] ?? normalizeCanServoGroupConfig(component.config, pluginInstances);
+  }
+
+  function updateCanServoGroupDraft(component: ComponentDefinition, patch: Partial<CanServoGroupComponentConfig>) {
+    setCanServoGroupDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...canServoGroupDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  function canServoGroupTestDraftForComponent(component: ComponentDefinition): CanServoGroupTestDraft {
+    const config = canServoGroupDraftForComponent(component);
+    return canServoGroupTestDraftByComponentId[component.id] ?? {
+      speedRaw: CAN_SERVO_GROUP_DEFAULT_SPEED_RAW,
+      positions: Object.fromEntries(CAN_SERVO_GROUP_SLOTS.map((slot) => {
+        const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]);
+        const profile = plugin ? canServoPluginToProfile(plugin) : null;
+        return [slot, profile ? servoLogicalSpan(profile) / 2 : 90];
+      })) as Record<CanServoGroupSlot, number>
+    };
+  }
+
+  function updateCanServoGroupTestDraft(component: ComponentDefinition, patch: Partial<CanServoGroupTestDraft>) {
+    setCanServoGroupTestDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...canServoGroupTestDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  async function sendCanServoGroupPositions(component: ComponentDefinition) {
+    const config = normalizeCanServoGroupConfig(canServoGroupDraftForComponent(component), pluginInstances);
+    const validation = validateCanServoGroupComponentConfig({ ...component, kind: "can-servo-group", pluginInstanceIds: canServoGroupPluginIds(config), config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    const draft = canServoGroupTestDraftForComponent(component);
+    try {
+      await onPrepareCommand?.("can-servo-group");
+      const result = await dispatchPlatformCommand(createPlatformCommand("can-servo-group.set_positions", `can-servo-group:${component.id}`, {
+        config,
+        positions: draft.positions,
+        speedRaw: draft.speedRaw
+      }));
+      setError(result.message ?? "");
+      setStatus(result.status === "failed" ? "error" : "idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "CAN servo group command failed");
+      setStatus("error");
+    }
+  }
+
+  async function saveCanServoGroupComponent(component: ComponentDefinition) {
+    if (!project) {
+      return;
+    }
+    const config = normalizeCanServoGroupConfig(canServoGroupDraftForComponent(component), pluginInstances);
+    const pluginIds = canServoGroupPluginIds(config);
+    const validation = validateCanServoGroupComponentConfig({ ...component, kind: "can-servo-group", pluginInstanceIds: pluginIds, config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    setStatus("saving");
+    try {
+      const updated = await updateComponent(project.id, component.id, {
+        kind: "can-servo-group",
+        pluginInstanceIds: pluginIds,
+        config
+      });
+      setCanServoGroupDraftByComponentId((current) => {
+        const next = { ...current };
+        delete next[component.id];
+        return next;
+      });
+      replaceComponent(updated);
+      await refreshArchitecture(project.id);
+      setStatus("idle");
+      setError("");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "CAN servo group save failed");
+      setStatus("error");
+    }
+  }
+
   function pluginDebugDraft(instance: PluginInstance): PluginDebugDraft {
     const existing = pluginDebugDraftById[instance.id];
     const servo = pluginInstancesToServoProfiles([instance])[0];
@@ -493,7 +808,7 @@ export function ThreeLayerWorkspace({
       angleDeg: formatArmNumber(resetDeg),
       newServoId: String(instance.config.servoId ?? servo?.id ?? ""),
       confirmSingleServo: false,
-      speedRaw: "800",
+      speedRaw: "300",
       acc: "30",
       liveDragEnabled: true,
       reverse: false,
@@ -506,7 +821,9 @@ export function ThreeLayerWorkspace({
       in1Pin: motor?.in1Pin ?? String(instance.config.in1Pin ?? ""),
       in2Pin: motor?.in2Pin ?? String(instance.config.in2Pin ?? ""),
       enablePin: motor?.enablePin ?? String(instance.config.enablePin ?? ""),
-      sensorPin: motor?.sensorPin ?? String(instance.config.sensorPin ?? "")
+      sensorPin: motor?.sensorPin ?? String(instance.config.sensorPin ?? ""),
+      encoderAPin: motor?.encoderAPin ?? String(instance.config.encoderAPin ?? ""),
+      encoderBPin: motor?.encoderBPin ?? String(instance.config.encoderBPin ?? "")
     };
     return existing ? { ...defaults, ...existing } : defaults;
   }
@@ -1116,12 +1433,28 @@ export function ThreeLayerWorkspace({
     const feedback = servoFeedbackFromResponse(result.response);
     if (feedback) {
       setPluginServoFeedbackById((current) => ({ ...current, [instance.id]: feedback }));
+      const servo = pluginInstancesToServoProfiles([instance])[0];
+      if (servo && feedback.positionDeg !== undefined) {
+        const logical = servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg, pluginDebugDraft(instance).reverse);
+        updatePluginDebugDraft(instance.id, { angleDeg: formatArmNumber(clampPluginServoLogical(instance, logical)) });
+      }
       setPluginDebugMessage(instance.id, `已读取当前位置 ${feedback.positionDeg === undefined ? "--" : `${formatArmNumber(feedback.positionDeg)} deg`}`, "online");
     }
     return feedback;
   }
 
   async function sendPluginServoPosition(instance: PluginInstance, options: { live?: boolean; draft?: PluginDebugDraft } = {}) {
+    const hadFeedback = pluginServoFeedbackById[instance.id]?.positionDeg !== undefined;
+    if (!(options.live === true && hadFeedback)) {
+      const feedback = await readPluginServo(instance);
+      if (!feedback) {
+        return;
+      }
+      if (!hadFeedback) {
+        setPluginDebugMessage(instance.id, "Synced current servo position; first target blocked. Adjust again to move.", "warning");
+        return;
+      }
+    }
     const draft = options.draft ?? pluginDebugDraft(instance);
     const span = servoLogicalSpanForInstance(instance);
     const logicalAngle = clampPluginServoLogical(instance, Number(draft.angleDeg));
@@ -1132,6 +1465,15 @@ export function ThreeLayerWorkspace({
   }
 
   async function sendPluginServoWheel(instance: PluginInstance, draft = pluginDebugDraft(instance)) {
+    const hadFeedback = pluginServoFeedbackById[instance.id]?.positionDeg !== undefined;
+    const feedback = await readPluginServo(instance);
+    if (!feedback) {
+      return;
+    }
+    if (!hadFeedback) {
+      setPluginDebugMessage(instance.id, "Synced current servo position; first target blocked. Adjust again to move.", "warning");
+      return;
+    }
     const speedRaw = clamp(Math.round(Number(draft.speedRaw)), 0, 4095) * (draft.reverse ? -1 : 1);
     const acc = clamp(Math.round(Number(draft.acc)), 0, 254);
     await runPluginCommand(instance, "servo.set_speed", { speedRaw, acc });
@@ -1334,7 +1676,9 @@ export function ThreeLayerWorkspace({
           in1Pin: draft.in1Pin.trim(),
           in2Pin: draft.in2Pin.trim(),
           enablePin: draft.enablePin.trim(),
-          sensorPin: draft.sensorPin.trim()
+          sensorPin: draft.sensorPin.trim(),
+          encoderAPin: draft.encoderAPin.trim(),
+          encoderBPin: draft.encoderBPin.trim()
         }
       });
       replacePluginInstance(updated);
@@ -1353,7 +1697,9 @@ export function ThreeLayerWorkspace({
       in1Pin: draft.in1Pin.trim(),
       in2Pin: draft.in2Pin.trim(),
       enablePin: draft.enablePin.trim() || undefined,
-      sensorPin: draft.sensorPin.trim() || undefined
+      sensorPin: draft.sensorPin.trim() || undefined,
+      encoderAPin: draft.encoderAPin.trim() || undefined,
+      encoderBPin: draft.encoderBPin.trim() || undefined
     });
   }
 
@@ -1412,18 +1758,33 @@ export function ThreeLayerWorkspace({
       const selectedIds = Array.from(componentPluginIds);
       const selectedInstances = selectedIds.map((id) => pluginInstances.find((instance) => instance.id === id)).filter((instance): instance is PluginInstance => Boolean(instance));
       const armConfig = intendedKind === "robot-arm" ? createArmConfigFromServos(pluginInstancesToServoProfiles(selectedInstances)) : undefined;
+      const mecanumConfig = intendedKind === "mecanum-drive" ? normalizeMecanumDriveConfig(createDefaultMecanumDriveConfig(selectedInstances), selectedInstances) : undefined;
+      const canServoGroupConfig = intendedKind === "can-servo-group" ? normalizeCanServoGroupConfig(createDefaultCanServoGroupConfig(selectedInstances), selectedInstances) : undefined;
+      const componentPluginIdsForKind = mecanumConfig ? mecanumDrivePluginIds(mecanumConfig) : canServoGroupConfig ? canServoGroupPluginIds(canServoGroupConfig) : selectedIds;
       const componentPayload: Partial<ComponentDefinition> = {
         name: componentName.trim() || "New Component",
         kind: intendedKind,
-        pluginInstanceIds: selectedIds,
-        config: armConfig ? { armConfig } : {}
+        pluginInstanceIds: componentPluginIdsForKind,
+        config: armConfig ? { armConfig } : mecanumConfig ?? canServoGroupConfig ?? {}
       };
       let component = await createComponent(project.id, componentPayload);
       if (intendedKind === "robot-arm" && component.kind !== "robot-arm") {
         component = await updateComponent(project.id, component.id, componentPayload);
       }
+      if (intendedKind === "mecanum-drive" && component.kind !== "mecanum-drive") {
+        component = await updateComponent(project.id, component.id, componentPayload);
+      }
+      if (intendedKind === "can-servo-group" && component.kind !== "can-servo-group") {
+        component = await updateComponent(project.id, component.id, componentPayload);
+      }
       if (intendedKind === "robot-arm" && component.kind !== "robot-arm") {
-        throw new Error("data-service 仍按旧版本保存组件，请重启 data-service 后再生成机械臂");
+        throw new Error("data-service saved an older component kind; restart data-service and create the robot arm again.");
+      }
+      if (intendedKind === "mecanum-drive" && component.kind !== "mecanum-drive") {
+        throw new Error("data-service saved an older component kind; restart data-service and create the mecanum drive again.");
+      }
+      if (intendedKind === "can-servo-group" && component.kind !== "can-servo-group") {
+        throw new Error("data-service saved an older component kind; restart data-service and create the CAN servo group again.");
       }
       replaceComponent(component);
       setSelectedComponentId(component.id);
@@ -1720,9 +2081,7 @@ export function ThreeLayerWorkspace({
     return (
       <article
         className="architecture-panel-card"
-        draggable={Boolean(layout)}
         key={layout?.id ?? instance.id}
-        onDragStart={() => layout && setDraggingPanelId(layout.id)}
         onDragOver={(event) => layout && event.preventDefault()}
         onDrop={() => {
           if (!layout || !draggingPanelId || draggingPanelId === layout.id) {
@@ -1734,7 +2093,18 @@ export function ThreeLayerWorkspace({
         }}
         style={style}
       >
-        <header className="architecture-panel-card-head">
+        <header
+          className="architecture-panel-card-head"
+          draggable={Boolean(layout)}
+          onDragEnd={() => setDraggingPanelId(null)}
+          onDragStart={(event) => {
+            if (!layout) {
+              return;
+            }
+            event.dataTransfer.effectAllowed = "move";
+            setDraggingPanelId(layout.id);
+          }}
+        >
           {layout && <GripVertical size={17} />}
           <span>
             <strong>{layout?.title ?? instance.name}</strong>
@@ -1770,6 +2140,373 @@ export function ThreeLayerWorkspace({
           const instance = instanceByTarget.get(item.targetId);
           return instance ? renderPanelForInstance(instance, item) : null;
         })}
+      </div>
+    );
+  }
+
+  function renderMecanumDriveComponentPanel(component: ComponentDefinition) {
+    const config = mecanumDraftForComponent(component);
+    const motorOptions = mecanumMotorOptions(component);
+    const selectedWheelIds = new Set(MECANUM_WHEEL_POSITIONS.map((position) => config.wheels[position]).filter(Boolean));
+    const validation = validateMecanumDriveComponentConfig({
+      ...component,
+      kind: "mecanum-drive",
+      pluginInstanceIds: mecanumDrivePluginIds(config),
+      config
+    }, pluginInstances);
+    const testDraft = mecanumTestDraftForComponent(component);
+    const configText = (value: unknown) => {
+      const text = String(value ?? "").trim();
+      return text || "--";
+    };
+    const numberText = (value: unknown, digits = 0) => (
+      typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "--"
+    );
+    const wheelDetails = MECANUM_WHEEL_POSITIONS.map((position) => {
+      const plugin = pluginInstances.find((instance) => instance.id === config.wheels[position]) ?? null;
+      const channel = plugin ? normalizeMotorChannel(String(plugin.config.channel ?? "")) : "";
+      const feedback = channel ? motorFeedback[channel] : undefined;
+      return { position, plugin, channel, feedback };
+    });
+    return (
+      <div className="plugin-instance-debug-stack">
+        <article className="servo-command-card selected plugin-debug-card">
+          <div className="servo-command-card-header">
+            <button className="servo-card-select" type="button">
+              <span className="device-id">MECANUM</span>
+              <span className="device-name">{component.name}</span>
+            </button>
+            <div className="servo-card-status-stack">
+              <span className={validation ? "device-signal muted" : "device-signal"}>{validation ? uiText("architecture.mecanum.incomplete", "Incomplete") : uiText("architecture.mecanum.ready", "Ready")}</span>
+              <span className="device-signal motion muted">{uiText("architecture.mecanum.closedLoop", "Closed loop")}: {config.closedLoop ? "ON" : "OFF"}</span>
+            </div>
+          </div>
+
+          <div className="command-grid servo-command-grid">
+            {MECANUM_WHEEL_POSITIONS.map((position) => (
+              <label key={position}>
+                <span>{mecanumWheelLabel(position)}</span>
+                <select
+                  value={config.wheels[position]}
+                  onChange={(event) => updateMecanumDraft(component, {
+                    wheels: {
+                      ...config.wheels,
+                      [position]: event.target.value
+                    }
+                  })}
+                >
+                  <option value="">{uiText("architecture.components.noAvailablePluginInstances", "No available motor plugin")}</option>
+                  {motorOptions.map((instance) => (
+                    <option
+                      disabled={selectedWheelIds.has(instance.id) && config.wheels[position] !== instance.id}
+                      key={instance.id}
+                      value={instance.id}
+                    >
+                      {instance.name} / {pluginInstanceDeviceId(instance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label>
+              <span>{uiText("architecture.mecanum.maxRpm", "Max RPM")}</span>
+              <input
+                min={1}
+                max={30000}
+                step={1}
+                type="number"
+                value={config.maxRpm}
+                onChange={(event) => updateMecanumDraft(component, { maxRpm: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>{uiText("architecture.mecanum.encoderTicksPerRev", "Encoder ticks / rev")}</span>
+              <input
+                min={1}
+                max={100000}
+                step={1}
+                type="number"
+                value={config.encoderTicksPerRev}
+                onChange={(event) => updateMecanumDraft(component, { encoderTicksPerRev: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+
+          <div className="servo-extra-grid">
+            <label className="checkbox-field">
+              <input
+                checked={config.closedLoop}
+                type="checkbox"
+                onChange={(event) => updateMecanumDraft(component, { closedLoop: event.target.checked })}
+              />
+              <span>{uiText("architecture.mecanum.closedLoopDefault", "Enable component closed-loop speed control")}</span>
+            </label>
+            {MECANUM_WHEEL_POSITIONS.map((position) => (
+              <label className="checkbox-field" key={`reverse:${position}`}>
+                <input
+                  checked={config.directions[position] === -1}
+                  type="checkbox"
+                  onChange={(event) => updateMecanumDraft(component, {
+                    directions: {
+                      ...config.directions,
+                      [position]: event.target.checked ? -1 : 1
+                    }
+                  })}
+                />
+                <span>{mecanumWheelLabel(position)} {uiText("architecture.mecanum.reverse", "Reverse")}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="mecanum-linked-speed-panel">
+            <div className="command-grid servo-command-grid">
+              <label className="speed-slider-field architecture-wide-field">
+                <span>{uiText("architecture.mecanum.linkedSpeed", "Linked speed")}</span>
+                <input
+                  min={0}
+                  max={100}
+                  step={1}
+                  type="range"
+                  value={testDraft.speedPercent}
+                  onChange={(event) => updateMecanumTestDraft(component, { speedPercent: clamp(Number(event.target.value), 0, 100) })}
+                />
+              </label>
+              <Metric label={uiText("architecture.mecanum.speedPercent", "Speed")} value={`${Math.round(testDraft.speedPercent)}%`} />
+            </div>
+            <div className="action-grid servo-card-actions mecanum-linked-actions">
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: 1, strafe: 0, turn: 0 })} type="button">
+                <ArrowUp size={18} />
+                <span>{uiText("architecture.mecanum.forward", "Forward")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: -1, strafe: 0, turn: 0 })} type="button">
+                <ArrowDown size={18} />
+                <span>{uiText("architecture.mecanum.backward", "Backward")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: 0, strafe: -1, turn: 0 })} type="button">
+                <ArrowLeft size={18} />
+                <span>{uiText("architecture.mecanum.strafeLeft", "Strafe left")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: 0, strafe: 1, turn: 0 })} type="button">
+                <ArrowRight size={18} />
+                <span>{uiText("architecture.mecanum.strafeRight", "Strafe right")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: 0, strafe: 0, turn: -1 })} type="button">
+                <RotateCcw size={18} />
+                <span>{uiText("architecture.mecanum.rotateLeft", "Rotate left")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendMecanumDriveVelocity(component, { forward: 0, strafe: 0, turn: 1 })} type="button">
+                <RotateCw size={18} />
+                <span>{uiText("architecture.mecanum.rotateRight", "Rotate right")}</span>
+              </button>
+              <button className="icon-button danger" disabled={Boolean(validation)} onClick={() => void stopMecanumDrive(component)} type="button">
+                <Square size={18} />
+                <span>{uiText("architecture.mecanum.stop", "Stop")}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mecanum-wheel-feedback-grid">
+            {wheelDetails.map(({ position, plugin, channel, feedback }) => {
+              return (
+                <div className="mecanum-wheel-feedback-item" key={`metric:${position}`}>
+                  <div className="mecanum-wheel-feedback-head">
+                    <strong>{mecanumWheelLabel(position)}</strong>
+                    <small>{plugin ? pluginInstanceDeviceId(plugin) : "--"}</small>
+                  </div>
+                  <div className="servo-card-telemetry mecanum-wheel-metrics">
+                    <span>
+                      <small>{uiText("architecture.mecanum.channel", "Channel")}</small>
+                      <strong>{channel || "--"}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.motorPins", "PWM / IN")}</small>
+                      <strong>{plugin ? `${configText(plugin.config.pwmPin)} / ${configText(plugin.config.in1Pin)} / ${configText(plugin.config.in2Pin)}` : "--"}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.stbyPin", "STBY")}</small>
+                      <strong>{plugin ? configText(plugin.config.enablePin) : "--"}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.encoderPins", "Encoder A / B")}</small>
+                      <strong>{plugin ? `${configText(plugin.config.encoderAPin)} / ${configText(plugin.config.encoderBPin)}` : "--"}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.rpm", "RPM")}</small>
+                      <strong>{numberText(feedback?.speedRpm, 1)}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.ticks", "Ticks")}</small>
+                      <strong>{numberText(feedback?.encoderTicks)}</strong>
+                    </span>
+                    <span>
+                      <small>{uiText("architecture.mecanum.targetRpm", "Target")}</small>
+                      <strong>{numberText(feedback?.targetRpm, 0)}</strong>
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {validation ? <p className="empty-state">{validation}</p> : null}
+
+          <div className="action-grid servo-card-actions">
+            <button className="icon-button primary" disabled={Boolean(validation) || status === "saving"} onClick={() => void saveMecanumDriveComponent(component)} type="button">
+              <Save size={18} />
+              <span>{uiText("architecture.mecanum.save", "Save mecanum drive")}</span>
+            </button>
+          </div>
+        </article>
+        {renderPanelGrid(`component:${component.id}`, effectivePluginInstancesForComponent(component, pluginInstances))}
+      </div>
+    );
+  }
+
+  function renderCanServoGroupComponentPanel(component: ComponentDefinition) {
+    const config = canServoGroupDraftForComponent(component);
+    const servoOptions = canServoGroupOptions(component);
+    const selectedServoIds = new Set(CAN_SERVO_GROUP_SLOTS.map((slot) => config.servos[slot]).filter(Boolean));
+    const validation = validateCanServoGroupComponentConfig({
+      ...component,
+      kind: "can-servo-group",
+      pluginInstanceIds: canServoGroupPluginIds(config),
+      config
+    }, pluginInstances);
+    const testDraft = canServoGroupTestDraftForComponent(component);
+    const targets = canServoGroupTargets(config, pluginInstances, testDraft.positions, testDraft.speedRaw);
+    const targetBySlot = new Map(targets.map((target) => [target.slot, target]));
+    const profileForSlot = (slot: CanServoGroupSlot) => {
+      const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]);
+      return plugin ? canServoPluginToProfile(plugin) : null;
+    };
+    const updateSlotPosition = (slot: CanServoGroupSlot, value: number) => {
+      const profile = profileForSlot(slot);
+      const span = profile ? servoLogicalSpan(profile) : 360;
+      updateCanServoGroupTestDraft(component, {
+        positions: {
+          ...testDraft.positions,
+          [slot]: clamp(Number.isFinite(value) ? value : 0, 0, span)
+        }
+      });
+    };
+    return (
+      <div className="plugin-instance-debug-stack">
+        <article className="servo-command-card selected plugin-debug-card">
+          <div className="servo-command-card-header">
+            <button className="servo-card-select" type="button">
+              <span className="device-id">CAN x4</span>
+              <span className="device-name">{component.name}</span>
+            </button>
+            <div className="servo-card-status-stack">
+              <span className={validation ? "device-signal muted" : "device-signal"}>{validation ? uiText("architecture.canServoGroup.incomplete", "Incomplete") : uiText("architecture.canServoGroup.ready", "Ready")}</span>
+              <span className="device-signal motion muted">{uiText("architecture.canServoGroup.referencesPluginConfig", "Uses plugin limits and direction")}</span>
+            </div>
+          </div>
+
+          <div className="command-grid servo-command-grid">
+            {CAN_SERVO_GROUP_SLOTS.map((slot) => (
+              <label key={slot}>
+                <span>{CAN_SERVO_GROUP_SLOT_LABELS[slot]}</span>
+                <select
+                  value={config.servos[slot]}
+                  onChange={(event) => updateCanServoGroupDraft(component, {
+                    servos: {
+                      ...config.servos,
+                      [slot]: event.target.value
+                    }
+                  })}
+                >
+                  <option value="">{uiText("architecture.components.noAvailablePluginInstances", "No available CAN servo plugin")}</option>
+                  {servoOptions.map((instance) => (
+                    <option
+                      disabled={selectedServoIds.has(instance.id) && config.servos[slot] !== instance.id}
+                      key={instance.id}
+                      value={instance.id}
+                    >
+                      {instance.name} / {pluginInstanceDeviceId(instance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label>
+              <span>{uiText("architecture.canServoGroup.speedRaw", "Linked speed raw")}</span>
+              <input
+                min={0}
+                max={1280}
+                step={1}
+                type="number"
+                value={testDraft.speedRaw}
+                onChange={(event) => updateCanServoGroupTestDraft(component, { speedRaw: clamp(Math.round(Number(event.target.value)), 0, 1280) })}
+              />
+            </label>
+          </div>
+
+          <div className="mecanum-wheel-feedback-grid">
+            {CAN_SERVO_GROUP_SLOTS.map((slot) => {
+              const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]) ?? null;
+              const profile = plugin ? canServoPluginToProfile(plugin) : null;
+              const span = profile ? servoLogicalSpan(profile) : 360;
+              const logicalAngle = clamp(testDraft.positions[slot] ?? span / 2, 0, span);
+              const target = targetBySlot.get(slot);
+              return (
+                <div className="mecanum-wheel-feedback-item" key={slot}>
+                  <div className="mecanum-wheel-feedback-head">
+                    <strong>{CAN_SERVO_GROUP_SLOT_LABELS[slot]}</strong>
+                    <small>{plugin ? pluginInstanceDeviceId(plugin) : "--"}</small>
+                  </div>
+                  <label className="speed-slider-field">
+                    <span>{uiText("architecture.canServoGroup.logicalAngle", "Logical angle")}</span>
+                    <input
+                      min={0}
+                      max={span}
+                      step={1}
+                      type="range"
+                      value={logicalAngle}
+                      onChange={(event) => updateSlotPosition(slot, Number(event.target.value))}
+                    />
+                  </label>
+                  <div className="command-grid servo-command-grid">
+                    <label>
+                      <span>{uiText("fields.angleDeg", "Angle")}</span>
+                      <input
+                        min={0}
+                        max={span}
+                        step={1}
+                        type="number"
+                        value={formatArmNumber(logicalAngle)}
+                        onChange={(event) => updateSlotPosition(slot, Number(event.target.value))}
+                      />
+                    </label>
+                  </div>
+                  <div className="servo-card-telemetry mecanum-wheel-metrics">
+                    <span><small>ID</small><strong>{profile?.id ?? "--"}</strong></span>
+                    <span><small>{uiText("fields.minAngle", "Min")}</small><strong>{profile ? formatArmNumber(profile.minDeg ?? 0) : "--"}</strong></span>
+                    <span><small>{uiText("fields.maxAngle", "Max")}</small><strong>{profile ? formatArmNumber(profile.maxDeg ?? 360) : "--"}</strong></span>
+                    <span><small>{uiText("fields.reverseRotation", "Reverse")}</small><strong>{profile?.direction === -1 ? "ON" : "OFF"}</strong></span>
+                    <span><small>{uiText("metrics.canBitrate", "CAN")}</small><strong>{profile?.bitrateKbps ?? "--"} kbit/s</strong></span>
+                    <span><small>{uiText("architecture.canServoGroup.physicalAngle", "Physical")}</small><strong>{target ? `${formatArmNumber(target.physicalAngleDeg)} deg` : "--"}</strong></span>
+                    <span><small>{uiText("architecture.canServoGroup.rawPosition", "Raw")}</small><strong>{target ? target.position : "--"}</strong></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {validation ? <p className="empty-state">{validation}</p> : null}
+
+          <div className="action-grid servo-card-actions">
+            <button className="icon-button primary" disabled={Boolean(validation) || status === "saving"} onClick={() => void sendCanServoGroupPositions(component)} type="button">
+              <Send size={18} />
+              <span>{uiText("architecture.canServoGroup.send", "Send group")}</span>
+            </button>
+            <button className="icon-button" disabled={Boolean(validation) || status === "saving"} onClick={() => void saveCanServoGroupComponent(component)} type="button">
+              <Save size={18} />
+              <span>{uiText("architecture.canServoGroup.save", "Save CAN servo group")}</span>
+            </button>
+          </div>
+        </article>
+        {renderPanelGrid(`component:${component.id}`, effectivePluginInstancesForComponent(component, pluginInstances))}
       </div>
     );
   }
@@ -2034,6 +2771,8 @@ export function ThreeLayerWorkspace({
               <label><span>IN2</span><input value={draft.in2Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in2Pin: event.target.value })} /></label>
               <label><span>EN/STBY</span><input value={draft.enablePin} onChange={(event) => updatePluginDebugDraft(instance.id, { enablePin: event.target.value })} /></label>
               <label><span>{t("fields.sensorPin")}</span><input value={draft.sensorPin} onChange={(event) => updatePluginDebugDraft(instance.id, { sensorPin: event.target.value })} /></label>
+              <label><span>ENC A</span><input value={draft.encoderAPin} onChange={(event) => updatePluginDebugDraft(instance.id, { encoderAPin: event.target.value })} /></label>
+              <label><span>ENC B</span><input value={draft.encoderBPin} onChange={(event) => updatePluginDebugDraft(instance.id, { encoderBPin: event.target.value })} /></label>
             </div>
           </div>
           <div className="preview-grid motor-preview-grid">
@@ -2058,7 +2797,7 @@ export function ThreeLayerWorkspace({
     const componentInstances = componentPluginInstances(component);
     const servoProfiles = componentServoProfiles(component);
     const config = currentArmConfigForComponent(component);
-    const poses = calculateArmSegmentPoses(config.joints, { x: 300, y: 250 });
+    const poses = calculateArmSegmentPoses(config.joints, { x: 300, y: 250 }, config.baseDirectionDeg ?? 0);
     const selectedJoint = config.joints.find((joint) => joint.id === config.selectedJointId) ?? config.joints[0] ?? null;
     const selectedServo = selectedJoint ? servoProfiles.find((servo) => servo.id === selectedJoint.servoId) : null;
     const selectedServoInstance = selectedJoint
@@ -2929,7 +3668,7 @@ export function ThreeLayerWorkspace({
             ]}
             summary={
               <>
-                <span className="platform-status-pill standby">{componentKindLabel(componentKind)}</span>
+                <span className="platform-status-pill standby">{componentKindDisplayLabel(componentKind)}</span>
                 <span className="architecture-summary-text">{componentName.trim() || uiText("architecture.create.waitingName", "等待命名")}</span>
                 <span className="architecture-summary-text">{uiText("architecture.components.selectedPluginCount", `${componentPluginIds.size} 个插件已选`, { count: componentPluginIds.size })}</span>
               </>
@@ -2939,8 +3678,10 @@ export function ThreeLayerWorkspace({
             <label>
               <span>{uiText("architecture.components.type", "组件类型")}</span>
               <select value={componentKind} onChange={(event) => setComponentKind(event.target.value as ComponentKind)}>
-                <option value="custom">{componentKindLabel("custom")}</option>
-                <option value="robot-arm">{componentKindLabel("robot-arm")}</option>
+                <option value="custom">{componentKindDisplayLabel("custom")}</option>
+                <option value="robot-arm">{componentKindDisplayLabel("robot-arm")}</option>
+                <option value="mecanum-drive">{componentKindDisplayLabel("mecanum-drive")}</option>
+                <option value="can-servo-group">{componentKindDisplayLabel("can-servo-group")}</option>
               </select>
             </label>
             <label>
@@ -2955,9 +3696,17 @@ export function ThreeLayerWorkspace({
               usage={usage}
               onToggle={(id) => setComponentPluginIds(toggleSet(componentPluginIds, id))}
             />
-            <button className="icon-button primary architecture-wide-button" disabled={componentPluginIds.size === 0} onClick={() => void handleCreateComponent()} type="button">
+            <button className="icon-button primary architecture-wide-button" disabled={componentKind === "mecanum-drive" || componentKind === "can-servo-group" ? componentPluginIds.size !== 4 : componentPluginIds.size === 0} onClick={() => void handleCreateComponent()} type="button">
               <Save size={17} />
-              <span>{componentKind === "robot-arm" ? uiText("architecture.components.createRobotArm", "生成机械臂") : uiText("architecture.components.createComponent", "生成组件")}</span>
+              <span>
+                {componentKind === "robot-arm"
+                  ? uiText("architecture.components.createRobotArm", "Create robot arm")
+                  : componentKind === "mecanum-drive"
+                    ? uiText("architecture.components.createMecanumDrive", "Create mecanum drive")
+                    : componentKind === "can-servo-group"
+                      ? uiText("architecture.components.createCanServoGroup", "Create CAN servo group")
+                      : uiText("architecture.components.createComponent", "Create component")}
+              </span>
             </button>
           </ArchitectureCreatePanel>
           <section className="panel architecture-library-panel">
@@ -2968,11 +3717,15 @@ export function ThreeLayerWorkspace({
               selectedId={selectedComponent?.id ?? ""}
               onDelete={handleDeleteComponent}
               onSelect={setSelectedComponentId}
-              renderMeta={(component) => `${componentKindLabel(component.kind)} · ${uiText("architecture.components.pluginCount", `${component.pluginInstanceIds.length} 个插件`, { count: component.pluginInstanceIds.length })}`}
+              renderMeta={(component) => `${componentKindDisplayLabel(component.kind)} · ${uiText("architecture.components.pluginCount", `${component.pluginInstanceIds.length} 个插件`, { count: component.pluginInstanceIds.length })}`}
             />
             {selectedComponent
               ? selectedComponent.kind === "robot-arm"
                 ? renderRobotArmComponentPanel(selectedComponent)
+                : selectedComponent.kind === "mecanum-drive"
+                  ? renderMecanumDriveComponentPanel(selectedComponent)
+                  : selectedComponent.kind === "can-servo-group"
+                    ? renderCanServoGroupComponentPanel(selectedComponent)
                 : renderPanelGrid(`component:${selectedComponent.id}`, effectivePluginInstancesForComponent(selectedComponent, pluginInstances))
               : <div className="empty-state">{uiText("architecture.components.selectComponent", "请选择组件")}</div>}
           </section>

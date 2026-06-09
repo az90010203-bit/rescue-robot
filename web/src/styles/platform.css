@@ -279,6 +279,12 @@
   background: var(--red-soft);
 }
 
+.device-signal.motion.unreachable {
+  color: var(--red);
+  border-color: rgba(212, 86, 86, 0.22);
+  background: var(--red-soft);
+}
+
 .device-signal.motion.muted {
   color: var(--muted);
   border-color: rgba(60, 60, 67, 0.12);
@@ -820,6 +826,125 @@
   box-shadow: none;
 }
 
+.mecanum-linked-speed-panel,
+.mecanum-wheel-feedback-grid,
+.mecanum-wheel-feedback-item {
+  min-width: 0;
+}
+
+.mecanum-linked-speed-panel {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.mecanum-linked-speed-panel .speed-slider-field {
+  margin-top: 0;
+}
+
+.mecanum-linked-actions {
+  display: flex;
+}
+
+.mecanum-wheel-feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.mecanum-wheel-feedback-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.mecanum-wheel-feedback-head {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mecanum-wheel-feedback-head strong,
+.mecanum-wheel-feedback-head small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mecanum-wheel-feedback-head small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 720;
+}
+
+.mecanum-wheel-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+}
+
+.robot-assembly-inspector,
+.robot-assembly-inspector * {
+  box-sizing: border-box;
+}
+
+.robot-assembly-inspector {
+  overflow: hidden;
+}
+
+.robot-assembly-inspector-stack,
+.robot-assembly-inspector-stack > *,
+.robot-assembly-inspector .plugin-debug-card,
+.robot-assembly-inspector .port-config-panel,
+.robot-assembly-inspector .command-grid,
+.robot-assembly-inspector .preview-grid,
+.robot-assembly-inspector .action-grid {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.robot-assembly-inspector .plugin-debug-card {
+  overflow: hidden;
+}
+
+.robot-assembly-inspector .motor-command-grid,
+.robot-assembly-inspector .preview-grid,
+.robot-assembly-inspector .motor-debug-status-grid,
+.robot-assembly-inspector .firmware-status-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.robot-assembly-inspector .port-config-grid {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.robot-assembly-inspector .command-grid label,
+.robot-assembly-inspector .preview-grid > *,
+.robot-assembly-inspector .port-config-grid label,
+.robot-assembly-inspector .port-config-actions,
+.robot-assembly-inspector .action-grid > * {
+  min-width: 0;
+}
+
+.robot-assembly-inspector .command-grid input,
+.robot-assembly-inspector .command-grid select,
+.robot-assembly-inspector .port-config-grid input,
+.robot-assembly-inspector .speed-slider-field input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.robot-assembly-inspector .icon-button {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+}
+
 .plugin-serial-monitor {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -909,15 +1034,15 @@
   padding: 14px;
 }
 
-.architecture-panel-card[draggable="true"] {
-  cursor: grab;
-}
-
 .architecture-panel-card-head {
   align-items: center;
   display: grid;
   gap: 8px;
   grid-template-columns: auto minmax(0, 1fr);
+}
+
+.architecture-panel-card-head[draggable="true"] {
+  cursor: grab;
 }
 
 .architecture-panel-card-head span {
@@ -1067,13 +1192,16 @@
 
 .robot-assembly-workspace {
   display: grid;
-  grid-template-columns: minmax(190px, 230px) minmax(420px, 1fr) minmax(280px, 340px);
+  grid-template-areas:
+    "palette canvas"
+    "palette inspector";
+  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
 
 .robot-assembly-workspace.palette-collapsed {
-  grid-template-columns: 56px minmax(420px, 1fr) minmax(280px, 340px);
+  grid-template-columns: 56px minmax(0, 1fr);
 }
 
 .robot-assembly-palette,
@@ -1082,6 +1210,19 @@
   min-width: 0;
   display: grid;
   gap: 12px;
+}
+
+.robot-assembly-palette {
+  grid-area: palette;
+  align-self: stretch;
+}
+
+.robot-assembly-canvas-panel {
+  grid-area: canvas;
+}
+
+.robot-assembly-inspector {
+  grid-area: inspector;
 }
 
 .robot-assembly-palette-top {
@@ -1340,6 +1481,12 @@
   stroke: rgba(20, 86, 240, 0.48);
 }
 
+.robot-assembly-motor-block line {
+  stroke: rgba(66, 84, 112, 0.28);
+  stroke-linecap: round;
+  stroke-width: 1.5;
+}
+
 .robot-assembly-motor-block text,
 .robot-assembly-simple-glyph text {
   fill: var(--steel);
@@ -1486,14 +1633,14 @@
   .robot-assembly-workspace.palette-collapsed {
     grid-template-columns: 56px minmax(0, 1fr);
   }
-
-  .robot-assembly-inspector {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 760px) {
   .robot-assembly-workspace {
+    grid-template-areas:
+      "palette"
+      "canvas"
+      "inspector";
     grid-template-columns: 1fr;
   }
 
@@ -1523,11 +1670,11 @@
 }
 
 .robot-assembly-backend .robot-assembly-workspace {
-  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
 }
 
 .robot-assembly-backend .robot-assembly-workspace.palette-collapsed {
-  grid-template-columns: 56px minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: 56px minmax(0, 1fr);
 }
 
 .robot-assembly-backend .robot-assembly-palette,
@@ -1948,11 +2095,12 @@
 }
 
 .robot-program-side {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-auto-rows: auto;
 }
 
 .robot-program-preview,
-.robot-program-issues {
+.robot-program-issues,
+.robot-program-smart-check {
   display: grid;
   gap: 8px;
   border: 1px solid rgba(125, 211, 252, 0.16);
@@ -1968,6 +2116,23 @@
   padding-left: 20px;
   color: #dbeafe;
   font-size: 0.74rem;
+}
+
+.robot-smart-check-issue {
+  display: grid;
+  gap: 3px;
+}
+
+.robot-smart-check-issue strong,
+.robot-smart-check-issue span,
+.robot-smart-check-issue small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.robot-smart-check-issue small {
+  color: currentColor;
+  opacity: 0.78;
 }
 
 .robot-assembly-action-grid {

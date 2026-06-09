@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Code2, Play, Plus, Save, Square, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, Code2, Play, Plus, Save, ShieldCheck, Square, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Blockly from "blockly/core";
@@ -20,6 +20,12 @@ import {
   type RobotProgramBlockSnapshot,
   type RobotProgramCompileResult
 } from "@domains/robot-assembly/robotProgram";
+import {
+  analyzeRobotProgramReadiness,
+  analyzeRobotProgramRunResult,
+  hasBlockingSmartCheckIssue,
+  type SmartCheckIssue
+} from "@domains/robot-assembly/robotProgramSmartCheck";
 
 type ProgramRunState = "idle" | "running" | "done" | "error" | "aborted";
 
@@ -37,11 +43,22 @@ const ROBOT_PROGRAM_TEXT: Record<string, string> = {
   "programs.noIssues": "程序检查通过。",
   "programs.saveFailed": "动作程序保存失败",
   "programs.runLog.start": "运行 {{name}}",
+  "programs.smartCheck.title": "智能检查",
+  "programs.smartCheck.ok": "READY",
+  "programs.smartCheck.ready": "智能检查通过。",
+  "programs.smartCheck.blocked": "智能检查已阻止运行。",
+  "programs.smartCheck.blockedCount": "{{count}} 阻塞",
+  "programs.smartCheck.warningCount": "{{count}} 提示",
+  "programs.smartCheck.runDiagnosis": "运行诊断",
+  "programs.smartCheck.noRunIssues": "本次运行没有诊断项。",
+  "programs.smartCheck.logPrefix": "智能诊断",
+  "programs.smartCheck.inspectLastStep": "查看运行日志中的最后一步，再检查对应设备。",
   "programs.categories.actions": "机器人动作",
   "programs.categories.flow": "流程",
   "programs.blocks.start": "程序开始",
   "programs.blocks.motorSet": "设置电机",
   "programs.blocks.motorStop": "停止电机",
+  "programs.blocks.mecanumDrive": "麦轮底盘",
   "programs.blocks.servoMove": "移动舵机",
   "programs.blocks.armPose": "发送机械臂姿态",
   "programs.blocks.cameraGimbal": "设置云台",
@@ -52,6 +69,10 @@ const ROBOT_PROGRAM_TEXT: Record<string, string> = {
   "programs.blocks.emergencyStop": "紧急停止",
   "programs.fields.ms": "毫秒",
   "programs.fields.speed": "速度",
+  "programs.fields.forward": "前进",
+  "programs.fields.strafe": "横移",
+  "programs.fields.turn": "旋转",
+  "programs.fields.duration": "持续",
   "programs.fields.angle": "角度",
   "programs.fields.acc": "加速度",
   "programs.fields.pan": "水平",
@@ -126,13 +147,27 @@ export function RobotProgramPanel({
   const [compileResult, setCompileResult] = useState<RobotProgramCompileResult>(() => compileRobotProgramFromBlocks(selectedProgram, null, context));
   const [runState, setRunState] = useState<ProgramRunState>("idle");
   const [runLog, setRunLog] = useState<string[]>([]);
+  const [runSmartIssues, setRunSmartIssues] = useState<SmartCheckIssue[]>([]);
   const [saveError, setSaveError] = useState("");
   const workspaceHostRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
   const abortRef = useRef(false);
 
   const blockingWarnings = schematicWarnings.filter((warning) => warning.severity === "error");
-  const runDisabled = blockingWarnings.length > 0 || compileResult.blocked || runState === "running" || !dispatchPlatformCommand;
+  const runtimeState = useMemo(() => createRobotProgramRuntimeState(context, statusContext), [context, statusContext]);
+  const smartReadinessIssues = useMemo(() => analyzeRobotProgramReadiness({
+    workflow: compileResult.workflow,
+    commandCount: compileResult.commandCount,
+    compileIssues: compileResult.issues,
+    schematicWarnings,
+    runtimeState,
+    dispatchAvailable: Boolean(dispatchPlatformCommand),
+    serialConnected: statusContext.connected,
+    timeoutMs: normalizeTimeout(timeoutMs)
+  }), [compileResult, dispatchPlatformCommand, runtimeState, schematicWarnings, statusContext.connected, timeoutMs]);
+  const smartBlockingCount = smartReadinessIssues.filter((issue) => issue.blocksRun).length;
+  const smartBlocksRun = hasBlockingSmartCheckIssue(smartReadinessIssues);
+  const runDisabled = smartBlocksRun || blockingWarnings.length > 0 || compileResult.blocked || runState === "running" || !dispatchPlatformCommand;
 
   useEffect(() => {
     if (!programs.some((program) => program.id === selectedProgramId)) {
@@ -154,6 +189,7 @@ export function RobotProgramPanel({
       start: programText("programs.blocks.start"),
       motorSet: programText("programs.blocks.motorSet"),
       motorStop: programText("programs.blocks.motorStop"),
+      mecanumDrive: programText("programs.blocks.mecanumDrive"),
       servoMove: programText("programs.blocks.servoMove"),
       armPose: programText("programs.blocks.armPose"),
       cameraGimbal: programText("programs.blocks.cameraGimbal"),
@@ -164,6 +200,10 @@ export function RobotProgramPanel({
       emergencyStop: programText("programs.blocks.emergencyStop"),
       ms: programText("programs.fields.ms"),
       speed: programText("programs.fields.speed"),
+      forward: programText("programs.fields.forward"),
+      strafe: programText("programs.fields.strafe"),
+      turn: programText("programs.fields.turn"),
+      duration: programText("programs.fields.duration"),
       angle: programText("programs.fields.angle"),
       acc: programText("programs.fields.acc"),
       pan: programText("programs.fields.pan"),
@@ -245,23 +285,35 @@ export function RobotProgramPanel({
 
   async function runCurrentProgram() {
     const workspace = workspaceRef.current;
-    if (!workspace || !dispatchPlatformCommand) {
-      return;
-    }
-    if (blockingWarnings.length > 0) {
-      setRunState("error");
-      setRunLog([programText("runLog.blockedByErrors"), ...blockingWarnings.map((warning) => compactProgramIds(warning.message))]);
+    if (!workspace) {
       return;
     }
     const result = compileCurrentWorkspace(workspace, selectedProgram, context);
     setCompileResult(result);
-    if (result.blocked) {
+    const currentRuntimeState = createRobotProgramRuntimeState(context, statusContext);
+    const currentReadinessIssues = analyzeRobotProgramReadiness({
+      workflow: result.workflow,
+      commandCount: result.commandCount,
+      compileIssues: result.issues,
+      schematicWarnings,
+      runtimeState: currentRuntimeState,
+      dispatchAvailable: Boolean(dispatchPlatformCommand),
+      serialConnected: statusContext.connected,
+      timeoutMs: normalizeTimeout(timeoutMs)
+    });
+    const blockingSmartIssues = currentReadinessIssues.filter((issue) => issue.blocksRun);
+    if (blockingSmartIssues.length > 0) {
       setRunState("error");
-      setRunLog(result.issues.filter((issue) => issue.severity === "error").map((issue) => programIssueText(issue.message)));
+      setRunSmartIssues([]);
+      setRunLog([programText("programs.smartCheck.blocked"), ...blockingSmartIssues.map((issue) => smartIssueLogLine(issue, programText("programs.smartCheck.logPrefix")))]);
+      return;
+    }
+    if (!dispatchPlatformCommand) {
       return;
     }
     abortRef.current = false;
     setRunState("running");
+    setRunSmartIssues([]);
     setRunLog([programText("programs.runLog.start", { name: programName.trim() || selectedProgram.name })]);
     const timeout = window.setTimeout(() => {
       abortRef.current = true;
@@ -279,8 +331,17 @@ export function RobotProgramPanel({
         wait: (ms) => waitWithAbort(ms, abortRef),
         shouldAbort: () => abortRef.current,
         stopOnCommandFailure: true,
-        state: createRobotProgramRuntimeState(context, statusContext)
+        state: currentRuntimeState
       });
+      const smartRunIssues = analyzeRobotProgramRunResult({
+        workflow: result.workflow,
+        runResult: workflowResult,
+        runtimeState: currentRuntimeState
+      });
+      setRunSmartIssues(smartRunIssues);
+      if (smartRunIssues.length > 0) {
+        setRunLog((current) => [...current, ...smartRunIssues.slice(0, 4).map((issue) => smartIssueLogLine(issue, programText("programs.smartCheck.logPrefix")))]);
+      }
       if (abortRef.current) {
         setRunState("aborted");
         return;
@@ -294,6 +355,14 @@ export function RobotProgramPanel({
       }
     } catch (error) {
       setRunState(abortRef.current ? "aborted" : "error");
+      setRunSmartIssues(abortRef.current ? [] : [{
+        id: "run.exception",
+        severity: "danger",
+        title: programText("runLog.actionFailed"),
+        message: error instanceof Error ? error.message : programText("runLog.actionFailed"),
+        actionHint: programText("programs.smartCheck.inspectLastStep"),
+        blocksRun: false
+      }]);
       setRunLog((current) => [...current, error instanceof Error ? error.message : programText("runLog.actionFailed")]);
     } finally {
       window.clearTimeout(timeout);
@@ -321,6 +390,26 @@ export function RobotProgramPanel({
     abortRef.current = true;
     setRunState("aborted");
     setRunLog((current) => [...current, programText("runLog.manualAbort")]);
+  }
+
+  function smartReadinessSummary() {
+    if (smartBlockingCount > 0) {
+      return programText("programs.smartCheck.blockedCount", { count: smartBlockingCount });
+    }
+    if (smartReadinessIssues.length > 0) {
+      return programText("programs.smartCheck.warningCount", { count: smartReadinessIssues.length });
+    }
+    return programText("programs.smartCheck.ok");
+  }
+
+  function renderSmartIssue(issue: SmartCheckIssue) {
+    return (
+      <p className={`robot-smart-check-issue robot-assembly-warning ${smartIssueClass(issue)}`} key={issue.id} title={issue.message}>
+        <strong>{issue.title}</strong>
+        <span>{compactProgramIds(issue.message)}</span>
+        {issue.actionHint ? <small>{compactProgramIds(issue.actionHint)}</small> : null}
+      </p>
+    );
   }
 
   return (
@@ -360,6 +449,16 @@ export function RobotProgramPanel({
             <div><Activity size={15} /><span>{programText(`runState.${runState}`)}</span></div>
             <pre>{runLog.slice(-9).join("\n")}</pre>
           </div>
+          <div className="robot-program-smart-check">
+            <div className="robot-assembly-panel-head"><span><ShieldCheck size={15} />{programText("programs.smartCheck.title")}</span><small>{smartReadinessSummary()}</small></div>
+            {smartReadinessIssues.length === 0 ? <small className="robot-assembly-muted">{programText("programs.smartCheck.ready")}</small> : null}
+            {smartReadinessIssues.slice(0, 8).map(renderSmartIssue)}
+          </div>
+          <div className="robot-program-smart-check">
+            <div className="robot-assembly-panel-head"><span><Activity size={15} />{programText("programs.smartCheck.runDiagnosis")}</span><small>{runSmartIssues.length}</small></div>
+            {runSmartIssues.length === 0 ? <small className="robot-assembly-muted">{programText("programs.smartCheck.noRunIssues")}</small> : null}
+            {runSmartIssues.slice(0, 6).map(renderSmartIssue)}
+          </div>
           <div className="robot-program-preview">
             <div className="robot-assembly-panel-head"><span><Play size={15} />{programText("programs.preview")}</span><small>{compileResult.commandCount}</small></div>
             {compileResult.previewLines.length === 0 ? <small className="robot-assembly-muted">{programText("programs.noPreview")}</small> : null}
@@ -380,6 +479,14 @@ export function RobotProgramPanel({
 
 function compileCurrentWorkspace(workspace: Blockly.WorkspaceSvg, program: Pick<RobotProgram, "id" | "name">, context: { robot: RobotDefinition; components: ComponentDefinition[]; pluginInstances: PluginInstance[] }) {
   return compileRobotProgramFromBlocks(program, workspaceToSnapshot(workspace), context);
+}
+
+function smartIssueClass(issue: SmartCheckIssue): "error" | "warning" {
+  return issue.severity === "danger" ? "error" : "warning";
+}
+
+function smartIssueLogLine(issue: SmartCheckIssue, prefix: string) {
+  return `${prefix}: ${issue.title} - ${issue.actionHint ?? issue.message}`;
 }
 
 function workspaceToSnapshot(workspace: Blockly.WorkspaceSvg): RobotProgramBlockSnapshot | null {
@@ -433,6 +540,7 @@ function createToolbox(text: (key: string) => string) {
         contents: [
           { kind: "block", type: "robot_motor_set" },
           { kind: "block", type: "robot_motor_stop" },
+          { kind: "block", type: "robot_mecanum_drive" },
           { kind: "block", type: "robot_servo_move" },
           { kind: "block", type: "robot_arm_pose" },
           { kind: "block", type: "robot_camera_gimbal" },
@@ -475,6 +583,20 @@ function defineRobotProgramBlocks(blockly: typeof Blockly, options: RobotProgram
   blockly.Blocks.robot_motor_stop = {
     init(this: Blockly.Block) {
       this.appendDummyInput().appendField(labels.motorStop).appendField(new blockly.FieldDropdown(dropdown(options.motors)), "PLUGIN").appendField(labels.stopMode).appendField(new blockly.FieldDropdown(stopModes), "STOP_MODE");
+      statementBlock(this, 205);
+    }
+  };
+  blockly.Blocks.robot_mecanum_drive = {
+    init(this: Blockly.Block) {
+      this.appendDummyInput().appendField(labels.mecanumDrive).appendField(new blockly.FieldDropdown(dropdown(options.mecanumDrives)), "COMPONENT");
+      this.appendDummyInput()
+        .appendField(labels.forward).appendField(new blockly.FieldNumber(0.5, -1, 1, 0.1), "FORWARD")
+        .appendField(labels.strafe).appendField(new blockly.FieldNumber(0, -1, 1, 0.1), "STRAFE")
+        .appendField(labels.turn).appendField(new blockly.FieldNumber(0, -1, 1, 0.1), "TURN");
+      this.appendDummyInput()
+        .appendField(labels.speed).appendField(new blockly.FieldNumber(60, 0, 100, 1), "SPEED").appendField("%")
+        .appendField(labels.duration).appendField(new blockly.FieldNumber(0, 0, 60000, 100), "DURATION").appendField(labels.ms)
+        .appendField(labels.stopMode).appendField(new blockly.FieldDropdown(stopModes), "STOP_MODE");
       statementBlock(this, 205);
     }
   };

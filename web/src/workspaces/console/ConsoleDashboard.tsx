@@ -363,6 +363,68 @@ export function ConsoleDashboard({
     void persistLayout(updateConsoleDashboardVisibleItems(layoutItemsRef.current, item.id, visibleItemIds));
   }
 
+  function dashboardTargetTitle(
+    panelId: string,
+    targetId: string,
+    target?: ConsoleDashboardTarget,
+    fallbackTitle = ""
+  ): string {
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.telemetry) {
+      return t("console.robotTelemetry");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.attitude) {
+      return t("console.attitude");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.joystick) {
+      return t("dashboard.panelTypes.console.joystick");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.eventLog) {
+      return t("dashboard.panelTypes.console.event-log");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.armSvg && targetId === "robot-arm:main") {
+      return t("dashboard.targets.mainArm");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.cameraFeed) {
+      const sourceId = cameraSourceIdFromDashboardTarget(targetId);
+      const source = cameraVideoSources.find((candidate) => candidate.id === sourceId);
+      const rawTitle = source?.label || target?.title || fallbackTitle;
+      if (sourceId === "main" && (!rawTitle || rawTitle === "Main Camera")) {
+        return t("dashboard.targets.mainCamera");
+      }
+      if (sourceId === "secondary" && (!rawTitle || rawTitle === "Second Camera")) {
+        return t("dashboard.targets.secondaryCamera");
+      }
+      if (rawTitle) {
+        return rawTitle;
+      }
+    }
+    return target?.title || fallbackTitle || t(`dashboard.panelTypes.${panelId}`);
+  }
+
+  function dashboardTargetSubtitle(panelId: string, targetId: string, target?: ConsoleDashboardTarget): string {
+    if (targetId === "dashboard:telemetry") {
+      return t("dashboard.targetMeta.telemetry");
+    }
+    if (targetId === "dashboard:attitude") {
+      return t("dashboard.targetMeta.attitude");
+    }
+    if (targetId === "dashboard:joystick") {
+      return t("dashboard.targetMeta.joystick");
+    }
+    if (targetId === "dashboard:event-log") {
+      return t("dashboard.targetMeta.eventLog");
+    }
+    if (targetId === "robot-arm:main") {
+      return t("dashboard.targetMeta.mainArm");
+    }
+    if (panelId === CONSOLE_DASHBOARD_PANEL_IDS.cameraFeed) {
+      const sourceId = cameraSourceIdFromDashboardTarget(targetId);
+      const source = cameraVideoSources.find((candidate) => candidate.id === sourceId);
+      return source?.streamUrl || target?.subtitle || "";
+    }
+    return target?.subtitle || "";
+  }
+
   function handlePanelPointerDown(event: ReactPointerEvent<HTMLElement>, item: PanelLayoutItem, mode: LayoutPointerMode) {
     if (!editMode || event.button !== 0) {
       return;
@@ -612,7 +674,7 @@ export function ConsoleDashboard({
     const config = normalizeArmConfig(component.config?.armConfig, servos);
     return {
       config,
-      poses: calculateArmSegmentPoses(config.joints, { x: 300, y: 250 }),
+      poses: calculateArmSegmentPoses(config.joints, { x: 300, y: 250 }, config.baseDirectionDeg ?? 0),
       title: component.name
     };
   }
@@ -681,7 +743,7 @@ export function ConsoleDashboard({
             <select data-testid="console-dashboard-target" disabled={availableTargetsForDraft.length === 0} value={selectedDraftTarget?.targetId ?? ""} onChange={(event) => setDraftTargetId(event.target.value)}>
               {availableTargetsForDraft.map((target) => (
                 <option key={target.targetId} value={target.targetId}>
-                  {target.title}
+                  {dashboardTargetTitle(target.panelId, target.targetId, target)}
                 </option>
               ))}
             </select>
@@ -708,6 +770,8 @@ export function ConsoleDashboard({
             {layoutItems.map((item) => {
               const target = targetByKey.get(targetKey(item.panelId, item.targetId));
               const itemConfigurable = consoleDashboardVisibleItemDefinitions(item.panelId).length > 0;
+              const itemTitle = dashboardTargetTitle(item.panelId, item.targetId, target, item.title);
+              const itemSubtitle = dashboardTargetSubtitle(item.panelId, item.targetId, target);
               return (
                 <article className="console-dashboard-card console-card" data-card-size={consoleDashboardCardSize(item)} data-panel-id={item.panelId} data-target-id={item.targetId} key={item.id}>
                   <header className="console-dashboard-card-head" onPointerDown={(event) => handlePanelPointerDown(event, item, "drag")}>
@@ -715,8 +779,8 @@ export function ConsoleDashboard({
                       <GripVertical size={16} aria-hidden="true" />
                     </span>
                     <span className="console-dashboard-card-title">
-                      <strong>{target?.title ?? item.title}</strong>
-                      <small>{target?.subtitle ?? item.targetId}</small>
+                      <strong>{itemTitle}</strong>
+                      {itemSubtitle && <small>{itemSubtitle}</small>}
                     </span>
                     {editMode && (
                       <span className="console-dashboard-card-controls">

@@ -2,7 +2,7 @@ import { AlertTriangle, CircuitBoard, Gauge, RotateCw, Save, Send, Settings, Shi
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import type { AboardBridgeCommandResult } from "@adapters/pi/piAboardBridge";
-import type { InboundMessage, PcCommand } from "@adapters/hardware/protocol";
+import { clamp, servoLogicalSpan, type InboundMessage, type PcCommand } from "@adapters/hardware/protocol";
 import {
   ASMG_MD_DEFAULT_BITRATE_KBPS,
   ASMG_MD_DEFAULT_SERVO_ID,
@@ -11,8 +11,11 @@ import {
   ASMG_MD_POSITION_MIN,
   ASMG_MD_SPEED_MAX,
   ASMG_MD_SPEED_MIN,
+  asmgMdLogicalAngleToPositionRaw,
   type AsmgMdBaudKbps,
   type AsmgMdParsedFrame,
+  asmgMdPositionRawToLogicalDegrees,
+  asmgMdPositionRawToDegrees,
   buildAsmgMdCanConfigCommand,
   buildAsmgMdCanReadCommand,
   buildAsmgMdFactoryResetCommand,
@@ -27,19 +30,39 @@ import {
   buildAsmgMdSetCurrentCommand,
   buildAsmgMdSetIdCommand,
   buildAsmgMdSetPidCommand,
+  normalizeAsmgMdServoProfile,
   parseAsmgMdCanFrame
 } from "@adapters/hardware/asmgMdCanServo";
 import { Metric, PanelTitle, type Tone } from "@shared/ui/AppChrome";
+import {
+  CAN_SERVO_LIVE_FEEDBACK_MAX_AGE_MS,
+  CAN_SERVO_STALL_CHECK_INTERVAL_MS,
+  CAN_SERVO_STALL_CURRENT_RAW,
+  assessCanServoLiveStop,
+  buildCanServoLivePrimeCommands,
+  findLatestCanServoPositionCurrentFeedback,
+  isCanServoLiveFeedbackFresh,
+  normalizeCanServoStallCurrentThreshold,
+  type CanServoLiveFeedback,
+  type CanServoLiveStopReason,
+  type CanServoLiveTarget
+} from "./canServoLiveSafety";
 
 export interface CanServoConfigPatch {
   bitrateKbps?: AsmgMdBaudKbps;
   servoId?: number;
+  minDeg?: number;
+  maxDeg?: number;
+  direction?: 1 | -1;
 }
 
 interface CanServoTestPageProps {
   aBoardBridge: PiAboardBridgeControls;
   host: string;
   initialBitrateKbps?: AsmgMdBaudKbps;
+  initialDirection?: 1 | -1;
+  initialMaxDeg?: number;
+  initialMinDeg?: number;
   initialTargetId?: number;
   nextCommandSeq: () => number;
   onServoConfigChange?: (patch: CanServoConfigPatch) => void | Promise<void>;
@@ -59,9 +82,9 @@ export interface PiAboardBridgeControls {
   start: () => Promise<unknown>;
 }
 
-type CanFrameMessage = Extract<InboundMessage, { type: "can.frame" }>;
-type CanFeedbackMessage = Extract<InboundMessage, { type: "can.feedback" }>;
-type LiveDragStatus = "off" | "ready" | "configuring" | "sending" | "error";
+type CanFrameMessage = Extract<InboundMessage, { type: "can.frame" }> | Extract<InboundMessage, { type: "can_servo.feedback" }>;
+type CanFeedbackMessage = Extract<InboundMessage, { type: "can.feedback" }> | Extract<InboundMessage, { type: "can_servo.feedback" }>;
+type LiveDragStatus = "off" | "priming" | "ready" | "configuring" | "sending" | "stalled" | "error";
 
 interface CanServoExchange {
   label: string;
@@ -77,7 +100,6 @@ interface CanServoExchange {
 const baudOptions: AsmgMdBaudKbps[] = [250, 500, 1000];
 const LIVE_DRAG_INTERVAL_MS = 120;
 const ANGLE_POLL_INTERVAL_MS = 300;
-const ASMG_MD_STEPS_PER_TURN = 4096;
 const ASMG_MD_DEG_MIN = 0;
 const ASMG_MD_DEG_MAX = 360;
 const SPEED_PERCENT_MIN = 0;
@@ -89,6 +111,9 @@ export function CanServoTestPage({
   aBoardBridge,
   host,
   initialBitrateKbps,
+  initialDirection,
+  initialMaxDeg,
+  initialMinDeg,
   initialTargetId,
   nextCommandSeq,
   onServoConfigChange,
@@ -97,6 +122,9 @@ export function CanServoTestPage({
 }: CanServoTestPageProps) {
   const [targetId, setTargetId] = useState(String(initialTargetId ?? ASMG_MD_DEFAULT_SERVO_ID));
   const [bitrateKbps, setBitrateKbps] = useState<AsmgMdBaudKbps>(initialBitrateKbps ?? ASMG_MD_DEFAULT_BITRATE_KBPS);
+  const [minDeg, setMinDeg] = useState(String(initialMinDeg ?? ASMG_MD_DEG_MIN));
+  const [maxDeg, setMaxDeg] = useState(String(initialMaxDeg ?? ASMG_MD_DEG_MAX));
+  const [direction, setDirection] = useState<1 | -1>(initialDirection === -1 ? -1 : 1);
   const [autoConfigure, setAutoConfigure] = useState(true);
   const [positionDeg, setPositionDeg] = useState("360");
   const [speedPercent, setSpeedPercent] = useState("100");
@@ -110,36 +138,64 @@ export function CanServoTestPage({
   const [singleServoConfirmed, setSingleServoConfirmed] = useState(false);
   const [dangerConfirm, setDangerConfirm] = useState("");
   const [liveDragEnabled, setLiveDragEnabled] = useState(false);
+  const [stallProtectionEnabled, setStallProtectionEnabled] = useState(true);
+  const [stallCurrentThreshold, setStallCurrentThreshold] = useState(String(CAN_SERVO_STALL_CURRENT_RAW));
   const [autoReadAngle, setAutoReadAngle] = useState(true);
   const [liveDragStatus, setLiveDragStatus] = useState<LiveDragStatus>("off");
+  const [lastLiveFeedback, setLastLiveFeedback] = useState<CanServoLiveFeedback | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [lastExchange, setLastExchange] = useState<CanServoExchange | null>(null);
   const liveDragEnabledRef = useRef(false);
+  const liveDragStatusRef = useRef<LiveDragStatus>("off");
   const liveMoveInFlightRef = useRef(false);
+  const liveFeedbackReadInFlightRef = useRef(false);
+  const liveSafetyStopInFlightRef = useRef(false);
   const liveMoveTimerRef = useRef<number | null>(null);
   const angleReadInFlightRef = useRef(false);
   const pendingLivePositionRef = useRef<number | null>(null);
+  const lastLiveFeedbackRef = useRef<CanServoLiveFeedback | null>(null);
+  const liveTargetRef = useRef<CanServoLiveTarget | null>(null);
+  const liveFeedbackLossCountRef = useRef(0);
   const liveMoveStateRef = useRef({
     bitrateKbps,
     connected: aBoardBridge.connected,
+    direction,
+    maxDeg,
+    minDeg,
+    stallCurrentThreshold,
+    stallProtectionEnabled,
     speedPercent,
     targetId,
     targetIdIsValid: true
   });
+  const runtimeRef = useRef({ nextCommandSeq, sendAboardBridgeCanServoCommand, t });
 
   const parsedTargetId = parseDecimal(targetId);
   const targetIdIsValid = Number.isInteger(parsedTargetId) && parsedTargetId >= 0 && parsedTargetId <= 253;
+  const canServoProfile = normalizeAsmgMdServoProfile({
+    id: targetIdIsValid ? parsedTargetId : ASMG_MD_DEFAULT_SERVO_ID,
+    name: `ID ${targetIdIsValid ? parsedTargetId : ASMG_MD_DEFAULT_SERVO_ID}`,
+    minDeg: parseDecimalForSlider(minDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX),
+    maxDeg: parseDecimalForSlider(maxDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX),
+    direction,
+    bitrateKbps
+  });
+  const positionLogicalMax = servoLogicalSpan(canServoProfile);
   const dangerousReady = targetIdIsValid && singleServoConfirmed && dangerConfirm.trim() === String(parsedTargetId);
   const commandDisabled = Boolean(busyLabel) || !aBoardBridge.connected;
   const latestFrame = lastExchange?.frames[lastExchange.frames.length - 1];
   const latestParsed = lastExchange?.parsed[lastExchange.parsed.length - 1];
-  const positionSliderValue = parseDecimalForSlider(positionDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX);
+  const positionSliderValue = parseDecimalForSlider(positionDeg, 0, positionLogicalMax);
   const positionSliderLabel = formatDegrees(positionSliderValue);
   const speedSliderValue = parseDecimalForSlider(speedPercent, SPEED_PERCENT_MIN, SPEED_PERCENT_MAX);
   const speedSliderLabel = formatPercent(speedSliderValue);
+  const stallCurrentThresholdValue = normalizeCanServoStallCurrentThreshold(parseDecimal(stallCurrentThreshold));
   const liveDragStatusLabel = t(`canServo.live.${liveDragStatus}`);
   const latestAngleLabel = formatParsedAngle(latestParsed);
+  const liveFeedbackPositionLabel = lastLiveFeedback ? formatPositionValue(lastLiveFeedback.position) : "--";
+  const liveFeedbackCurrentLabel = lastLiveFeedback ? formatRawNumber(lastLiveFeedback.current ?? undefined) : "--";
+  const liveFeedbackAgeLabel = lastLiveFeedback ? `${Math.max(0, Math.round(Date.now() - lastLiveFeedback.atMs))} ms` : "--";
   const lastPosition = useMemo(() => {
     if (!lastExchange) {
       return null;
@@ -161,6 +217,14 @@ export function CanServoTestPage({
   }, [liveDragEnabled]);
 
   useEffect(() => {
+    liveDragStatusRef.current = liveDragStatus;
+  }, [liveDragStatus]);
+
+  useEffect(() => {
+    runtimeRef.current = { nextCommandSeq, sendAboardBridgeCanServoCommand, t };
+  }, [nextCommandSeq, sendAboardBridgeCanServoCommand, t]);
+
+  useEffect(() => {
     const nextId = String(initialTargetId ?? ASMG_MD_DEFAULT_SERVO_ID);
     setTargetId(nextId);
     setNewId(nextId);
@@ -173,14 +237,35 @@ export function CanServoTestPage({
   }, [initialBitrateKbps]);
 
   useEffect(() => {
+    setMinDeg(String(initialMinDeg ?? ASMG_MD_DEG_MIN));
+  }, [initialMinDeg]);
+
+  useEffect(() => {
+    setMaxDeg(String(initialMaxDeg ?? ASMG_MD_DEG_MAX));
+  }, [initialMaxDeg]);
+
+  useEffect(() => {
+    setDirection(initialDirection === -1 ? -1 : 1);
+  }, [initialDirection]);
+
+  useEffect(() => {
+    setPositionDeg((current) => formatNumber(parseDecimalForSlider(current, 0, positionLogicalMax)));
+  }, [positionLogicalMax]);
+
+  useEffect(() => {
     liveMoveStateRef.current = {
       bitrateKbps,
       connected: aBoardBridge.connected,
+      direction,
+      maxDeg,
+      minDeg,
+      stallCurrentThreshold,
+      stallProtectionEnabled,
       speedPercent,
       targetId,
       targetIdIsValid
     };
-  }, [aBoardBridge.connected, bitrateKbps, speedPercent, targetId, targetIdIsValid]);
+  }, [aBoardBridge.connected, bitrateKbps, direction, maxDeg, minDeg, speedPercent, stallCurrentThreshold, stallProtectionEnabled, targetId, targetIdIsValid]);
 
   useEffect(() => {
     if (liveDragEnabled && (!aBoardBridge.connected || !targetIdIsValid)) {
@@ -209,15 +294,15 @@ export function CanServoTestPage({
       angleReadInFlightRef.current = true;
       try {
         const id = parseDecimal(liveMoveStateRef.current.targetId);
-        const command = buildAsmgMdReadPositionCurrentCommand(nextCommandSeq(), id);
-        const result = await sendAboardBridgeCanServoCommand(command, { log: false });
+        const command = buildAsmgMdReadPositionCurrentCommand(runtimeRef.current.nextCommandSeq(), id);
+        const result = await runtimeRef.current.sendAboardBridgeCanServoCommand(command, { log: false });
         if (cancelled || !result) {
           return;
         }
-        updateExchangeFromMessages(t("fields.asmgAngleLive"), [command], result.ok, result.messages);
+        updateExchangeFromMessages(runtimeRef.current.t("fields.asmgAngleLive"), [command], result.ok, result.messages);
       } catch (error) {
         if (!cancelled) {
-          setLocalError(error instanceof Error && error.message ? error.message : t("canServo.errors.commandFailed"));
+          setLocalError(error instanceof Error && error.message ? error.message : runtimeRef.current.t("canServo.errors.commandFailed"));
         }
       } finally {
         angleReadInFlightRef.current = false;
@@ -231,7 +316,20 @@ export function CanServoTestPage({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [aBoardBridge.connected, autoReadAngle, nextCommandSeq, sendAboardBridgeCanServoCommand, t, targetIdIsValid]);
+  }, [aBoardBridge.connected, autoReadAngle, targetIdIsValid]);
+
+  useEffect(() => {
+    if (!liveDragEnabled || !stallProtectionEnabled || !aBoardBridge.connected || !targetIdIsValid) {
+      liveFeedbackReadInFlightRef.current = false;
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void pollLiveSafetyFeedback();
+    }, CAN_SERVO_STALL_CHECK_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [aBoardBridge.connected, liveDragEnabled, stallProtectionEnabled, targetIdIsValid]);
 
   async function runExchange(label: string, commandFactory: () => PcCommand, options: { configureFirst?: boolean; dangerous?: boolean } = {}): Promise<boolean> {
     if (options.dangerous && !dangerousReady) {
@@ -258,8 +356,8 @@ export function CanServoTestPage({
           ok = false;
         }
       }
-      const frames = messages.filter((message): message is CanFrameMessage => message.type === "can.frame");
-      const feedback = messages.filter((message): message is CanFeedbackMessage => message.type === "can.feedback");
+      const frames = messages.filter(isCanServoFrameMessage);
+      const feedback = messages.filter(isCanServoFeedbackMessage);
       const parsed = frames.map(parseAsmgMdCanFrame).filter((frame): frame is AsmgMdParsedFrame => frame !== null);
       setLastExchange({ label, ok, atMs: Date.now(), commands, messages, frames, feedback, parsed });
       const errorMessage = messages.find((message): message is Extract<InboundMessage, { type: "error" }> => message.type === "error")?.message;
@@ -299,6 +397,30 @@ export function CanServoTestPage({
     await onServoConfigChange?.({ bitrateKbps: newBaudKbps });
   }
 
+  async function saveLogicalAngleConfig() {
+    setBusyLabel(t("architecture.actions.saveLimits"));
+    setLocalError(null);
+    try {
+      const nextMinDeg = readDecimalRange(minDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX, t("fields.minAngle"));
+      const nextMaxDeg = readDecimalRange(maxDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX, t("fields.maxAngle"));
+      if (nextMinDeg >= nextMaxDeg) {
+        setLocalError("Min angle must be smaller than max angle.");
+        return;
+      }
+      await onServoConfigChange?.({
+        minDeg: nextMinDeg,
+        maxDeg: nextMaxDeg,
+        direction
+      });
+      setMinDeg(String(nextMinDeg));
+      setMaxDeg(String(nextMaxDeg));
+    } catch (error) {
+      setLocalError(error instanceof Error && error.message ? error.message : t("canServo.errors.commandFailed"));
+    } finally {
+      setBusyLabel(null);
+    }
+  }
+
   function readTargetId() {
     const id = parseDecimal(targetId);
     if (!Number.isInteger(id) || id < 0 || id > 253) {
@@ -316,10 +438,131 @@ export function CanServoTestPage({
   }
 
   function updateExchangeFromMessages(label: string, commands: PcCommand[], ok: boolean, messages: InboundMessage[]) {
-    const frames = messages.filter((message): message is CanFrameMessage => message.type === "can.frame");
-    const feedback = messages.filter((message): message is CanFeedbackMessage => message.type === "can.feedback");
+    const frames = messages.filter(isCanServoFrameMessage);
+    const feedback = messages.filter(isCanServoFeedbackMessage);
     const parsed = frames.map(parseAsmgMdCanFrame).filter((frame): frame is AsmgMdParsedFrame => frame !== null);
-    setLastExchange({ label, ok, atMs: Date.now(), commands, messages, frames, feedback, parsed });
+    const atMs = Date.now();
+    setLastExchange({ label, ok, atMs, commands, messages, frames, feedback, parsed });
+    const id = parseDecimal(liveMoveStateRef.current.targetId);
+    if (Number.isInteger(id)) {
+      const liveFeedback = findLatestCanServoPositionCurrentFeedback(parsed, id, atMs);
+      if (liveFeedback) {
+        syncLiveFeedback(liveFeedback);
+      }
+    }
+  }
+
+  function setLiveStatus(status: LiveDragStatus) {
+    liveDragStatusRef.current = status;
+    setLiveDragStatus(status);
+  }
+
+  function syncLiveFeedback(feedback: CanServoLiveFeedback) {
+    lastLiveFeedbackRef.current = feedback;
+    setLastLiveFeedback(feedback);
+  }
+
+  function failLiveDrag(message: string) {
+    setLiveDragEnabled(false);
+    liveDragEnabledRef.current = false;
+    pendingLivePositionRef.current = null;
+    liveTargetRef.current = null;
+    liveFeedbackLossCountRef.current = 0;
+    if (liveMoveTimerRef.current !== null) {
+      window.clearTimeout(liveMoveTimerRef.current);
+      liveMoveTimerRef.current = null;
+    }
+    setLiveStatus("error");
+    setLocalError(message);
+  }
+
+  async function pollLiveSafetyFeedback() {
+    if (
+      !liveDragEnabledRef.current ||
+      !liveMoveStateRef.current.connected ||
+      !liveMoveStateRef.current.targetIdIsValid ||
+      liveFeedbackReadInFlightRef.current ||
+      liveSafetyStopInFlightRef.current ||
+      liveTargetRef.current === null
+    ) {
+      return;
+    }
+    const state = liveMoveStateRef.current;
+    const id = parseDecimal(state.targetId);
+    if (!Number.isInteger(id)) {
+      return;
+    }
+    liveFeedbackReadInFlightRef.current = true;
+    const command = buildAsmgMdReadPositionCurrentCommand(nextCommandSeq(), id);
+    try {
+      const result = await sendAboardBridgeCanServoCommand(command, { log: false });
+      const messages = result?.messages ?? [];
+      const ok = Boolean(result?.ok) && !messages.some((message) => message.type === "error");
+      updateExchangeFromMessages(t("fields.asmgLiveFeedback"), [command], ok, messages);
+      const frames = messages.filter(isCanServoFrameMessage);
+      const parsed = frames.map(parseAsmgMdCanFrame).filter((frame): frame is AsmgMdParsedFrame => frame !== null);
+      const feedback = ok ? findLatestCanServoPositionCurrentFeedback(parsed, id, Date.now()) : null;
+      if (!feedback) {
+        liveFeedbackLossCountRef.current += 1;
+        await stopIfLiveProtectionTriggered(null);
+        return;
+      }
+      syncLiveFeedback(feedback);
+      liveFeedbackLossCountRef.current = 0;
+      await stopIfLiveProtectionTriggered(feedback);
+    } catch {
+      liveFeedbackLossCountRef.current += 1;
+      await stopIfLiveProtectionTriggered(null);
+    } finally {
+      liveFeedbackReadInFlightRef.current = false;
+    }
+  }
+
+  async function stopIfLiveProtectionTriggered(feedback: CanServoLiveFeedback | null) {
+    const state = liveMoveStateRef.current;
+    const assessment = assessCanServoLiveStop({
+      protectionEnabled: state.stallProtectionEnabled,
+      target: liveTargetRef.current,
+      latestFeedback: feedback,
+      lostFeedbackCount: liveFeedbackLossCountRef.current,
+      nowMs: Date.now(),
+      currentThreshold: normalizeCanServoStallCurrentThreshold(parseDecimal(state.stallCurrentThreshold))
+    });
+    if (!assessment.shouldStop || assessment.reason === "none") {
+      return;
+    }
+    await stopLiveForSafety(assessment.reason);
+  }
+
+  async function stopLiveForSafety(reason: Exclude<CanServoLiveStopReason, "none">) {
+    if (liveSafetyStopInFlightRef.current) {
+      return;
+    }
+    liveSafetyStopInFlightRef.current = true;
+    const feedback = lastLiveFeedbackRef.current;
+    pendingLivePositionRef.current = null;
+    liveTargetRef.current = null;
+    liveFeedbackLossCountRef.current = 0;
+    if (liveMoveTimerRef.current !== null) {
+      window.clearTimeout(liveMoveTimerRef.current);
+      liveMoveTimerRef.current = null;
+    }
+    setLiveDragEnabled(false);
+    liveDragEnabledRef.current = false;
+    setLiveStatus("stalled");
+    setLocalError(reason === "feedback-lost" ? t("canServo.errors.liveFeedbackLost") : t("canServo.errors.liveStalled"));
+    try {
+      if (feedback) {
+        const command = buildAsmgMdMoveCommand(nextCommandSeq(), { id: feedback.servoId, position: feedback.position, speed: 0 });
+        const result = await sendAboardBridgeCanServoCommand(command, { log: false });
+        updateExchangeFromMessages(t("actions.asmgHoldPosition"), [command], Boolean(result?.ok), result?.messages ?? []);
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : t("canServo.errors.commandFailed");
+      setLocalError(message);
+    } finally {
+      liveSafetyStopInFlightRef.current = false;
+    }
   }
 
   async function updateLiveDragEnabled(checked: boolean) {
@@ -332,24 +575,57 @@ export function CanServoTestPage({
       setLiveDragStatus("error");
       return;
     }
+    const id = readTargetId();
     setLiveDragEnabled(true);
     liveDragEnabledRef.current = true;
-    setLiveDragStatus("ready");
+    liveFeedbackLossCountRef.current = 0;
+    liveTargetRef.current = null;
+    pendingLivePositionRef.current = null;
+    setLiveStatus(autoConfigure ? "configuring" : "priming");
     setLocalError(null);
-    if (autoConfigure) {
-      liveMoveInFlightRef.current = true;
-      setLiveDragStatus("configuring");
-      const result = await sendAboardBridgeCanServoCommand(buildAsmgMdCanConfigCommand(nextCommandSeq(), bitrateKbps), { log: false });
-      liveMoveInFlightRef.current = false;
-      if (!result || !result.ok || result.messages.some((message) => message.type === "error")) {
-        setLiveDragStatus("error");
-        setLocalError(t("canServo.errors.commandFailed"));
+    liveMoveInFlightRef.current = true;
+    const commands = buildCanServoLivePrimeCommands(nextCommandSeq, { autoConfigure, bitrateKbps, servoId: id });
+    const messages: InboundMessage[] = [];
+    let ok = true;
+    try {
+      for (const command of commands) {
+        if (!liveDragEnabledRef.current) {
+          return;
+        }
+        if (command.type === "can_servo.read") {
+          setLiveStatus("priming");
+        }
+        const result = await sendAboardBridgeCanServoCommand(command, { log: false });
+        if (!result) {
+          ok = false;
+          break;
+        }
+        messages.push(...result.messages);
+        if (!result.ok || result.messages.some((message) => message.type === "error")) {
+          ok = false;
+        }
+      }
+      const atMs = Date.now();
+      const frames = messages.filter(isCanServoFrameMessage);
+      const feedback = messages.filter(isCanServoFeedbackMessage);
+      const parsed = frames.map(parseAsmgMdCanFrame).filter((frame): frame is AsmgMdParsedFrame => frame !== null);
+      setLastExchange({ label: t("fields.asmgLivePrime"), ok, atMs, commands, messages, frames, feedback, parsed });
+      const liveFeedback = findLatestCanServoPositionCurrentFeedback(parsed, id, atMs);
+      if (!ok || !liveFeedback) {
+        failLiveDrag(t("canServo.errors.livePrimeFailed"));
         return;
       }
-      setLiveDragStatus("ready");
+      syncLiveFeedback(liveFeedback);
+      setPositionDeg(formatNumber(asmgMdPositionRawToLogicalDegrees(canServoProfile, liveFeedback.position)));
+      setLiveStatus("ready");
       if (pendingLivePositionRef.current !== null) {
         scheduleLiveDragFlush();
       }
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : t("canServo.errors.livePrimeFailed");
+      failLiveDrag(message);
+    } finally {
+      liveMoveInFlightRef.current = false;
     }
   }
 
@@ -357,18 +633,23 @@ export function CanServoTestPage({
     setLiveDragEnabled(false);
     liveDragEnabledRef.current = false;
     pendingLivePositionRef.current = null;
+    liveTargetRef.current = null;
+    liveFeedbackLossCountRef.current = 0;
     if (liveMoveTimerRef.current !== null) {
       window.clearTimeout(liveMoveTimerRef.current);
       liveMoveTimerRef.current = null;
     }
-    setLiveDragStatus("off");
+    setLiveStatus("off");
+    setLocalError(null);
   }
 
   function updatePositionFromSlider(value: number) {
     setPositionDeg(formatNumber(value));
     if (liveDragEnabledRef.current) {
-      pendingLivePositionRef.current = degreesToPositionRaw(value);
-      scheduleLiveDragFlush();
+      pendingLivePositionRef.current = asmgMdLogicalAngleToPositionRaw(canServoProfile, value);
+      if (liveDragStatusRef.current === "ready") {
+        scheduleLiveDragFlush();
+      }
     }
   }
 
@@ -394,6 +675,10 @@ export function CanServoTestPage({
       scheduleLiveDragFlush();
       return;
     }
+    if (liveDragStatusRef.current !== "ready") {
+      pendingLivePositionRef.current = null;
+      return;
+    }
     const position = pendingLivePositionRef.current;
     pendingLivePositionRef.current = null;
     if (position === null) {
@@ -401,21 +686,31 @@ export function CanServoTestPage({
     }
     const state = liveMoveStateRef.current;
     if (!state.connected || !state.targetIdIsValid) {
-      setLiveDragStatus("error");
+      setLiveStatus("error");
       setLocalError(t("canServo.errors.liveUnavailable"));
       return;
     }
+    const id = parseDecimal(state.targetId);
+    if (!Number.isInteger(id)) {
+      failLiveDrag(t("canServo.errors.liveUnavailable"));
+      return;
+    }
+    const nowMs = Date.now();
+    const baseline = lastLiveFeedbackRef.current;
+    if (!baseline || baseline.servoId !== id || !isCanServoLiveFeedbackFresh(baseline, nowMs, CAN_SERVO_LIVE_FEEDBACK_MAX_AGE_MS)) {
+      failLiveDrag(t("canServo.errors.liveFeedbackStale"));
+      return;
+    }
     liveMoveInFlightRef.current = true;
-    setLiveDragStatus("sending");
+    setLiveStatus("sending");
     setLocalError(null);
     try {
-      const id = parseDecimal(state.targetId);
       const speed = speedPercentToRaw(readDecimalRange(state.speedPercent, SPEED_PERCENT_MIN, SPEED_PERCENT_MAX, t("fields.asmgSpeed")));
       const command = buildAsmgMdMoveCommand(nextCommandSeq(), { id, position, speed });
       const result = await sendAboardBridgeCanServoCommand(command, { log: false });
       const messages = result?.messages ?? [];
-      const frames = messages.filter((message): message is CanFrameMessage => message.type === "can.frame");
-      const feedback = messages.filter((message): message is CanFeedbackMessage => message.type === "can.feedback");
+      const frames = messages.filter(isCanServoFrameMessage);
+      const feedback = messages.filter(isCanServoFeedbackMessage);
       const parsed = frames.map(parseAsmgMdCanFrame).filter((frame): frame is AsmgMdParsedFrame => frame !== null);
       const ok = Boolean(result?.ok) && !messages.some((message) => message.type === "error");
       setLastExchange({ label: t("fields.asmgLiveDrag"), ok, atMs: Date.now(), commands: [command], messages, frames, feedback, parsed });
@@ -423,11 +718,19 @@ export function CanServoTestPage({
       if (commandError) {
         setLocalError(commandError.message);
       }
-      setLiveDragStatus(ok ? "ready" : "error");
+      if (ok && baseline) {
+        liveTargetRef.current = {
+          targetPosition: position,
+          commandAtMs: Date.now(),
+          baselinePosition: baseline.position
+        };
+        liveFeedbackLossCountRef.current = 0;
+      }
+      setLiveStatus(ok ? "ready" : "error");
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : t("canServo.errors.commandFailed");
       setLocalError(message);
-      setLiveDragStatus("error");
+      setLiveStatus("error");
     } finally {
       liveMoveInFlightRef.current = false;
       if (liveDragEnabledRef.current && pendingLivePositionRef.current !== null) {
@@ -438,7 +741,7 @@ export function CanServoTestPage({
 
   const canHoldPosition = lastPosition !== null && targetIdIsValid && !commandDisabled;
   const lastCommandHex = lastExchange?.commands.map(formatPcCommand).join(" | ") ?? "--";
-  const lastRawFrame = latestFrame ? `${formatCanId(latestFrame.id)} ${latestFrame.dataHex ?? "--"}` : "--";
+  const lastRawFrame = latestFrame ? formatCanServoFrame(latestFrame) : "--";
   const lastParsedLabel = latestParsed ? describeParsedFrame(latestParsed, t) : "--";
   const lastUpdateLabel = lastExchange ? new Date(lastExchange.atMs).toLocaleTimeString() : "--";
   const frameCount = lastExchange ? `${lastExchange.frames.length} / ${lastExchange.messages.length}` : "--";
@@ -504,6 +807,21 @@ export function CanServoTestPage({
                 </select>
               </label>
               <label>
+                <span>{t("fields.minAngle")}</span>
+                <input value={minDeg} onChange={(event) => setMinDeg(event.target.value)} inputMode="decimal" />
+              </label>
+              <label>
+                <span>{t("fields.maxAngle")}</span>
+                <input value={maxDeg} onChange={(event) => setMaxDeg(event.target.value)} inputMode="decimal" />
+              </label>
+              <label>
+                <span>{t("fields.reverseRotation")}</span>
+                <select value={direction} onChange={(event) => setDirection(Number(event.target.value) === -1 ? -1 : 1)}>
+                  <option value={1}>Normal</option>
+                  <option value={-1}>Reverse</option>
+                </select>
+              </label>
+              <label>
                 <span>{t("fields.asmgPosition")}</span>
                 <input value={positionDeg} onChange={(event) => setPositionDeg(event.target.value)} inputMode="decimal" />
               </label>
@@ -519,7 +837,7 @@ export function CanServoTestPage({
                 <input
                   type="checkbox"
                   checked={liveDragEnabled}
-                  disabled={!aBoardBridge.connected || !targetIdIsValid || liveDragStatus === "configuring"}
+                  disabled={!aBoardBridge.connected || !targetIdIsValid || liveDragStatus === "configuring" || liveDragStatus === "priming" || liveDragStatus === "sending"}
                   onChange={(event) => void updateLiveDragEnabled(event.target.checked)}
                 />
                 <span>{t("fields.asmgLiveDrag")}</span>
@@ -533,6 +851,19 @@ export function CanServoTestPage({
                 />
                 <span>{t("fields.asmgAngleLive")}</span>
               </label>
+              <label className="can-servo-checkbox">
+                <input type="checkbox" checked={stallProtectionEnabled} onChange={(event) => setStallProtectionEnabled(event.target.checked)} />
+                <span>{t("fields.asmgStallProtection")}</span>
+              </label>
+              <label>
+                <span>{t("fields.asmgStallCurrent")}</span>
+                <input
+                  value={stallCurrentThreshold}
+                  onChange={(event) => setStallCurrentThreshold(event.target.value)}
+                  onBlur={() => setStallCurrentThreshold(String(stallCurrentThresholdValue))}
+                  inputMode="numeric"
+                />
+              </label>
             </div>
             <div className="can-servo-slider-card">
               <div className="can-servo-slider-head">
@@ -542,16 +873,21 @@ export function CanServoTestPage({
               </div>
               <input
                 aria-label={t("fields.asmgPositionSlider")}
-                max={ASMG_MD_DEG_MAX}
-                min={ASMG_MD_DEG_MIN}
+                max={positionLogicalMax}
+                min={0}
                 onChange={(event) => updatePositionFromSlider(Number(event.target.value))}
                 step={0.1}
                 type="range"
                 value={positionSliderValue}
               />
               <div className="can-servo-slider-scale">
-                <span>{formatDegrees(ASMG_MD_DEG_MIN)}</span>
-                <span>{formatDegrees(ASMG_MD_DEG_MAX)}</span>
+                <span>{formatDegrees(0)}</span>
+                <span>{formatDegrees(positionLogicalMax)}</span>
+              </div>
+              <div className="can-servo-live-feedback">
+                <span><strong>{t("fields.asmgLivePosition")}</strong><code>{liveFeedbackPositionLabel}</code></span>
+                <span><strong>{t("fields.asmgLiveCurrent")}</strong><code>{liveFeedbackCurrentLabel}</code></span>
+                <span><strong>{t("fields.asmgLiveFeedbackAge")}</strong><code>{liveFeedbackAgeLabel}</code></span>
               </div>
             </div>
             <div className="can-servo-slider-card">
@@ -574,6 +910,10 @@ export function CanServoTestPage({
               </div>
             </div>
             <div className="action-grid port-config-actions">
+              <button className="icon-button" disabled={Boolean(busyLabel)} onClick={() => void saveLogicalAngleConfig()} type="button">
+                <Save size={18} />
+                <span>{t("architecture.actions.saveLimits")}</span>
+              </button>
               <button className="icon-button" disabled={commandDisabled} onClick={() => void runExchange(t("actions.configureCan"), () => buildAsmgMdCanConfigCommand(nextCommandSeq(), bitrateKbps))} type="button">
                 <Settings size={18} />
                 <span>{t("actions.configureCan")}</span>
@@ -587,7 +927,7 @@ export function CanServoTestPage({
                     () =>
                       buildAsmgMdMoveCommand(nextCommandSeq(), {
                         id: readTargetId(),
-                        position: degreesToPositionRaw(readDecimalRange(positionDeg, ASMG_MD_DEG_MIN, ASMG_MD_DEG_MAX, t("fields.asmgPosition"))),
+                        position: asmgMdLogicalAngleToPositionRaw(canServoProfile, readDecimalRange(positionDeg, 0, positionLogicalMax, t("fields.asmgPosition"))),
                         speed: speedPercentToRaw(readDecimalRange(speedPercent, SPEED_PERCENT_MIN, SPEED_PERCENT_MAX, t("fields.asmgSpeed")))
                       }),
                     { configureFirst: autoConfigure }
@@ -782,18 +1122,6 @@ function parseDecimalForSlider(value: string, min: number, max: number): number 
   return Math.min(max, Math.max(min, parsed));
 }
 
-function degreesToPositionRaw(degrees: number): number {
-  const bounded = Math.min(ASMG_MD_DEG_MAX, Math.max(ASMG_MD_DEG_MIN, degrees));
-  const raw = Math.round((bounded / ASMG_MD_DEG_MAX) * ASMG_MD_STEPS_PER_TURN);
-  return Math.min(ASMG_MD_POSITION_MAX, Math.max(ASMG_MD_POSITION_MIN, raw));
-}
-
-function positionRawToDegrees(raw: number): number {
-  const normalized = raw % ASMG_MD_STEPS_PER_TURN;
-  const steps = raw > 0 && normalized === 0 ? ASMG_MD_STEPS_PER_TURN : normalized;
-  return (steps / ASMG_MD_STEPS_PER_TURN) * ASMG_MD_DEG_MAX;
-}
-
 function speedPercentToRaw(percent: number): number {
   const bounded = Math.min(SPEED_PERCENT_MAX, Math.max(SPEED_PERCENT_MIN, percent));
   const raw = Math.round(((SPEED_PERCENT_MAX - bounded) / SPEED_PERCENT_MAX) * ASMG_MD_SPEED_MAX);
@@ -822,6 +1150,21 @@ function formatPercent(value: number): string {
   return `${formatNumber(value)}%`;
 }
 
+function isCanServoFrameMessage(message: InboundMessage): message is CanFrameMessage {
+  return message.type === "can.frame" || message.type === "can_servo.feedback";
+}
+
+function isCanServoFeedbackMessage(message: InboundMessage): message is CanFeedbackMessage {
+  return message.type === "can.feedback" || message.type === "can_servo.feedback";
+}
+
+function formatCanServoFrame(frame: CanFrameMessage): string {
+  if (frame.type === "can_servo.feedback") {
+    return `${formatCanId(ASMG_MD_HOST_EXTENDED_ID)} ${frame.rawDataHex ?? frame.dataHex ?? "--"}`;
+  }
+  return `${formatCanId(frame.id)} ${frame.dataHex ?? "--"}`;
+}
+
 function formatCanId(id: number): string {
   return `0x${id.toString(16).toUpperCase().padStart(8, "0")}`;
 }
@@ -831,11 +1174,7 @@ function formatHexWord(value: number): string {
 }
 
 function formatPcCommand(command: PcCommand): string {
-  if (command.type !== "can.send") {
-    return JSON.stringify(command);
-  }
-  const bytes = [command.b0, command.b1, command.b2, command.b3, command.b4, command.b5, command.b6, command.b7] as number[];
-  return `${formatCanId(Number(command.id))} ${bytes.map((byte) => byte.toString(16).toUpperCase().padStart(2, "0")).join(" ")}`;
+  return JSON.stringify(command);
 }
 
 function describeParsedFrame(frame: AsmgMdParsedFrame, t: TFunction): string {
@@ -890,7 +1229,7 @@ function formatPositionValue(value: number | undefined): string {
   if (typeof value !== "number") {
     return "--";
   }
-  return `${formatDegrees(positionRawToDegrees(value))} (${formatHexWord(value)})`;
+  return `${formatDegrees(asmgMdPositionRawToDegrees(value))} (${formatHexWord(value)})`;
 }
 
 function formatSpeedValue(value: number | undefined): string {

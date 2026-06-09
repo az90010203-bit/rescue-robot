@@ -24,6 +24,8 @@ import {
   type ServoCommandStateMap
 } from "@app/appModel";
 
+const SERVO_LINKAGE_LIVE_COMMAND_DELAY_MS = 120;
+
 interface UseServoLinkageRuntimeOptions {
   armConfig: { joints: Array<{ servoId: number }> };
   cancelArmLiveMove: () => void;
@@ -40,7 +42,7 @@ interface UseServoLinkageRuntimeOptions {
   sendServoLinkageGroup: (group: ServoLinkageGroup, live?: boolean) => Promise<void>;
   servoLinkageGroups: ServoLinkageGroup[];
   servoLinkageGroupsRef: { current: ServoLinkageGroup[] };
-  servoSmoothingEnabled: boolean;
+  servoSerialQueueBusy: () => boolean;
   servos: ServoProfile[];
   setExpandedServoLinkageGroupIds: (updater: (current: Set<string>) => Set<string>) => void;
   setLinkageWheelDirectionByGroup: (updater: (current: Record<string, ServoLinkageWheelDirection | "paused">) => Record<string, ServoLinkageWheelDirection | "paused">) => void;
@@ -64,7 +66,7 @@ export function useServoLinkageRuntime({
   sendServoLinkageGroup,
   servoLinkageGroups,
   servoLinkageGroupsRef,
-  servoSmoothingEnabled,
+  servoSerialQueueBusy,
   servos,
   setExpandedServoLinkageGroupIds,
   setLinkageWheelDirectionByGroup,
@@ -89,7 +91,7 @@ export function useServoLinkageRuntime({
         next[target.servoId] = {
           ...currentState,
           mode: "position",
-          speedRaw: Number.isFinite(target.speedRaw) && target.speedRaw >= 0 ? String(target.speedRaw) : Number.isFinite(speedValue) && speedValue >= 0 ? currentState.speedRaw : "800",
+          speedRaw: Number.isFinite(target.speedRaw) && target.speedRaw >= 0 ? String(target.speedRaw) : Number.isFinite(speedValue) && speedValue >= 0 ? currentState.speedRaw : "300",
           acc: String(target.acc),
           reverse: target.reverse,
           angleDeg: formatServoAngle(target.logicalAngleDeg)
@@ -339,7 +341,7 @@ export function useServoLinkageRuntime({
     linkageLiveTimerRef.current[group.id] = window.setTimeout(() => {
       delete linkageLiveTimerRef.current[group.id];
       void flushServoLinkageMove(group.id);
-    }, 60);
+    }, SERVO_LINKAGE_LIVE_COMMAND_DELAY_MS);
   }
 
   async function flushServoLinkageMove(id: string) {
@@ -348,26 +350,30 @@ export function useServoLinkageRuntime({
     }
 
     const pending = pendingLinkageMoveRef.current[id];
-    delete pendingLinkageMoveRef.current[id];
     const currentGroup = servoLinkageGroupsRef.current.find((group) => group.id === id);
     if (!pending || !currentGroup?.enabled) {
+      delete pendingLinkageMoveRef.current[id];
       return;
     }
+    if (servoSerialQueueBusy()) {
+      linkageLiveTimerRef.current[id] = window.setTimeout(() => {
+        delete linkageLiveTimerRef.current[id];
+        void flushServoLinkageMove(id);
+      }, SERVO_LINKAGE_LIVE_COMMAND_DELAY_MS);
+      return;
+    }
+    delete pendingLinkageMoveRef.current[id];
 
     linkageLiveSendingRef.current[id] = true;
     try {
-      if (servoSmoothingEnabled) {
-        void sendServoLinkageGroup(currentGroup, true);
-      } else {
-        await sendServoLinkageGroup(currentGroup, true);
-      }
+      await sendServoLinkageGroup(currentGroup, true);
     } finally {
       linkageLiveSendingRef.current[id] = false;
       if (pendingLinkageMoveRef.current[id] && linkageLiveTimerRef.current[id] === undefined) {
         linkageLiveTimerRef.current[id] = window.setTimeout(() => {
           delete linkageLiveTimerRef.current[id];
           void flushServoLinkageMove(id);
-        }, 60);
+        }, SERVO_LINKAGE_LIVE_COMMAND_DELAY_MS);
       }
     }
   }

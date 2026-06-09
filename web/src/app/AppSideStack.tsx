@@ -1,5 +1,6 @@
 import { LogPanel } from "@shared/ui/AppChrome";
 import { FeedbackPanel } from "@app/FeedbackPanel";
+import { DiagnosticAgentPanel } from "@domains/diagnostic-agent/DiagnosticAgentPanel";
 import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
 interface AppSideStackProps {
@@ -17,6 +18,7 @@ export function AppSideStack({ ctx }: AppSideStackProps) {
     cameraStreamUrl,
     cameraValidationError,
     connected,
+    diagnosticAgent,
     driveCanCommand,
     driveInput,
     formatDirectionLabel,
@@ -37,6 +39,8 @@ export function AppSideStack({ ctx }: AppSideStackProps) {
               {renderPlatformPanel("state")}
     
               {renderPlatformPanel("control")}
+
+              <DiagnosticAgentPanel runtime={diagnosticAgent} t={t} />
     
               <FeedbackPanel
                 activeGamepad={activeGamepad}

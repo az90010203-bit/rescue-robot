@@ -5,12 +5,15 @@ import {
   armJointLocalEndDirectionDeg,
   armJointShapeSegments,
   calculateArmDragAngle,
+  DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   normalizeArmConfig,
   type ArmConfig,
   type ArmJointConfig,
   type ArmSegmentPose
 } from "@adapters/persistence/storage";
 import { clamp, normalizeServoProfile, servoLogicalSpan, type ServoProfile } from "@adapters/hardware/protocol";
+
+const ARM_LIVE_COMMAND_DELAY_MS = 180;
 
 interface UseArmRuntimeOptions {
   addSystemLog: (messageKey: string, level?: any, values?: any) => void;
@@ -21,9 +24,10 @@ interface UseArmRuntimeOptions {
   cancelArmLiveMove: () => void;
   draggingArmJointIdRef: { current: string | null };
   pendingArmConfigRef: { current: ArmConfig | null };
+  prepareServoPositionMode: (servo: ServoProfile, options?: { logFrame?: boolean; waitMs?: number }) => Promise<unknown>;
   runArmPositionMotion: (config: ArmConfig, live?: boolean) => Promise<unknown>;
-  servoBusReady: boolean;
-  servoSmoothingEnabled: boolean;
+  servoBusConnected: () => boolean;
+  servoSerialQueueBusy: () => boolean;
   servos: ServoProfile[];
   setArmConfig: (value: ArmConfig | ((current: ArmConfig) => ArmConfig)) => void;
 }
@@ -37,9 +41,10 @@ export function useArmRuntime({
   cancelArmLiveMove,
   draggingArmJointIdRef,
   pendingArmConfigRef,
+  prepareServoPositionMode,
   runArmPositionMotion,
-  servoBusReady,
-  servoSmoothingEnabled,
+  servoBusConnected,
+  servoSerialQueueBusy,
   servos,
   setArmConfig
 }: UseArmRuntimeOptions) {
@@ -55,6 +60,10 @@ export function useArmRuntime({
 
   function armServoForJoint(joint: ArmJointConfig) {
     return servos.find((servo) => servo.id === joint.servoId);
+  }
+
+  function applyArmConfig(config: ArmConfig, live = false) {
+    updateArmConfigState((current) => ({ ...config, liveDragEnabled: current.liveDragEnabled }), live);
   }
 
   function nextArmJointName(joints: ArmJointConfig[]) {
@@ -86,7 +95,7 @@ export function useArmRuntime({
       lengthPx: 88,
       angleDeg: neutralDeg,
       neutralDeg,
-      speedRaw: 800,
+      speedRaw: DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
       acc: 30,
       reverse: false,
       enabled: true,
@@ -181,12 +190,19 @@ export function useArmRuntime({
   function setArmLiveDragEnabled(enabled: boolean) {
     if (!enabled) {
       cancelArmLiveMove();
+    } else if (servoBusConnected()) {
+      const enabledServoIds = new Set(armConfig.joints.filter((joint) => joint.enabled).map((joint) => joint.servoId));
+      for (const servo of servos) {
+        if (enabledServoIds.has(servo.id)) {
+          void prepareServoPositionMode(servo, { waitMs: 40, logFrame: false });
+        }
+      }
     }
     updateArmConfigState((current) => ({ ...current, liveDragEnabled: enabled }));
   }
 
   function scheduleArmLiveMove(config: ArmConfig) {
-    if (!config.liveDragEnabled || !servoBusReady) {
+    if (!config.liveDragEnabled || !servoBusConnected()) {
       return;
     }
     pendingArmConfigRef.current = config;
@@ -196,7 +212,7 @@ export function useArmRuntime({
     armLiveTimerRef.current = window.setTimeout(() => {
       armLiveTimerRef.current = undefined;
       void flushArmLiveMove();
-    }, 60);
+    }, ARM_LIVE_COMMAND_DELAY_MS);
   }
 
   async function flushArmLiveMove() {
@@ -204,18 +220,22 @@ export function useArmRuntime({
       return;
     }
     const pending = pendingArmConfigRef.current;
-    pendingArmConfigRef.current = null;
-    if (!pending || !pending.liveDragEnabled || !servoBusReady) {
+    if (!pending || !pending.liveDragEnabled || !servoBusConnected()) {
+      pendingArmConfigRef.current = null;
       return;
     }
+    if (servoSerialQueueBusy()) {
+      armLiveTimerRef.current = window.setTimeout(() => {
+        armLiveTimerRef.current = undefined;
+        void flushArmLiveMove();
+      }, ARM_LIVE_COMMAND_DELAY_MS);
+      return;
+    }
+    pendingArmConfigRef.current = null;
 
     armLiveSendingRef.current = true;
     try {
-      if (servoSmoothingEnabled) {
-        void runArmPositionMotion(pending, true);
-      } else {
-        await runArmPositionMotion(pending, true);
-      }
+      await runArmPositionMotion(pending, true);
     } catch {
       addSystemLog("logs.commandInvalid", "error");
     } finally {
@@ -224,7 +244,7 @@ export function useArmRuntime({
         armLiveTimerRef.current = window.setTimeout(() => {
           armLiveTimerRef.current = undefined;
           void flushArmLiveMove();
-        }, 60);
+        }, ARM_LIVE_COMMAND_DELAY_MS);
       }
     }
   }
@@ -242,7 +262,7 @@ export function useArmRuntime({
     const nextAngle = calculateArmDragAngle({
       anchor,
       pointer,
-      parentGlobalDeg: previousPose?.childFrameDeg ?? 0,
+      parentGlobalDeg: previousPose?.childFrameDeg ?? armConfig.baseDirectionDeg ?? 0,
       neutralDeg: joint.neutralDeg,
       servoSpanDeg: servoLogicalSpan(servo),
       currentAngleDeg: joint.angleDeg,
@@ -288,6 +308,7 @@ export function useArmRuntime({
 
   return {
     addArmJoint,
+    applyArmConfig,
     armServoForJoint,
     flushArmLiveMove,
     handleArmPointerDown,

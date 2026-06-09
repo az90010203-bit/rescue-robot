@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldAutoCheckAboardBridge } from "@adapters/pi/aBoardBridgeAutoCheck";
+import { shouldAutoCheckAboardBridge, shouldAutoCheckPiServoBridgeContext, shouldAutoRecoverBridge } from "@adapters/pi/aBoardBridgeAutoCheck";
 
 const baseState = {
   activeSection: "tests" as const,
@@ -44,5 +44,32 @@ describe("A board bridge auto-check", () => {
 
   it("does not repeat an automatic check for the same host", () => {
     expect(shouldAutoCheckAboardBridge({ ...baseState, alreadyCheckedHost: "raspberrypi.local" })).toBe(false);
+  });
+});
+
+describe("bridge auto-recover", () => {
+  it("recovers only bridge errors with an active host", () => {
+    expect(shouldAutoRecoverBridge({ host: "192.168.55.220", manualDisconnect: false, status: "error" })).toBe(true);
+    expect(shouldAutoRecoverBridge({ host: "", manualDisconnect: false, status: "error" })).toBe(false);
+    expect(shouldAutoRecoverBridge({ host: "192.168.55.220", manualDisconnect: false, status: "connected" })).toBe(false);
+  });
+
+  it("does not recover after a manual disconnect", () => {
+    expect(shouldAutoRecoverBridge({ host: "192.168.55.220", manualDisconnect: true, status: "error" })).toBe(false);
+  });
+});
+
+describe("Pi servo bridge auto-check context", () => {
+  it.each(["servo", "arm", "arm3d"] as const)("checks in the %s test panel", (activeTest) => {
+    expect(shouldAutoCheckPiServoBridgeContext({ activeModule: "camera", activeSection: "tests", activeTest })).toBe(true);
+  });
+
+  it("checks when the active module already needs the servo bus", () => {
+    expect(shouldAutoCheckPiServoBridgeContext({ activeModule: "arm", activeSection: "console", activeTest: "motor" })).toBe(true);
+    expect(shouldAutoCheckPiServoBridgeContext({ activeModule: "servo", activeSection: "settings", activeTest: "pi" })).toBe(true);
+  });
+
+  it("does not check unrelated tests", () => {
+    expect(shouldAutoCheckPiServoBridgeContext({ activeModule: "camera", activeSection: "tests", activeTest: "driveCamera" })).toBe(false);
   });
 });

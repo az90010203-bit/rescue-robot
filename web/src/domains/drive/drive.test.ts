@@ -37,37 +37,37 @@ describe("tracked drive mixer", () => {
 describe("mecanum drive mixer", () => {
   it("drives all mecanum wheels forward", () => {
     expect(mixMecanumDrive({ forward: 1, strafe: 0, turn: 0 })).toEqual([
-      { channel: "M3", speedPercent: 100 },
+      { channel: "M1", speedPercent: 100 },
       { channel: "M4", speedPercent: 100 },
-      { channel: "M5", speedPercent: 100 },
-      { channel: "M6", speedPercent: 100 }
+      { channel: "M2", speedPercent: 100 },
+      { channel: "M3", speedPercent: 100 }
     ]);
   });
 
   it("strafes sideways", () => {
     expect(mixMecanumDrive({ forward: 0, strafe: 1, turn: 0 })).toEqual([
-      { channel: "M3", speedPercent: 100 },
+      { channel: "M1", speedPercent: 100 },
       { channel: "M4", speedPercent: -100 },
-      { channel: "M5", speedPercent: -100 },
-      { channel: "M6", speedPercent: 100 }
+      { channel: "M2", speedPercent: -100 },
+      { channel: "M3", speedPercent: 100 }
     ]);
   });
 
   it("rotates in place", () => {
     expect(mixMecanumDrive({ forward: 0, strafe: 0, turn: 1 })).toEqual([
-      { channel: "M3", speedPercent: 100 },
+      { channel: "M1", speedPercent: 100 },
       { channel: "M4", speedPercent: -100 },
-      { channel: "M5", speedPercent: 100 },
-      { channel: "M6", speedPercent: -100 }
+      { channel: "M2", speedPercent: 100 },
+      { channel: "M3", speedPercent: -100 }
     ]);
   });
 
   it("normalizes diagonal and rotational commands", () => {
     expect(mixMecanumDrive({ forward: 1, strafe: 1, turn: 1 }, { speedLimitPercent: 60 })).toEqual([
-      { channel: "M3", speedPercent: 60 },
+      { channel: "M1", speedPercent: 60 },
       { channel: "M4", speedPercent: -20 },
-      { channel: "M5", speedPercent: 20 },
-      { channel: "M6", speedPercent: 20 }
+      { channel: "M2", speedPercent: 20 },
+      { channel: "M3", speedPercent: 20 }
     ]);
   });
 
@@ -83,8 +83,8 @@ describe("mecanum drive mixer", () => {
     ).toEqual([
       { channel: "X1", speedPercent: -100 },
       { channel: "M4", speedPercent: 100 },
-      { channel: "M5", speedPercent: 100 },
-      { channel: "M6", speedPercent: -100 }
+      { channel: "M2", speedPercent: 100 },
+      { channel: "M3", speedPercent: -100 }
     ]);
   });
 });

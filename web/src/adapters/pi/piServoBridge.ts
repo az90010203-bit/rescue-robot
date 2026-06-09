@@ -1,4 +1,5 @@
-import { parseFeetechStatusPacket, type FeetechStatusPacket } from "@adapters/hardware/protocol";
+import piServoSerialBridgeScript from "../../../local-services/pi-servo-serial-bridge.py?raw";
+import { FEETECH_READ, parseFeetechStatusPacket, parseFeetechStatusPackets, type FeetechStatusPacket } from "@adapters/hardware/protocol";
 import {
   execPiCommand,
   PiConnectionRequest,
@@ -16,19 +17,91 @@ export const PI_SERVO_BRIDGE_SERVICE_NAME = "pi-servo-serial-bridge.service";
 export const PI_SERVO_BRIDGE_SERIAL_PORT = "/dev/serial0";
 export const PI_SERVO_BRIDGE_BAUD_RATE = 115_200;
 export const PI_SERVO_BRIDGE_HOST = "0.0.0.0";
+const PI_SERVO_BRIDGE_FRAME_TIMEOUT_PADDING_MS = 2600;
 
 export interface PiServoBridgeHealth {
   ok: boolean;
   serialPort: string;
   baudRate: number;
+  service?: string;
+  version?: string;
+  queueDepth?: number;
+  inFlight?: boolean;
+  serialOpen?: boolean;
+  droppedRxBytes?: number;
+  lastDroppedRxAt?: number | null;
+  responseRetries?: number;
+  liveSkipped?: number;
+  liveRateLimited?: number;
+  liveLastSentAtByKey?: Record<string, number>;
+  reconnectCount?: number;
+  lastReconnectAt?: number | null;
+  reconnectIntervalSec?: number;
+  deviceExists?: boolean;
+  lastSerialEvent?: PiBridgeSerialEvent | null;
+  lastCloseReason?: string | null;
+  lastException?: PiBridgeExceptionDetail | null;
+  consecutiveOpenFailures?: number;
+  diagnosticsPath?: string;
+}
+
+export interface PiBridgeExceptionDetail {
+  type?: string;
+  message?: string;
+  errno?: number;
+  strerror?: string;
+  filename?: string;
+}
+
+export interface PiBridgeSerialDeviceSnapshot {
+  path?: string;
+  exists?: boolean;
+  realpath?: string;
+  modeOct?: string;
+  uid?: number;
+  gid?: number;
+  rdev?: number;
+  statError?: PiBridgeExceptionDetail;
+}
+
+export interface PiBridgeSerialEvent {
+  at?: number;
+  kind?: string;
+  message?: string;
+  serialOpen?: boolean;
+  deviceExists?: boolean;
+  queueDepth?: number;
+  inFlight?: boolean;
+  reason?: string;
+  requestId?: number;
+  waitMs?: number;
+  timeoutMs?: number;
+  droppedBytes?: number;
+  frameHead?: number[];
+  device?: PiBridgeSerialDeviceSnapshot;
+  exception?: PiBridgeExceptionDetail;
+  [key: string]: unknown;
+}
+
+export interface PiServoBridgeDiagnostics extends PiServoBridgeHealth {
+  device?: PiBridgeSerialDeviceSnapshot;
+  inFlightRequestId?: number | null;
+  requestCount?: number;
+  failureCount?: number;
+  lastError?: string | null;
+  events: PiBridgeSerialEvent[];
+  uptimeSec?: number;
 }
 
 export interface PiServoBridgeFrameResult {
   ok: boolean;
   rxBytes: number[];
   packet: FeetechStatusPacket | null;
+  reason?: string;
+  responseExpected?: boolean;
   serialPort?: string;
   baudRate?: number;
+  skipped?: boolean;
 }
 
 export interface PiServoBridgeStartResult {
@@ -43,7 +116,12 @@ export interface PiServoBridgeStartResult {
 }
 
 interface PiServoBridgeRequestOptions {
+  ackDrainMs?: number;
+  coalesceKey?: string;
   fetcher?: typeof fetch;
+  minIntervalMs?: number;
+  policy?: "latest";
+  timeoutMs?: number;
   waitMs?: number;
 }
 
@@ -57,38 +135,138 @@ export function buildPiServoBridgeBaseUrl(host: string): string {
 
 export async function checkPiServoBridge(host: string, options: PiServoBridgeRequestOptions = {}): Promise<PiServoBridgeHealth> {
   const value = await requestPiServoBridgeJson<unknown>(host, "/health", undefined, options);
-  if (!isRecord(value) || value.ok !== true) {
+  if (!isRecord(value)) {
     throw new PiRemoteError("invalidResponse", "Pi servo serial bridge returned an invalid health response");
   }
-  return {
-    ok: true,
+  const health: PiServoBridgeHealth = {
+    ok: value.ok === true,
     serialPort: typeof value.serialPort === "string" ? value.serialPort : PI_SERVO_BRIDGE_SERIAL_PORT,
     baudRate: typeof value.baudRate === "number" ? value.baudRate : PI_SERVO_BRIDGE_BAUD_RATE
+  };
+  if (typeof value.service === "string") health.service = value.service;
+  if (typeof value.version === "string") health.version = value.version;
+  if (typeof value.queueDepth === "number") health.queueDepth = value.queueDepth;
+  if (typeof value.inFlight === "boolean") health.inFlight = value.inFlight;
+  if (typeof value.serialOpen === "boolean") health.serialOpen = value.serialOpen;
+  if (typeof value.droppedRxBytes === "number") health.droppedRxBytes = value.droppedRxBytes;
+  if (typeof value.lastDroppedRxAt === "number" || value.lastDroppedRxAt === null) health.lastDroppedRxAt = value.lastDroppedRxAt;
+  if (typeof value.responseRetries === "number") health.responseRetries = value.responseRetries;
+  if (typeof value.liveSkipped === "number") health.liveSkipped = value.liveSkipped;
+  if (typeof value.liveRateLimited === "number") health.liveRateLimited = value.liveRateLimited;
+  if (isNumberRecord(value.liveLastSentAtByKey)) health.liveLastSentAtByKey = value.liveLastSentAtByKey;
+  if (typeof value.reconnectCount === "number") health.reconnectCount = value.reconnectCount;
+  if (typeof value.lastReconnectAt === "number" || value.lastReconnectAt === null) health.lastReconnectAt = value.lastReconnectAt;
+  if (typeof value.reconnectIntervalSec === "number") health.reconnectIntervalSec = value.reconnectIntervalSec;
+  if (typeof value.deviceExists === "boolean") health.deviceExists = value.deviceExists;
+  if (isPiBridgeSerialEvent(value.lastSerialEvent) || value.lastSerialEvent === null) health.lastSerialEvent = value.lastSerialEvent;
+  if (typeof value.lastCloseReason === "string" || value.lastCloseReason === null) health.lastCloseReason = value.lastCloseReason;
+  if (isPiBridgeExceptionDetail(value.lastException) || value.lastException === null) health.lastException = value.lastException;
+  if (typeof value.consecutiveOpenFailures === "number") health.consecutiveOpenFailures = value.consecutiveOpenFailures;
+  if (typeof value.diagnosticsPath === "string") health.diagnosticsPath = value.diagnosticsPath;
+  return health;
+}
+
+export async function requestPiServoBridgeDiagnostics(host: string, options: PiServoBridgeRequestOptions = {}): Promise<PiServoBridgeDiagnostics> {
+  const value = await requestPiServoBridgeJson<unknown>(host, "/diagnostics", undefined, options);
+  if (!isRecord(value) || !Array.isArray(value.events)) {
+    throw new PiRemoteError("invalidResponse", "Pi servo serial bridge returned an invalid diagnostics response");
+  }
+  return {
+    ...normalizePiServoBridgeHealth(value),
+    device: isPiBridgeSerialDeviceSnapshot(value.device) ? value.device : undefined,
+    inFlightRequestId: typeof value.inFlightRequestId === "number" || value.inFlightRequestId === null ? value.inFlightRequestId : undefined,
+    requestCount: typeof value.requestCount === "number" ? value.requestCount : undefined,
+    failureCount: typeof value.failureCount === "number" ? value.failureCount : undefined,
+    lastError: typeof value.lastError === "string" || value.lastError === null ? value.lastError : undefined,
+    events: value.events.filter(isPiBridgeSerialEvent),
+    uptimeSec: typeof value.uptimeSec === "number" ? value.uptimeSec : undefined
   };
 }
 
 export async function sendPiServoBridgeFrame(host: string, frame: number[], options: PiServoBridgeRequestOptions = {}): Promise<PiServoBridgeFrameResult> {
+  const timeoutMs = options.timeoutMs ?? Math.max(3000, (options.waitMs ?? 80) + PI_SERVO_BRIDGE_FRAME_TIMEOUT_PADDING_MS);
+  const body: Record<string, unknown> = { frame, waitMs: options.waitMs };
+  if (options.policy) body.policy = options.policy;
+  if (options.coalesceKey) body.coalesceKey = options.coalesceKey;
+  if (typeof options.minIntervalMs === "number") body.minIntervalMs = options.minIntervalMs;
+  if (typeof options.ackDrainMs === "number") body.ackDrainMs = options.ackDrainMs;
   const value = await requestPiServoBridgeJson<unknown>(
     host,
     "/frame",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ frame, waitMs: options.waitMs })
+      body: JSON.stringify(body)
     },
-    options
+    { ...options, timeoutMs }
   );
   if (!isRecord(value) || !Array.isArray(value.rxBytes)) {
     throw new PiRemoteError("invalidResponse", "Pi servo serial bridge returned an invalid frame response");
   }
   const rxBytes = value.rxBytes.filter(isByte);
-  return {
+  const result: PiServoBridgeFrameResult = {
     ok: value.ok !== false,
     rxBytes,
-    packet: parseFeetechStatusPacket(rxBytes),
-    serialPort: typeof value.serialPort === "string" ? value.serialPort : undefined,
-    baudRate: typeof value.baudRate === "number" ? value.baudRate : undefined
+    packet: selectPiServoBridgePacket(frame, rxBytes)
   };
+  if (typeof value.reason === "string") result.reason = value.reason;
+  if (typeof value.responseExpected === "boolean") result.responseExpected = value.responseExpected;
+  if (typeof value.serialPort === "string") result.serialPort = value.serialPort;
+  if (typeof value.baudRate === "number") result.baudRate = value.baudRate;
+  if (value.skipped === true) result.skipped = true;
+  return result;
+}
+
+function normalizePiServoBridgeHealth(value: Record<string, unknown>): PiServoBridgeHealth {
+  const health: PiServoBridgeHealth = {
+    ok: value.ok === true,
+    serialPort: typeof value.serialPort === "string" ? value.serialPort : PI_SERVO_BRIDGE_SERIAL_PORT,
+    baudRate: typeof value.baudRate === "number" ? value.baudRate : PI_SERVO_BRIDGE_BAUD_RATE
+  };
+  if (typeof value.service === "string") health.service = value.service;
+  if (typeof value.version === "string") health.version = value.version;
+  if (typeof value.queueDepth === "number") health.queueDepth = value.queueDepth;
+  if (typeof value.inFlight === "boolean") health.inFlight = value.inFlight;
+  if (typeof value.serialOpen === "boolean") health.serialOpen = value.serialOpen;
+  if (typeof value.droppedRxBytes === "number") health.droppedRxBytes = value.droppedRxBytes;
+  if (typeof value.lastDroppedRxAt === "number" || value.lastDroppedRxAt === null) health.lastDroppedRxAt = value.lastDroppedRxAt;
+  if (typeof value.responseRetries === "number") health.responseRetries = value.responseRetries;
+  if (typeof value.liveSkipped === "number") health.liveSkipped = value.liveSkipped;
+  if (typeof value.liveRateLimited === "number") health.liveRateLimited = value.liveRateLimited;
+  if (isNumberRecord(value.liveLastSentAtByKey)) health.liveLastSentAtByKey = value.liveLastSentAtByKey;
+  if (typeof value.reconnectCount === "number") health.reconnectCount = value.reconnectCount;
+  if (typeof value.lastReconnectAt === "number" || value.lastReconnectAt === null) health.lastReconnectAt = value.lastReconnectAt;
+  if (typeof value.reconnectIntervalSec === "number") health.reconnectIntervalSec = value.reconnectIntervalSec;
+  if (typeof value.deviceExists === "boolean") health.deviceExists = value.deviceExists;
+  if (isPiBridgeSerialEvent(value.lastSerialEvent) || value.lastSerialEvent === null) health.lastSerialEvent = value.lastSerialEvent;
+  if (typeof value.lastCloseReason === "string" || value.lastCloseReason === null) health.lastCloseReason = value.lastCloseReason;
+  if (isPiBridgeExceptionDetail(value.lastException) || value.lastException === null) health.lastException = value.lastException;
+  if (typeof value.consecutiveOpenFailures === "number") health.consecutiveOpenFailures = value.consecutiveOpenFailures;
+  if (typeof value.diagnosticsPath === "string") health.diagnosticsPath = value.diagnosticsPath;
+  return health;
+}
+
+function selectPiServoBridgePacket(frame: number[], rxBytes: number[]): FeetechStatusPacket | null {
+  const packets = parseFeetechStatusPackets(rxBytes);
+  if (packets.length === 0) {
+    return null;
+  }
+  const targetId = isByte(frame[2]) ? frame[2] : undefined;
+  const instruction = isByte(frame[4]) ? frame[4] : undefined;
+  const expectedReadLength = instruction === FEETECH_READ && isByte(frame[6]) ? frame[6] : 0;
+  if (targetId !== undefined) {
+    const matching = packets.filter((packet) => packet.id === targetId);
+    if (expectedReadLength > 0) {
+      const readPacket = matching.find((packet) => packet.params.length >= expectedReadLength);
+      if (readPacket) {
+        return readPacket;
+      }
+    }
+    if (matching[0]) {
+      return matching[0];
+    }
+  }
+  return parseFeetechStatusPacket(rxBytes);
 }
 
 export async function startPiServoBridge(
@@ -96,18 +274,19 @@ export async function startPiServoBridge(
   profile: Pick<PiSetupProfile, "workspaceDir">,
   options: PiServoBridgeRequestOptions = {}
 ): Promise<PiServoBridgeStartResult> {
-  const workspace = await setupPiWorkspace(connection, profile, options);
+  const requestOptions = { ...options, operation: { name: "pi.servo-bridge.start" } };
+  const workspace = await setupPiWorkspace(connection, profile, requestOptions);
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const remotePath = `${workspaceDir}/${PI_SERVO_BRIDGE_SCRIPT_NAME}`;
   const file = new File([PI_SERVO_SERIAL_BRIDGE_SCRIPT], PI_SERVO_BRIDGE_SCRIPT_NAME, { type: "text/x-python" });
-  await uploadPiFile({ ...connection, file, remotePath }, options);
+  await uploadPiFile({ ...connection, file, remotePath }, requestOptions);
   const command = buildPiServoBridgeServiceCommand({
     password: connection.password,
     remotePath,
     username: connection.username,
     workspaceDir
   });
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, options);
+  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, requestOptions);
   return {
     ok: workspace.ok && exec.exitCode === 0 && /pi_servo_bridge_service:active/.test(exec.stdout),
     workspaceDir,
@@ -183,11 +362,29 @@ export function buildPiServoBridgeServiceCommand(options: PiServoBridgeServiceCo
 
 async function requestPiServoBridgeJson<T>(host: string, path: string, init: RequestInit | undefined, options: PiServoBridgeRequestOptions): Promise<T> {
   const fetcher = options.fetcher ?? fetch;
+  const controller = options.timeoutMs && options.timeoutMs > 0 && typeof AbortController !== "undefined" ? new AbortController() : null;
+  const requestInit = controller ? { ...init, signal: controller.signal } : init;
+  const timer =
+    controller && options.timeoutMs
+      ? globalThis.setTimeout(() => {
+          controller.abort();
+        }, options.timeoutMs)
+      : undefined;
   let response: Response;
   try {
-    response = await fetcher(`${buildPiServoBridgeBaseUrl(host)}${path}`, init);
+    response = await fetcher(`${buildPiServoBridgeBaseUrl(host)}${path}`, requestInit);
   } catch (error) {
-    throw new PiRemoteError("helperUnavailable", error instanceof Error ? error.message : "Pi servo serial bridge is unavailable");
+    const message =
+      error instanceof Error && error.name === "AbortError" && options.timeoutMs
+        ? `Pi servo serial bridge timed out after ${options.timeoutMs}ms`
+        : error instanceof Error
+          ? error.message
+          : "Pi servo serial bridge is unavailable";
+    throw new PiRemoteError("helperUnavailable", message);
+  } finally {
+    if (timer !== undefined) {
+      globalThis.clearTimeout(timer);
+    }
   }
   let payload: unknown;
   try {
@@ -210,130 +407,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
 }
 
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return isRecord(value) && Object.values(value).every((item) => typeof item === "number");
+}
+
+function isPiBridgeExceptionDetail(value: unknown): value is PiBridgeExceptionDetail {
+  return isRecord(value);
+}
+
+function isPiBridgeSerialDeviceSnapshot(value: unknown): value is PiBridgeSerialDeviceSnapshot {
+  return isRecord(value);
+}
+
+function isPiBridgeSerialEvent(value: unknown): value is PiBridgeSerialEvent {
+  return isRecord(value);
+}
+
 function shellQuote(value: string): string {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-export const PI_SERVO_SERIAL_BRIDGE_SCRIPT = String.raw`#!/usr/bin/env python3
-import json
-import os
-import select
-import sys
-import termios
-import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-SERIAL_PORT = os.environ.get("PI_SERVO_SERIAL_PORT", "/dev/serial0")
-BAUD_RATE = int(os.environ.get("PI_SERVO_BAUD", "115200"))
-HOST = os.environ.get("PI_SERVO_BRIDGE_HOST", "0.0.0.0")
-PORT = int(os.environ.get("PI_SERVO_BRIDGE_PORT", "17354"))
-DEFAULT_WAIT_MS = int(os.environ.get("PI_SERVO_WAIT_MS", "120"))
-
-BAUD_FLAGS = {
-    115200: termios.B115200,
-    1000000: getattr(termios, "B1000000", termios.B115200),
-}
-
-
-def configure_serial(fd):
-    attrs = termios.tcgetattr(fd)
-    baud = BAUD_FLAGS.get(BAUD_RATE, getattr(termios, "B1000000", termios.B115200))
-    attrs[0] = 0
-    attrs[1] = 0
-    attrs[2] = termios.CLOCAL | termios.CREAD | termios.CS8
-    attrs[3] = 0
-    attrs[4] = baud
-    attrs[5] = baud
-    attrs[6][termios.VMIN] = 0
-    attrs[6][termios.VTIME] = 0
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
-    termios.tcflush(fd, termios.TCIOFLUSH)
-
-
-def open_serial():
-    fd = os.open(SERIAL_PORT, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-    configure_serial(fd)
-    return fd
-
-
-def read_response(fd, wait_ms):
-    deadline = time.monotonic() + max(10, wait_ms) / 1000.0
-    rx = b""
-    while time.monotonic() < deadline:
-        remaining = max(0.0, deadline - time.monotonic())
-        readable, _, _ = select.select([fd], [], [], min(0.02, remaining))
-        if not readable:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except BlockingIOError:
-            continue
-        if chunk:
-            rx += chunk
-    return rx
-
-
-def send_frame(frame, wait_ms):
-    if not isinstance(frame, list) or not frame:
-        raise ValueError("frame must be a non-empty byte array")
-    payload = bytes(int(byte) & 0xFF for byte in frame)
-    fd = open_serial()
-    try:
-        termios.tcflush(fd, termios.TCIOFLUSH)
-        os.write(fd, payload)
-        return read_response(fd, wait_ms)
-    finally:
-        os.close(fd)
-
-
-def send_json(handler, status, body):
-    payload = json.dumps(body).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Headers", "content-type")
-    handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(payload)))
-    handler.end_headers()
-    handler.wfile.write(payload)
-
-
-class Handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        send_json(self, 200, {"ok": True})
-
-    def do_GET(self):
-        if self.path != "/health":
-            send_json(self, 404, {"ok": False, "error": "not found"})
-            return
-        exists = os.path.exists(SERIAL_PORT)
-        send_json(self, 200, {"ok": exists, "serialPort": SERIAL_PORT, "baudRate": BAUD_RATE})
-
-    def do_POST(self):
-        if self.path != "/frame":
-            send_json(self, 404, {"ok": False, "error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
-            frame = body.get("frame", [])
-            wait_ms = int(body.get("waitMs", DEFAULT_WAIT_MS))
-            rx = send_frame(frame, wait_ms)
-            send_json(self, 200, {
-                "ok": len(rx) > 0,
-                "rxBytes": list(rx),
-                "serialPort": SERIAL_PORT,
-                "baudRate": BAUD_RATE
-            })
-        except Exception as exc:
-            send_json(self, 500, {"ok": False, "error": str(exc), "rxBytes": []})
-
-    def log_message(self, fmt, *args):
-        sys.stderr.write("%s\n" % (fmt % args))
-
-
-if __name__ == "__main__":
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("Pi servo serial bridge listening on %s:%s -> %s @ %s" % (HOST, PORT, SERIAL_PORT, BAUD_RATE), flush=True)
-    server.serve_forever()
-`;
+export const PI_SERVO_SERIAL_BRIDGE_SCRIPT = piServoSerialBridgeScript;

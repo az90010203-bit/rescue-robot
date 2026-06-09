@@ -17,6 +17,8 @@ import {
 } from "@app/appModel";
 import type { ArmConfig } from "@adapters/persistence/storage";
 
+const LIVE_SERVO_COMMAND_DELAY_MS = 140;
+
 interface UseServoCommandRuntimeOptions {
   addSystemLog: (messageKey: string, level?: any, values?: any) => void;
   armConfig: ArmConfig;
@@ -32,10 +34,11 @@ interface UseServoCommandRuntimeOptions {
   liveWheelTimerRef: { current: Record<number, number> };
   pendingLiveAngleRef: { current: Record<number, PendingLiveAngleMove> };
   pendingLiveWheelRef: { current: Record<number, PendingLiveWheelMove> };
+  prepareServoPositionMode: (servo: ServoProfile, options?: { logFrame?: boolean; waitMs?: number }) => Promise<unknown>;
   runServoPositionMotion: (servo: ServoProfile, state: ServoCommandState, angle: number, options?: { live?: boolean }) => Promise<unknown>;
   sendMoveForServo: (servo: ServoProfile, state: ServoCommandState, options?: { live?: boolean }) => Promise<unknown>;
   servoBusReady: boolean;
-  servoSmoothingEnabled: boolean;
+  servoSerialQueueBusy: () => boolean;
   setServoCommandById: (updater: (current: ServoCommandStateMap) => ServoCommandStateMap) => void;
 }
 
@@ -54,10 +57,11 @@ export function useServoCommandRuntime({
   liveWheelTimerRef,
   pendingLiveAngleRef,
   pendingLiveWheelRef,
+  prepareServoPositionMode,
   runServoPositionMotion,
   sendMoveForServo,
   servoBusReady,
-  servoSmoothingEnabled,
+  servoSerialQueueBusy,
   setServoCommandById
 }: UseServoCommandRuntimeOptions) {
   function updateServoCommand(id: number, updater: (current: ServoCommandState) => ServoCommandState) {
@@ -71,7 +75,8 @@ export function useServoCommandRuntime({
     updateServoCommand(id, (current) => ({ ...current, [field]: value }));
   }
 
-  function handleServoModeChange(id: number, mode: ServoControlMode) {
+  function handleServoModeChange(servo: ServoProfile, mode: ServoControlMode) {
+    const id = servo.id;
     cancelLiveAngleMove(id);
     cancelLiveWheelMove(id);
     if (armConfig.joints.some((joint) => joint.servoId === id)) {
@@ -97,16 +102,23 @@ export function useServoCommandRuntime({
       return {
         ...current,
         mode,
-        speedRaw: Number.isFinite(speedValue) && speedValue >= 0 ? current.speedRaw : "800"
+        speedRaw: Number.isFinite(speedValue) && speedValue >= 0 ? current.speedRaw : "300"
       };
     });
+    if (mode === "position" && servoBusReady) {
+      void prepareServoPositionMode(servo, { waitMs: 40, logFrame: false });
+    }
   }
 
-  function handleLiveDragToggle(id: number, enabled: boolean) {
+  function handleLiveDragToggle(servo: ServoProfile, state: ServoCommandState, enabled: boolean) {
+    const id = servo.id;
     if (!enabled) {
       cancelLiveAngleMove(id);
     }
     updateServoCommandField(id, "liveDragEnabled", enabled);
+    if (enabled && state.mode === "position" && servoBusReady) {
+      void prepareServoPositionMode(servo, { waitMs: 40, logFrame: false });
+    }
   }
 
   function updateServoLogicalAngle(servo: ServoProfile, value: string) {
@@ -135,7 +147,7 @@ export function useServoCommandRuntime({
     liveAngleTimerRef.current[servo.id] = window.setTimeout(() => {
       delete liveAngleTimerRef.current[servo.id];
       void flushLiveAngleMove(servo.id);
-    }, 60);
+    }, LIVE_SERVO_COMMAND_DELAY_MS);
   }
 
   async function flushLiveAngleMove(id: number) {
@@ -144,18 +156,22 @@ export function useServoCommandRuntime({
     }
 
     const pending = pendingLiveAngleRef.current[id];
-    delete pendingLiveAngleRef.current[id];
     if (!pending || !pending.state.liveDragEnabled || pending.state.mode !== "position" || !servoBusReady) {
+      delete pendingLiveAngleRef.current[id];
       return;
     }
+    if (servoSerialQueueBusy()) {
+      liveAngleTimerRef.current[id] = window.setTimeout(() => {
+        delete liveAngleTimerRef.current[id];
+        void flushLiveAngleMove(id);
+      }, LIVE_SERVO_COMMAND_DELAY_MS);
+      return;
+    }
+    delete pendingLiveAngleRef.current[id];
 
     liveAngleSendingRef.current[id] = true;
     try {
-      if (servoSmoothingEnabled) {
-        void runServoPositionMotion(pending.servo, pending.state, pending.angle, { live: true });
-      } else {
-        await runServoPositionMotion(pending.servo, pending.state, pending.angle, { live: true });
-      }
+      await runServoPositionMotion(pending.servo, pending.state, pending.angle, { live: true });
     } catch {
       addSystemLog("logs.commandInvalid", "error");
     } finally {
@@ -164,7 +180,7 @@ export function useServoCommandRuntime({
         liveAngleTimerRef.current[id] = window.setTimeout(() => {
           delete liveAngleTimerRef.current[id];
           void flushLiveAngleMove(id);
-        }, 60);
+        }, LIVE_SERVO_COMMAND_DELAY_MS);
       }
     }
   }
@@ -182,7 +198,7 @@ export function useServoCommandRuntime({
     liveWheelTimerRef.current[servo.id] = window.setTimeout(() => {
       delete liveWheelTimerRef.current[servo.id];
       void flushLiveWheelMove(servo.id);
-    }, 60);
+    }, LIVE_SERVO_COMMAND_DELAY_MS);
   }
 
   async function flushLiveWheelMove(id: number) {
@@ -191,18 +207,22 @@ export function useServoCommandRuntime({
     }
 
     const pending = pendingLiveWheelRef.current[id];
-    delete pendingLiveWheelRef.current[id];
     if (!pending || pending.state.mode !== "wheel" || !servoBusReady) {
+      delete pendingLiveWheelRef.current[id];
       return;
     }
+    if (servoSerialQueueBusy()) {
+      liveWheelTimerRef.current[id] = window.setTimeout(() => {
+        delete liveWheelTimerRef.current[id];
+        void flushLiveWheelMove(id);
+      }, LIVE_SERVO_COMMAND_DELAY_MS);
+      return;
+    }
+    delete pendingLiveWheelRef.current[id];
 
     liveWheelSendingRef.current[id] = true;
     try {
-      if (servoSmoothingEnabled) {
-        void sendMoveForServo(pending.servo, pending.state, { live: true });
-      } else {
-        await sendMoveForServo(pending.servo, pending.state, { live: true });
-      }
+      await sendMoveForServo(pending.servo, pending.state, { live: true });
     } catch {
       addSystemLog("logs.commandInvalid", "error");
     } finally {
@@ -211,7 +231,7 @@ export function useServoCommandRuntime({
         liveWheelTimerRef.current[id] = window.setTimeout(() => {
           delete liveWheelTimerRef.current[id];
           void flushLiveWheelMove(id);
-        }, 60);
+        }, LIVE_SERVO_COMMAND_DELAY_MS);
       }
     }
   }

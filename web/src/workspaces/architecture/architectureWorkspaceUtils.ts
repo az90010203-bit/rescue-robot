@@ -32,6 +32,8 @@ export type PluginDebugDraft = {
   in2Pin: string;
   enablePin: string;
   sensorPin: string;
+  encoderAPin: string;
+  encoderBPin: string;
 };
 
 export type ServoSetIdStepLog = {

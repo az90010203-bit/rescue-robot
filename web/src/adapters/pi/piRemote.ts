@@ -26,6 +26,51 @@ export interface PiHelperHealth {
   maxUploadBytes: number;
   defaultCommandTimeoutMs: number;
   maxCommandTimeoutMs: number;
+  scheduler?: PiHelperSchedulerSnapshot;
+}
+
+export type PiOperationPolicy = "fifo" | "latest";
+
+export interface PiOperationMetadata {
+  name: string;
+  resourceKey?: string;
+  policy?: PiOperationPolicy;
+  dedupeKey?: string;
+}
+
+export interface PiOperationResultMetadata {
+  operationId?: string;
+  queuedMs?: number;
+  resourceKey?: string;
+}
+
+export interface PiHelperSchedulerSnapshot {
+  totals: {
+    scheduled: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+  };
+  resources: Array<{
+    resourceKey: string;
+    queueDepth: number;
+    inFlight: null | {
+      id: string;
+      name: string;
+      policy: PiOperationPolicy;
+      dedupeKey?: string;
+      startedAt: number;
+      queuedMs: number;
+      runningMs: number;
+    };
+    pending: Array<{
+      id: string;
+      name: string;
+      policy: PiOperationPolicy;
+      dedupeKey?: string;
+      queuedMs: number;
+    }>;
+  }>;
 }
 
 export interface PiConnectTestResult {
@@ -33,14 +78,14 @@ export interface PiConnectTestResult {
   durationMs: number;
 }
 
-export interface PiUploadResult {
+export interface PiUploadResult extends PiOperationResultMetadata {
   ok: boolean;
   remotePath: string;
   sizeBytes: number;
   durationMs: number;
 }
 
-export interface PiExecResult {
+export interface PiExecResult extends PiOperationResultMetadata {
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -49,7 +94,7 @@ export interface PiExecResult {
   timedOut: boolean;
 }
 
-export interface PiUploadAndExecResult {
+export interface PiUploadAndExecResult extends PiOperationResultMetadata {
   ok: boolean;
   upload: PiUploadResult;
   exec: PiExecResult;
@@ -144,6 +189,7 @@ export function isPiRemoteError(error: unknown): error is PiRemoteError {
 interface PiRemoteRequestOptions {
   baseUrl?: string;
   fetcher?: typeof fetch;
+  operation?: Partial<PiOperationMetadata>;
 }
 
 export async function requestPiHelperHealth(options: PiRemoteRequestOptions = {}): Promise<PiHelperHealth> {
@@ -155,7 +201,8 @@ export async function requestPiHelperHealth(options: PiRemoteRequestOptions = {}
     ok: true,
     maxUploadBytes: value.maxUploadBytes,
     defaultCommandTimeoutMs: typeof value.defaultCommandTimeoutMs === "number" ? value.defaultCommandTimeoutMs : 30_000,
-    maxCommandTimeoutMs: typeof value.maxCommandTimeoutMs === "number" ? value.maxCommandTimeoutMs : 300_000
+    maxCommandTimeoutMs: typeof value.maxCommandTimeoutMs === "number" ? value.maxCommandTimeoutMs : 300_000,
+    ...(isPiHelperSchedulerSnapshot(value.scheduler) ? { scheduler: value.scheduler } : {})
   };
 }
 
@@ -165,7 +212,7 @@ export async function testPiConnection(connection: PiConnectionRequest, options:
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(connection)
+      body: JSON.stringify({ ...connection, ...operationBody(connection, "pi.connect-test", options) })
     },
     options
   );
@@ -185,7 +232,7 @@ export async function uploadPiFile(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...connectionOnly(request), remotePath: request.remotePath, contentBase64 })
+      body: JSON.stringify({ ...connectionOnly(request), remotePath: request.remotePath, contentBase64, ...operationBody(request, "pi.upload", options) })
     },
     options
   );
@@ -201,7 +248,7 @@ export async function execPiCommand(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...connectionOnly(request), command: request.command, cwd: request.cwd, timeoutMs: request.timeoutMs })
+      body: JSON.stringify({ ...connectionOnly(request), command: request.command, cwd: request.cwd, timeoutMs: request.timeoutMs, ...operationBody(request, "pi.exec", options) })
     },
     options
   );
@@ -224,7 +271,8 @@ export async function uploadAndExecPiFile(
         contentBase64,
         command: request.command,
         cwd: request.cwd,
-        timeoutMs: request.timeoutMs
+        timeoutMs: request.timeoutMs,
+        ...operationBody(request, "pi.upload-and-exec", options)
       })
     },
     options
@@ -235,7 +283,8 @@ export async function uploadAndExecPiFile(
   return {
     ok: true,
     upload: normalizeUploadResult(value.upload, "Raspberry Pi helper returned an invalid upload and execute response"),
-    exec: normalizeExecResult(value.exec, "Raspberry Pi helper returned an invalid upload and execute response")
+    exec: normalizeExecResult(value.exec, "Raspberry Pi helper returned an invalid upload and execute response"),
+    ...operationResultMetadata(value)
   };
 }
 
@@ -247,7 +296,7 @@ export async function checkPiReadiness(
   const connectionResult = await testPiConnection(connection, options);
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const command = `python3 --version >/dev/null 2>&1; python_ok=$?; test -d ${shellQuote(workspaceDir)}; workspace_ok=$?; echo "python:$python_ok workspace:$workspace_ok"`;
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 10_000 }, options);
+  const exec = await execPiCommand({ ...connection, command, timeoutMs: 10_000 }, withPiOperation(options, { name: "pi.readiness.check" }));
   return {
     connection: connectionResult,
     pythonAvailable: /python:0/.test(exec.stdout),
@@ -283,7 +332,7 @@ export async function setupPiWorkspace(
     `chmod +x ${shellQuote(`${workspaceDir}/run.sh`)}`,
     "python3 --version"
   ].join("\n");
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, options);
+  const exec = await execPiCommand({ ...connection, command, timeoutMs: 20_000 }, withPiOperation(options, { name: "pi.workspace.setup" }));
   return {
     ok: exec.exitCode === 0,
     workspaceDir,
@@ -297,12 +346,15 @@ export async function runUploadedFile(
   options: PiRemoteRequestOptions = {}
 ): Promise<PiRunUploadedFileResult> {
   const plan = createPiRunPlan(request.file.name, request.workspaceDir, request.username);
-  const upload = await uploadPiFile({ ...request, remotePath: plan.remotePath }, options);
   if (!plan.canExecute || !plan.command) {
+    const upload = await uploadPiFile({ ...request, remotePath: plan.remotePath }, withPiOperation(options, { name: "pi.upload" }));
     return { upload, exec: null, plan };
   }
-  const exec = await execPiCommand({ ...request, command: plan.command, timeoutMs: request.timeoutMs }, options);
-  return { upload, exec, plan };
+  const result = await uploadAndExecPiFile(
+    { ...request, remotePath: plan.remotePath, command: plan.command, timeoutMs: request.timeoutMs },
+    withPiOperation(options, { name: "pi.upload-and-exec" })
+  );
+  return { upload: result.upload, exec: result.exec, plan };
 }
 
 export async function checkPiCamera(
@@ -316,7 +368,10 @@ export async function checkPiCamera(
   const requestOptions = sourceProvided ? options : sourceOrOptions;
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const command = createPiCameraCheckCommand(workspaceDir, source);
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 12_000 }, requestOptions);
+  const exec = await execPiCommand(
+    { ...connection, command, timeoutMs: 12_000 },
+    withPiOperation(requestOptions, cameraOperation(connection, source, "pi.camera.check", "latest", `camera:${connection.host}:${source.port}:check`))
+  );
   const parsed = parsePiCameraCheckOutput(exec.stdout);
   const streamHost = parsePiCameraLanHost(exec.stdout) || connection.host;
   return {
@@ -334,7 +389,7 @@ export async function setupPiCameraScripts(
   options: PiRemoteRequestOptions = {}
 ): Promise<PiCameraSetupResult> {
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
-  const exec = await execPiCommand({ ...connection, command: createPiCameraSetupCommand(workspaceDir), timeoutMs: 20_000 }, options);
+  const exec = await execPiCommand({ ...connection, command: createPiCameraSetupCommand(workspaceDir), timeoutMs: 20_000 }, withPiOperation(options, { name: "pi.camera.setup" }));
   return {
     ok: exec.exitCode === 0,
     workspaceDir,
@@ -353,24 +408,17 @@ export async function startPiCameraStream(
   const requestOptions = sourceProvided ? options : sourceOrOptions;
   const workspaceDir = resolvePiWorkspaceDir(profile.workspaceDir, connection.username);
   const settings = normalizePiCameraStreamSettings(requestOptions);
-  const setup = await setupPiCameraScripts(connection, profile, requestOptions);
   const fallbackStreamHost = connection.host;
-  if (!setup.ok) {
-    return {
-      ok: false,
-      device: source.devicePath,
-      streamUrl: buildPiCameraStreamUrl(fallbackStreamHost, source.port),
-      webrtcOfferUrl: buildPiCameraWebrtcOfferUrl(fallbackStreamHost, source.port),
-      exec: setup.exec
-    };
-  }
   const exec = await execPiCommand(
     {
       ...connection,
-      command: `CAMERA_WIDTH=${settings.width} CAMERA_HEIGHT=${settings.height} CAMERA_FPS=${settings.fps} ${shellQuote(`${workspaceDir}/camera-start.sh`)} ${shellQuote(source.devicePath)} ${source.port}`,
+      command: [
+        createPiCameraSetupCommand(workspaceDir),
+        `CAMERA_WIDTH=${settings.width} CAMERA_HEIGHT=${settings.height} CAMERA_FPS=${settings.fps} ${shellQuote(`${workspaceDir}/camera-start.sh`)} ${shellQuote(source.devicePath)} ${source.port}`
+      ].join("\n"),
       timeoutMs: 180_000
     },
-    requestOptions
+    withPiOperation(requestOptions, cameraOperation(connection, source, "pi.camera.start"))
   );
   const streamHost = parsePiCameraLanHost(exec.stdout) || fallbackStreamHost;
   return {
@@ -396,7 +444,7 @@ export async function stopPiCameraStream(
   const legacyPidFile = `${workspaceDir}/camera.pid`;
   const legacyStop = source.port === 8080 ? ` legacy_pid_file=${shellQuote(legacyPidFile)}; if [ -f "$legacy_pid_file" ]; then kill "$(cat "$legacy_pid_file")" 2>/dev/null || true; rm -f "$legacy_pid_file"; fi;` : "";
   const command = `if [ -x ${shellQuote(`${workspaceDir}/camera-stop.sh`)} ]; then ${shellQuote(`${workspaceDir}/camera-stop.sh`)} ${source.port}; else pid_file=${shellQuote(pidFile)}; if [ -f "$pid_file" ]; then kill "$(cat "$pid_file")" 2>/dev/null || true; rm -f "$pid_file"; fi;${legacyStop} echo "stopped:1"; fi`;
-  return execPiCommand({ ...connection, command, timeoutMs: 10_000 }, requestOptions);
+  return execPiCommand({ ...connection, command, timeoutMs: 10_000 }, withPiOperation(requestOptions, cameraOperation(connection, source, "pi.camera.stop")));
 }
 
 export async function installPiCameraTools(
@@ -404,12 +452,12 @@ export async function installPiCameraTools(
   options: PiRemoteRequestOptions = {}
 ): Promise<PiCameraInstallResult> {
   const command = "sudo -n apt-get update && sudo -n apt-get install -y ffmpeg v4l-utils python3-venv python3-pip";
-  const exec = await execPiCommand({ ...connection, command, timeoutMs: 300_000 }, options);
+  const exec = await execPiCommand({ ...connection, command, timeoutMs: 300_000 }, withPiOperation(options, { name: "pi.camera.install-tools" }));
   return { ok: exec.exitCode === 0, exec };
 }
 
 export async function setupPiUsbGadget(connection: PiConnectionRequest, options: PiRemoteRequestOptions = {}): Promise<PiUsbGadgetSetupResult> {
-  const exec = await execPiCommand({ ...connection, command: buildPiUsbGadgetSetupCommand(), timeoutMs: 120_000 }, options);
+  const exec = await execPiCommand({ ...connection, command: buildPiUsbGadgetSetupCommand(), timeoutMs: 120_000 }, withPiOperation(options, { name: "pi.usb-gadget.setup" }));
   return { ok: exec.exitCode === 0, exec };
 }
 
@@ -603,6 +651,55 @@ function connectionOnly(request: PiConnectionRequest): PiConnectionRequest {
     password: request.password,
     privateKeyPath: request.privateKeyPath
   };
+}
+
+function operationBody(connection: PiConnectionRequest, name: string, options: PiRemoteRequestOptions): { operation: PiOperationMetadata } {
+  return { operation: mergePiOperation(defaultPiOperation(connection, name), options.operation) };
+}
+
+function withPiOperation(options: PiRemoteRequestOptions, operation: PiOperationMetadata): PiRemoteRequestOptions {
+  return {
+    ...options,
+    operation: mergePiOperation(operation, options.operation)
+  };
+}
+
+function defaultPiOperation(connection: PiConnectionRequest, name: string): PiOperationMetadata {
+  return {
+    name,
+    policy: "fifo",
+    resourceKey: `ssh:${connection.username}@${connection.host}:${connection.port}`
+  };
+}
+
+function cameraOperation(
+  connection: PiConnectionRequest,
+  source: PiCameraSourceInput,
+  name: string,
+  policy: PiOperationPolicy = "fifo",
+  dedupeKey?: string
+): PiOperationMetadata {
+  return {
+    name,
+    policy,
+    resourceKey: `camera:${connection.host}:${normalizePiCameraPort(source.port)}`,
+    ...(dedupeKey ? { dedupeKey } : {})
+  };
+}
+
+function mergePiOperation(base: PiOperationMetadata, override?: Partial<PiOperationMetadata>): PiOperationMetadata {
+  return {
+    ...base,
+    ...objectWithoutUndefined(override ?? {}),
+    name: override?.name?.trim() || base.name,
+    policy: override?.policy === "latest" ? "latest" : override?.policy === "fifo" ? "fifo" : base.policy,
+    resourceKey: override?.resourceKey?.trim() || base.resourceKey,
+    dedupeKey: override?.dedupeKey?.trim() || base.dedupeKey
+  };
+}
+
+function objectWithoutUndefined(value: Partial<PiOperationMetadata>): Partial<PiOperationMetadata> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<PiOperationMetadata>;
 }
 
 function shellQuote(value: string): string {
@@ -1052,7 +1149,8 @@ function normalizeUploadResult(value: unknown, message: string): PiUploadResult 
     ok: true,
     remotePath: value.remotePath,
     sizeBytes: value.sizeBytes,
-    durationMs: value.durationMs
+    durationMs: value.durationMs,
+    ...operationResultMetadata(value)
   };
 }
 
@@ -1066,10 +1164,30 @@ function normalizeExecResult(value: unknown, message: string): PiExecResult {
     exitCode: value.exitCode,
     signal: typeof value.signal === "string" ? value.signal : null,
     durationMs: value.durationMs,
-    timedOut: value.timedOut === true
+    timedOut: value.timedOut === true,
+    ...operationResultMetadata(value)
   };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
+}
+
+function operationResultMetadata(value: Record<string, unknown>): PiOperationResultMetadata {
+  return {
+    ...(typeof value.operationId === "string" ? { operationId: value.operationId } : {}),
+    ...(typeof value.queuedMs === "number" ? { queuedMs: value.queuedMs } : {}),
+    ...(typeof value.resourceKey === "string" ? { resourceKey: value.resourceKey } : {})
+  };
+}
+
+function isPiHelperSchedulerSnapshot(value: unknown): value is PiHelperSchedulerSnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const totals = value.totals;
+  if (!isRecord(totals) || !Array.isArray(value.resources)) {
+    return false;
+  }
+  return ["scheduled", "completed", "failed", "cancelled"].every((key) => typeof totals[key] === "number");
 }

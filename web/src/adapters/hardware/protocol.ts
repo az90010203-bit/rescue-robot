@@ -23,8 +23,18 @@ export type DebugModule = "servo" | "motor" | "camera";
 export type MotorDirection = "forward" | "reverse" | "stopped";
 export type MotorDriverType = "tb6618";
 export type MotorStopMode = "coast" | "brake";
-export type MotorCommandType = "motor.config" | "motor.set" | "motor.stop" | "motor.read";
+export type MotorCommandType = "motor.config" | "motor.set" | "motor.target" | "motor.stop" | "motor.read";
+export type MecanumCommandType = "mecanum.config" | "mecanum.target" | "mecanum.stop";
 export type CanCommandType = "can.config" | "can.send" | "can.read" | "can.robomaster.current" | "can.robomaster.stop";
+export type CanServoCommandType =
+  | "can_servo.config"
+  | "can_servo.move"
+  | "can_servo.read"
+  | "can_servo.set_current"
+  | "can_servo.pid"
+  | "can_servo.set_id"
+  | "can_servo.save_center"
+  | "can_servo.factory_reset";
 export type ImuCommandType = "imu.read";
 export const MOTOR_DIRECTION_DEADTIME_MS = 50;
 
@@ -89,6 +99,8 @@ export interface MotorTarget {
   channel: string;
   speedPercent: number;
   stopMode?: MotorStopMode;
+  closedLoop?: boolean;
+  targetRpm?: number;
 }
 
 export interface MotorPortMapping {
@@ -101,11 +113,22 @@ export interface MotorPortMapping {
   sensorPin?: string;
   encoderAPin?: string;
   encoderBPin?: string;
+  closedLoop?: boolean;
+  maxRpm?: number;
+  encoderTicksPerRev?: number;
 }
 
 export interface MotorStopTarget {
   channel?: string;
   all?: boolean;
+  stopMode?: MotorStopMode;
+}
+
+export interface MecanumVelocityTarget {
+  forward: number;
+  strafe: number;
+  turn: number;
+  speedLimitPercent?: number;
   stopMode?: MotorStopMode;
 }
 
@@ -120,15 +143,18 @@ export interface PcCommand {
     | "servo.torque"
     | "motor.config"
     | "motor.set"
+    | "motor.target"
     | "motor.stop"
     | "motor.read"
+    | MecanumCommandType
     | ImuCommandType
-    | CanCommandType;
+    | CanCommandType
+    | CanServoCommandType;
   seq: number;
   [key: string]: unknown;
 }
 
-const MOTOR_COMMAND_TYPES = new Set<MotorCommandType>(["motor.config", "motor.set", "motor.stop", "motor.read"]);
+const MOTOR_COMMAND_TYPES = new Set<MotorCommandType>(["motor.config", "motor.set", "motor.target", "motor.stop", "motor.read"]);
 
 export type InboundMessage =
   | { type: "ack"; seq: number; command?: string; message?: string }
@@ -159,6 +185,10 @@ export type InboundMessage =
       direction?: MotorDirection;
       stopMode?: MotorStopMode;
       speedRpm?: number;
+      closedLoop?: boolean;
+      targetRpm?: number;
+      controlDutyPercent?: number;
+      controlErrorRpm?: number;
       pulseHz?: number;
       encoderTicks?: number;
       encoderA?: number;
@@ -170,7 +200,7 @@ export type InboundMessage =
   | {
       type: "can.feedback";
       seq: number;
-      command?: CanCommandType | "can.send";
+      command?: CanCommandType | CanServoCommandType | string;
       ok?: boolean;
       ready?: boolean;
       controlId?: number;
@@ -191,6 +221,61 @@ export type InboundMessage =
       rtr?: boolean;
       dlc?: number;
       dataHex?: string;
+    }
+  | {
+      type: "can_servo.feedback";
+      seq: number;
+      command?: CanServoCommandType;
+      ok?: boolean;
+      ready?: boolean;
+      servoId?: number;
+      asmgCommand?: number;
+      rawDataHex?: string;
+      dataHex?: string;
+      position?: number;
+      currentPosition?: number;
+      commandPosition?: number;
+      speed?: number;
+      current?: number;
+      currentTorque?: number;
+      setCurrent?: number;
+      p?: number;
+      i?: number;
+      d?: number;
+      centerRatio?: number;
+      baudKbps?: number;
+      newId?: number;
+      txOk?: number;
+      txError?: number;
+      txTimeout?: number;
+      rxPending?: number;
+      esr?: number;
+    }
+  | {
+      type: "mecanum.feedback";
+      seq: number;
+      forward?: number;
+      strafe?: number;
+      turn?: number;
+      speedLimitPercent?: number;
+      stopMode?: MotorStopMode;
+      frontLeft?: number;
+      frontRight?: number;
+      rearLeft?: number;
+      rearRight?: number;
+      droppedMotionCount?: number;
+      sampleMs?: number;
+    }
+  | {
+      type: "scheduler.feedback";
+      seq: number;
+      command?: string;
+      accepted?: boolean;
+      motionPending?: boolean;
+      latestMotionSeq?: number;
+      droppedMotionCount?: number;
+      activeCommand?: string;
+      message?: string;
     }
   | {
       type: "imu.feedback";
@@ -397,6 +482,16 @@ export function validateStopMode(stopMode: MotorStopMode | undefined): void {
   }
 }
 
+function validateOptionalPositiveInteger(value: number | undefined, label: string, max: number): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new RangeError(`${label} must be an integer from 1 to ${max}`);
+  }
+  return value;
+}
+
 export function motorDirectionFromSpeed(speedPercent: number): MotorDirection {
   if (speedPercent > 0) {
     return "forward";
@@ -453,6 +548,17 @@ export function buildWriteRegisterFrame(id: number, address: number, values: num
   return buildInstructionFrame(id, FEETECH_WRITE, [address, ...values]);
 }
 
+export function buildReadRegisterFrame(id: number, address: number, length: number): number[] {
+  assertServoId(id);
+  if (!Number.isInteger(address) || address < 0 || address > 0xff) {
+    throw new Error("Feetech register address must be 0-255");
+  }
+  if (!Number.isInteger(length) || length < 1 || length > 0xff) {
+    throw new Error("Feetech register read length must be 1-255");
+  }
+  return buildInstructionFrame(id, FEETECH_READ, [address, length]);
+}
+
 export function buildPingFrame(id: number): number[] {
   assertServoId(id);
   return buildInstructionFrame(id, FEETECH_PING);
@@ -460,7 +566,7 @@ export function buildPingFrame(id: number): number[] {
 
 export function buildReadFeedbackFrame(id: number): number[] {
   assertServoId(id);
-  return buildInstructionFrame(id, FEETECH_READ, [PRESENT_POSITION_ADDR, FEEDBACK_READ_LENGTH]);
+  return buildReadRegisterFrame(id, PRESENT_POSITION_ADDR, FEEDBACK_READ_LENGTH);
 }
 
 export function buildTorqueFrame(id: number, enabled: boolean): number[] {
@@ -534,6 +640,11 @@ export function toHex(frame: number[]): string {
 }
 
 export function parseFeetechStatusPacket(bytes: ArrayLike<number>): FeetechStatusPacket | null {
+  return parseFeetechStatusPackets(bytes)[0] ?? null;
+}
+
+export function parseFeetechStatusPackets(bytes: ArrayLike<number>): FeetechStatusPacket[] {
+  const packets: FeetechStatusPacket[] = [];
   for (let start = 0; start <= bytes.length - 6; start += 1) {
     if (bytes[start] !== 0xff || bytes[start + 1] !== 0xff) {
       continue;
@@ -554,10 +665,10 @@ export function parseFeetechStatusPacket(bytes: ArrayLike<number>): FeetechStatu
       continue;
     }
 
-    return { id, status, params, checksum };
+    packets.push({ id, status, params, checksum });
   }
 
-  return null;
+  return packets;
 }
 
 export function parseServoFeedback(packet: FeetechStatusPacket): Extract<InboundMessage, { type: "servo.feedback" }> {
@@ -687,11 +798,43 @@ export function buildMotorSetCommand(seq: number, target: MotorTarget): PcComman
   assertMotorChannel(target.channel);
   validateSpeedPercent(target.speedPercent);
   validateStopMode(target.stopMode);
+  const targetRpm = validateOptionalPositiveInteger(target.targetRpm, "targetRpm", 30_000);
   return {
     type: "motor.set",
     seq,
     channel: normalizeMotorChannel(target.channel),
     speedPercent: target.speedPercent,
+    stopMode: target.stopMode ?? "coast",
+    ...(typeof target.closedLoop === "boolean" ? { closedLoop: target.closedLoop } : {}),
+    ...(targetRpm === undefined ? {} : { targetRpm })
+  };
+}
+
+export function buildMotorTargetCommand(seq: number, target: MotorTarget): PcCommand {
+  assertMotorChannel(target.channel);
+  validateSpeedPercent(target.speedPercent);
+  validateStopMode(target.stopMode);
+  const targetRpm = validateOptionalPositiveInteger(target.targetRpm, "targetRpm", 30_000);
+  return {
+    type: "motor.target",
+    seq,
+    channel: normalizeMotorChannel(target.channel),
+    speedPercent: target.speedPercent,
+    stopMode: target.stopMode ?? "coast",
+    ...(typeof target.closedLoop === "boolean" ? { closedLoop: target.closedLoop } : {}),
+    ...(targetRpm === undefined ? {} : { targetRpm })
+  };
+}
+
+export function buildMecanumTargetCommand(seq: number, target: MecanumVelocityTarget): PcCommand {
+  validateStopMode(target.stopMode);
+  return {
+    type: "mecanum.target",
+    seq,
+    forward: clampUnitAxis(target.forward),
+    strafe: clampUnitAxis(target.strafe),
+    turn: clampUnitAxis(target.turn),
+    speedLimitPercent: clamp(Number.isFinite(target.speedLimitPercent) ? target.speedLimitPercent! : 100, 0, 100),
     stopMode: target.stopMode ?? "coast"
   };
 }
@@ -705,12 +848,17 @@ export function buildMotorConfigCommand(seq: number, mapping: MotorPortMapping):
   const sensorPin = assertMotorPin(mapping.sensorPin, "sensorPin");
   const encoderAPin = assertMotorPin(mapping.encoderAPin, "encoderAPin");
   const encoderBPin = assertMotorPin(mapping.encoderBPin, "encoderBPin");
+  const maxRpm = validateOptionalPositiveInteger(mapping.maxRpm, "maxRpm", 30_000);
+  const encoderTicksPerRev = validateOptionalPositiveInteger(mapping.encoderTicksPerRev, "encoderTicksPerRev", 100_000);
 
   return {
     type: "motor.config",
     seq,
     channel: normalizeMotorChannel(mapping.channel),
     driver: mapping.driver ?? "tb6618",
+    ...(typeof mapping.closedLoop === "boolean" ? { closedLoop: mapping.closedLoop } : {}),
+    ...(maxRpm === undefined ? {} : { maxRpm }),
+    ...(encoderTicksPerRev === undefined ? {} : { encoderTicksPerRev }),
     pins: {
       pwm: pwmPin,
       in1: in1Pin,
@@ -747,6 +895,10 @@ export function buildMotorStopCommand(seq: number, target: MotorStopTarget): PcC
     channel: normalizeMotorChannel(target.channel),
     stopMode
   };
+}
+
+function clampUnitAxis(value: number): number {
+  return Number.isFinite(value) ? clamp(value, -1, 1) : 0;
 }
 
 export class LineDelimitedJsonParser {

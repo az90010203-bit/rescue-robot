@@ -118,7 +118,7 @@ const DANGER_TEMPERATURE_C = 70;
 export function forwardKinematics2d(config: ArmConfig, options: ArmKinematicsOptions = {}): ArmKinematics2d {
   const origin = options.origin ?? DEFAULT_ARM_ORIGIN;
   const joints = config.joints.map((joint) => ({ ...joint, angleDeg: clampJointAngle(joint, options.servos) }));
-  const segmentPoses = calculateArmSegmentPoses(joints, origin);
+  const segmentPoses = calculateArmSegmentPoses(joints, origin, config.baseDirectionDeg ?? 0);
   const poses = segmentPoses.map<ArmKinematicJointPose>((pose) => ({
       jointId: pose.jointId,
       name: pose.name,

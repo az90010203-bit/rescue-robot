@@ -144,7 +144,7 @@ export function useServoPauseRuntime({
       } else {
         const speedValue = Number(state.speedRaw);
         const acc = state.acc.trim() === "" ? undefined : Number(state.acc);
-        await holdServoAtCurrentPosition(servo, Number.isFinite(speedValue) && speedValue >= 0 ? speedValue : 800, acc);
+        await holdServoAtCurrentPosition(servo, Number.isFinite(speedValue) && speedValue >= 0 ? speedValue : 300, acc);
       }
       addSystemLog("logs.servoPaused");
     } catch {

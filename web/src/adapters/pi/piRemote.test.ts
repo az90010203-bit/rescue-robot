@@ -71,13 +71,15 @@ describe("Raspberry Pi remote client", () => {
         { fetcher: fetcher as unknown as typeof fetch }
       )
     ).resolves.toEqual({ ok: true, durationMs: 48 });
-    expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:17352/connect-test",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ host: "raspberrypi.local", port: 22, username: "pi", password: "secret" })
-      })
-    );
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:17352/connect-test", expect.objectContaining({ method: "POST" }));
+    const body = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(body).toMatchObject({
+      host: "raspberrypi.local",
+      port: 22,
+      username: "pi",
+      password: "secret",
+      operation: { name: "pi.connect-test", policy: "fifo", resourceKey: "ssh:pi@raspberrypi.local:22" }
+    });
   });
 
   it("uploads a file as base64", async () => {
@@ -332,10 +334,9 @@ describe("Raspberry Pi remote client", () => {
   });
 
   it("starts the USB camera stream and returns the browser URL", async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ stdout: "", stderr: "", exitCode: 0, signal: null, durationMs: 15, timedOut: false }))
-      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\nsize:320x240\nfps:30\nwebrtc:0\nlan_ip:192.168.1.45\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ stdout: "stream:0\ndevice:/dev/video0\nport:8080\nsize:320x240\nfps:30\nwebrtc:0\nlan_ip:192.168.1.45\npid:123\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false })
+    );
 
     await expect(
       startPiCameraStream(
@@ -351,7 +352,9 @@ describe("Raspberry Pi remote client", () => {
       exec: { exitCode: 0 }
     });
 
-    const startBody = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[1][1].body));
+    const startBody = JSON.parse(String((fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(startBody.operation).toMatchObject({ name: "pi.camera.start", resourceKey: "camera:raspberrypi.local:8080", policy: "fifo" });
+    expect(startBody.command).toContain("camera-scripts:0");
     expect(startBody.command).toContain("CAMERA_WIDTH=320 CAMERA_HEIGHT=240 CAMERA_FPS=30");
     expect(startBody.command).toContain("camera-start.sh");
     expect(startBody.command).toContain("'/dev/video0' 8080");
@@ -387,11 +390,11 @@ describe("Raspberry Pi remote client", () => {
     const checkBody = JSON.parse(String((checkFetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
     expect(checkBody.command).toContain("requested_device='/dev/video1'");
     expect(checkBody.command).toContain("camera-8081.pid");
+    expect(checkBody.operation).toMatchObject({ name: "pi.camera.check", resourceKey: "camera:pi.local:8081", policy: "latest", dedupeKey: "camera:pi.local:8081:check" });
 
-    const startFetcher = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({ stdout: "", stderr: "", exitCode: 0, signal: null, durationMs: 15, timedOut: false }))
-      .mockResolvedValueOnce(jsonResponse({ stdout: "stream:0\ndevice:/dev/video1\nport:8081\nsize:640x480\nfps:30\nwebrtc:1\npid:456\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false }));
+    const startFetcher = vi.fn(async () =>
+      jsonResponse({ stdout: "stream:0\ndevice:/dev/video1\nport:8081\nsize:640x480\nfps:30\nwebrtc:1\npid:456\n", stderr: "", exitCode: 0, signal: null, durationMs: 40, timedOut: false })
+    );
 
     await expect(
       startPiCameraStream(
@@ -406,7 +409,8 @@ describe("Raspberry Pi remote client", () => {
       streamUrl: "http://pi.local:8081/stream",
       webrtcOfferUrl: "http://pi.local:8081/offer"
     });
-    const startBody = JSON.parse(String((startFetcher.mock.calls as unknown as Array<[string, RequestInit]>)[1][1].body));
+    const startBody = JSON.parse(String((startFetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1].body));
+    expect(startBody.operation).toMatchObject({ name: "pi.camera.start", resourceKey: "camera:pi.local:8081", policy: "fifo" });
     expect(startBody.command).toContain("'/dev/video1' 8081");
   });
 

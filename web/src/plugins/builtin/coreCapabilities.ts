@@ -6,7 +6,7 @@ export const coreCapabilitiesPackage: PlatformPluginPackage = {
     name: "Core Capabilities",
     version: "0.1.0",
     description: "Shared robot capability definitions used by built-in drivers.",
-    provides: ["capability.servo", "capability.motor", "capability.camera", "capability.robot-arm", "capability.raspberry-pi", "capability.firmware", "capability.gamepad"]
+    provides: ["capability.servo", "capability.motor", "capability.camera", "capability.robot-arm", "capability.mecanum-drive", "capability.can-servo-group", "capability.raspberry-pi", "capability.firmware", "capability.gamepad", "capability.ai-vision"]
   },
   plugins: [
     {
@@ -68,6 +68,29 @@ export const coreCapabilitiesPackage: PlatformPluginPackage = {
       stateFields: ["jointCount", "selectedJointId", "liveDragEnabled"]
     },
     {
+      id: "capability.mecanum-drive",
+      kind: "capability",
+      name: "Mecanum Drive",
+      version: "0.1.0",
+      capability: "mecanum-drive",
+      actions: [
+        { id: "set_velocity", label: "Set velocity", commandType: "mecanum-drive.set_velocity" },
+        { id: "stop", label: "Stop", commandType: "mecanum-drive.stop" }
+      ],
+      stateFields: ["forward", "strafe", "turn", "speedLimitPercent", "closedLoop"]
+    },
+    {
+      id: "capability.can-servo-group",
+      kind: "capability",
+      name: "CAN Servo Group",
+      version: "0.1.0",
+      capability: "can-servo-group",
+      actions: [
+        { id: "set_positions", label: "Set positions", commandType: "can-servo-group.set_positions" }
+      ],
+      stateFields: ["positions", "speedRaw"]
+    },
+    {
       id: "capability.raspberry-pi",
       kind: "capability",
       name: "Raspberry Pi Remote",
@@ -108,6 +131,19 @@ export const coreCapabilitiesPackage: PlatformPluginPackage = {
       capability: "gamepad",
       actions: [],
       stateFields: ["connected", "index", "id", "mapping", "axes", "buttons", "axesValues", "pressedButtons", "forward", "strafe", "turn", "cameraPan", "cameraTilt", "stop"]
+    },
+    {
+      id: "capability.ai-vision",
+      kind: "capability",
+      name: "AI Vision",
+      version: "0.1.0",
+      capability: "ai-vision",
+      actions: [
+        { id: "helper_check", label: "Check helper", commandType: "ai-vision.helper.check" },
+        { id: "analyze", label: "Analyze stream", commandType: "ai-vision.analyze" },
+        { id: "capture_sample", label: "Capture sample", commandType: "ai-vision.samples.capture" }
+      ],
+      stateFields: ["helperReady", "mode", "sampleDir", "sourceId", "detectionCount", "lastLabel", "lastConfidence", "lastCapturePath"]
     }
   ]
 };

@@ -1,11 +1,9 @@
-import { Activity, Bot, Boxes, Cable, Cpu, Gauge, Languages, ListPlus, Settings, Unplug, Usb } from "lucide-react";
+import { Activity, Bot, Boxes, Cable, Cpu, Gauge, Languages, ListPlus, Settings, Unplug } from "lucide-react";
 import type { ChangeEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import type { DataProject } from "@adapters/data-service/dataService";
 import { supportedLanguages, type SupportedLanguage } from "../i18n/languages";
-import { StatusCard } from "@shared/ui/AppChrome";
 import {
-  databaseStatusTone,
   isServoBusModule,
   type ActiveModule,
   type AppSection,
@@ -26,17 +24,12 @@ interface AppHeaderBarProps {
   activeSection: AppSection;
   changeCurrentProject: (projectId: string) => Promise<void>;
   changeLanguage: (event: ChangeEvent<HTMLSelectElement>) => void | Promise<void>;
-  connectSerial: () => void | Promise<void>;
-  connected: boolean;
   createNewProject: () => Promise<void>;
   currentLanguage: SupportedLanguage;
   currentProject: DataProject | null;
-  databaseDetailValue: string;
   databaseStatus: DatabaseSaveStatus;
-  databaseStatusValue: string;
-  debugEnabled: boolean;
-  debugLabel: string;
-  disconnectSerial: () => void | Promise<void>;
+  checkAboardSerialBridge: () => Promise<unknown>;
+  checkPiServoSerialBridge: () => Promise<unknown>;
   disconnectAboardSerialBridge: () => void;
   newProjectName: string;
   piRemoteBusy: boolean;
@@ -49,15 +42,11 @@ interface AppHeaderBarProps {
   piServoBridgeDetail: string;
   piServoBridgeLabel: string;
   piServoBridgeTone: StatusTone;
-  projectStatusValue: string;
   projects: DataProject[];
   selectSection: (section: AppSection) => void | Promise<void>;
   setNewProjectName: (value: string) => void;
-  startAboardSerialBridge: () => Promise<unknown>;
-  startPiServoSerialBridge: () => Promise<unknown>;
   t: TFunction;
   testRaspberryPiConnection: () => Promise<void>;
-  toggleDebugMode: () => void | Promise<void>;
   webSerialAvailable: boolean;
   disconnectPiServoSerialBridge: () => void;
 }
@@ -73,17 +62,12 @@ export function AppHeaderBar({
   activeSection,
   changeCurrentProject,
   changeLanguage,
-  connectSerial,
-  connected,
   createNewProject,
   currentLanguage,
   currentProject,
-  databaseDetailValue,
   databaseStatus,
-  databaseStatusValue,
-  debugEnabled,
-  debugLabel,
-  disconnectSerial,
+  checkAboardSerialBridge,
+  checkPiServoSerialBridge,
   disconnectAboardSerialBridge,
   newProjectName,
   piRemoteBusy,
@@ -96,15 +80,11 @@ export function AppHeaderBar({
   piServoBridgeDetail,
   piServoBridgeLabel,
   piServoBridgeTone,
-  projectStatusValue,
   projects,
   selectSection,
   setNewProjectName,
-  startAboardSerialBridge,
-  startPiServoSerialBridge,
   t,
   testRaspberryPiConnection,
-  toggleDebugMode,
   webSerialAvailable,
   disconnectPiServoSerialBridge
 }: AppHeaderBarProps) {
@@ -165,7 +145,7 @@ export function AppHeaderBar({
                   disconnectPiServoSerialBridge();
                   return;
                 }
-                void startPiServoSerialBridge();
+                void checkPiServoSerialBridge();
               }}
             />
             <HeaderConnectionCard
@@ -182,39 +162,14 @@ export function AppHeaderBar({
                   disconnectAboardSerialBridge();
                   return;
                 }
-                void startAboardSerialBridge();
+                void checkAboardSerialBridge();
               }}
             />
-          </div>
-          <div className="system-strip" aria-label={t("aria.systemStatus")}>
-            <StatusCard label={t("status.serialLink")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
-            <StatusCard label={t("status.debugMode")} value={debugLabel} tone={debugEnabled ? "warning" : "neutral"} />
-            <StatusCard label={t("database.label")} value={databaseStatusValue} tone={databaseStatusTone(databaseStatus)} />
-            <StatusCard label={t("database.project")} value={projectStatusValue} tone={currentProject ? "online" : "warning"} />
-            <StatusCard label={t("database.lastSave")} value={databaseDetailValue} tone={databaseStatusTone(databaseStatus)} />
-            <StatusCard label={t("status.module")} value={sectionStatusValue(activeSection, t)} tone="neutral" />
           </div>
         </div>
       </header>
 
       <section className="control-bar glass-surface" aria-label={t("aria.connectionControls")}>
-        <div className="control-actions">
-          <button className="icon-button primary" onClick={connected ? disconnectSerial : connectSerial} type="button">
-            {connected ? <Unplug size={18} /> : <Usb size={18} />}
-            <span>{connected ? t("actions.disconnectSerial") : t("actions.connectSerial")}</span>
-          </button>
-          <button
-            className={debugEnabled ? "icon-button danger" : "icon-button"}
-            disabled={isServoBusModule(activeModule)}
-            onClick={toggleDebugMode}
-            title={isServoBusModule(activeModule) ? t("arm.directBusHint") : ""}
-            type="button"
-          >
-            <Cable size={18} />
-            <span>{debugEnabled ? t("actions.exitDebug") : t("actions.enterDebug")}</span>
-          </button>
-        </div>
-
         <div className="module-switch section-switch" aria-label={t("aria.primarySection")}>
           <button className={activeSection === "console" ? "module-tab active" : "module-tab"} onClick={() => selectSection("console")} type="button">
             <Gauge size={17} />
@@ -331,23 +286,4 @@ function HeaderConnectionCard({
       </button>
     </div>
   );
-}
-
-function sectionStatusValue(activeSection: AppSection, t: TFunction) {
-  if (activeSection === "console") {
-    return t("sections.consoleValue");
-  }
-  if (activeSection === "plugins") {
-    return t("sections.pluginsValue");
-  }
-  if (activeSection === "components") {
-    return t("sections.componentsValue");
-  }
-  if (activeSection === "robots") {
-    return t("sections.robotsValue");
-  }
-  if (activeSection === "tests") {
-    return t("sections.testsValue");
-  }
-  return t("sections.settingsValue");
 }

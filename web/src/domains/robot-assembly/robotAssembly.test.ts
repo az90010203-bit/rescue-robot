@@ -143,6 +143,8 @@ describe("robot assembly model", () => {
   it("infers tracked bases and runtime color tones", () => {
     expect(isTrackedBaseComponent(driveComponent, plugins)).toBe(true);
     expect(inferRobotAssemblyVisualKind({ sourceType: "component", sourceId: driveComponent.id }, context)).toBe("tracked-base");
+    const mecanumComponent: ComponentDefinition = { ...driveComponent, id: "mecanum", name: "Mecanum", kind: "mecanum-drive" };
+    expect(inferRobotAssemblyVisualKind({ sourceType: "component", sourceId: mecanumComponent.id }, { ...context, components: [...context.components, mecanumComponent] })).toBe("mecanum-drive");
 
     expect(motionToneForPlugin(leftMotor, { driveTargets: [{ channel: "M1", speedPercent: 35 }] })).toBe("forward");
     expect(motionToneForPlugin(rightMotor, { motorFeedback: { M2: { commandedSpeedPercent: -40 } } })).toBe("reverse");

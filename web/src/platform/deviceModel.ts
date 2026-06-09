@@ -44,6 +44,11 @@ export interface PlatformDeviceModelInput {
   selectedFirmwarePort?: string;
   firmwareBoard?: string;
   activeGamepad?: PlatformGamepadInput | null;
+  aiVisionHelperReady?: boolean;
+  aiVisionMode?: string | null;
+  aiVisionSampleDir?: string | null;
+  aiVisionDetectionCount?: number | null;
+  aiVisionSourceId?: string | null;
 }
 
 export function createPlatformDevices(input: PlatformDeviceModelInput): DeviceDescriptor[] {
@@ -241,7 +246,30 @@ export function createPlatformDevices(input: PlatformDeviceModelInput): DeviceDe
     }
   };
 
-  return [...servoDevices, ...motorDevices, cameraDevice, ...(secondaryCameraDevice ? [secondaryCameraDevice] : []), armDevice, piDevice, firmwareDevice, gamepadDevice];
+  const aiVisionDevice: DeviceDescriptor = {
+    id: "ai-vision:local",
+    name: "AI Vision",
+    type: "ai-vision",
+    driverId: "driver.ai-vision-helper",
+    transportId: "transport.local-helper",
+    status: input.aiVisionHelperReady ? "online" : "offline",
+    capabilities: [
+      {
+        id: "ai-vision",
+        features: ["mjpeg_stream_analysis", "sample_capture", "external_helper"]
+      }
+    ],
+    metadata: {
+      helperReady: input.aiVisionHelperReady ?? false,
+      mode: input.aiVisionMode ?? null,
+      sampleDir: input.aiVisionSampleDir ?? null,
+      detectionCount: input.aiVisionDetectionCount ?? null,
+      sourceId: input.aiVisionSourceId ?? MAIN_CAMERA_SOURCE_ID,
+      streamUrl: mainCameraSource?.streamUrl ?? input.cameraConfig.streamUrl
+    }
+  };
+
+  return [...servoDevices, ...motorDevices, cameraDevice, ...(secondaryCameraDevice ? [secondaryCameraDevice] : []), armDevice, piDevice, firmwareDevice, gamepadDevice, aiVisionDevice];
 }
 
 function statusForConnection(connected: boolean, activeTransport: boolean): DeviceStatus {

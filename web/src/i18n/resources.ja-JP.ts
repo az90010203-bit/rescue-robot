@@ -3,6 +3,7 @@ export const jaJPResource = {
     "app": {
       "eyebrow": "Rescue Robot Console",
       "title": "救援ロボットコンソール",
+      "documentTitle": "救援ロボットコンソール",
       "systemLine": "USB Serial · 115200 baud · {{module}}",
       "servoBridgeSystemLine": "Pi サーボブリッジ · 115200 UART · {{module}}",
       "servoBusSystemLine": "USB シリアル · 1000000 baud · {{module}}",
@@ -31,6 +32,147 @@ export const jaJPResource = {
       "no": "いいえ",
       "delete": "削除"
     },
+    "diagnosticAgent": {
+      "title": "診断コパイロット",
+      "meta": "ローカルルール",
+      "expand": "展開",
+      "collapse": "折りたたみ",
+      "placeholder": "カメラ、サーボフィードバック、Pi、ファームウェア...",
+      "messages": {
+        "initial": "私はローカルルールの診断コパイロットです。外部の大規模モデルには接続せず、現在の状態、ログ、低リスク確認結果を読んで次の手順を提案します。",
+        "actionNeedsConfirm": "{{label}} は実行前に手動確認が必要です。この操作は自動送信しません。",
+        "actionCannotAutoRun": "{{label}} は診断コパイロットから自動実行できません。",
+        "actionResult": "{{label}} -> {{status}}{{message}}",
+        "lowRiskComplete": "低リスク確認が完了しました: {{results}}"
+      },
+      "summaries": {
+        "blocking": "現在の状態を確認しました。まず {{title}} を処理してください。高優先度項目は他に {{blockingExtra}} 件、低リスク確認は {{lowRiskCount}} 件あります。",
+        "warning": "{{warningCount}} 件の確認が必要です。まず {{title}} を見てください。{{hint}}",
+        "unknown": "この文を特定のデバイスに分類できませんでしたが、現在の状態に明確な阻害要因はありません。カメラ、サーボフィードバック、Pi、ファームウェア helper の確認を依頼できます。",
+        "ready": "現在の状態を確認しました。明確な阻害要因はありません。{{hint}}",
+        "warningLowRiskHint": "低リスク確認はそのまま実行できます。",
+        "warningManualHint": "主に設定または配線の手動確認が必要です。",
+        "readyLowRiskHint": "確認のため低リスク確認を続行できます。",
+        "readyManualHint": "次は具体的な操作結果を確認してください。"
+      },
+      "issues": {
+        "serialOffline": {
+          "title": "制御シリアルがオフライン",
+          "message": "制御シリアルリンクがオフラインのため、サーボ、モーター、ジンバル操作はコントローラーへ届きません。",
+          "actionHint": "ブラウザーシリアルまたは Pi サーボブリッジを接続してから、ハードウェア操作を再試行してください。"
+        },
+        "piHelperOffline": {
+          "title": "Pi helper 未準備",
+          "message": "ローカルの Pi helper 確認チャネルが使えないため、カメラとリモート操作を確認できない可能性があります。",
+          "actionHint": "Pi 接続確認を実行し、ローカル helper と SSH ターゲットを確認してください。"
+        },
+        "piConnectionOffline": {
+          "title": "Pi 接続未確認",
+          "message": "Pi helper はありますが、SSH/ターゲット接続がオンライン確認されていません。",
+          "actionHint": "まず Pi 接続確認を 1 回実行してください。"
+        },
+        "cameraStreamUrlMissing": {
+          "title": "カメラ stream URL が空",
+          "message": "現在の映像ソースに streamUrl がないため、プレビューと視覚分析に入力がありません。",
+          "actionHint": "カメラ設定で MJPEG stream URL を復元または入力してください。"
+        },
+        "cameraStreamNotReady": {
+          "title": "カメラのオンライン未確認",
+          "message": "映像 URL はありますが、カメラ状態がまだ online ではありません。",
+          "actionHint": "カメラ確認を実行し、デバイス、ポート、stream サービスを確認してください。"
+        },
+        "firmwareHelperOffline": {
+          "title": "ファームウェア helper オフライン",
+          "message": "ローカルのファームウェアコンパイル/ポート更新 helper が準備できていません。",
+          "actionHint": "ファームウェア helper を確認してからポートを更新してください。"
+        },
+        "aiVisionHelperOffline": {
+          "title": "AI Vision helper オフライン",
+          "message": "ローカル視覚 helper がオフラインのため、フレーム取得と分析ができません。",
+          "actionHint": "まず AI Vision helper を確認してください。"
+        },
+        "aiVisionNoDetections": {
+          "title": "現在の検出結果なし",
+          "message": "AI Vision helper はオンラインですが、最新分析でターゲットが見つかっていません。",
+          "actionHint": "映像ソース確認後、もう一度分析してください。"
+        },
+        "servoFeedbackMissing": {
+          "title": "サーボ {{servoId}} のフィードバックなし",
+          "message": "{{targetDeviceId}} に positionRaw フィードバックがまだありません。",
+          "actionHint": "サーボフィードバックを 1 回読み取り、ID、バス、電源を確認してください。"
+        },
+        "motorFeedbackMissing": {
+          "title": "モーター {{motorChannel}} のフィードバックなし",
+          "message": "{{targetDeviceId}} に最近のフィードバックがまだありません。",
+          "actionHint": "モーターフィードバックを読み取るか、A ボードブリッジ状態を確認してください。"
+        },
+        "recentLogs": {
+          "title": "最近のログに問題あり",
+          "message": "システムログに最近の警告またはエラーがあり、現在の問題と関係している可能性があります。",
+          "actionHint": "最新エラーと関連 helper またはデバイスを照合してください。"
+        },
+        "systemReady": {
+          "title": "明確な阻害要因なし",
+          "message": "プラットフォーム状態には診断を直接妨げる異常がありません。",
+          "actionHint": "それでもハードウェアが動かない場合は、具体的なコマンド結果と配線を確認してください。"
+        }
+      },
+      "status": {
+        "issues": "{{count}} 件",
+        "lowRisk": "{{count}} チェック"
+      },
+      "actions": {
+        "quickCheck": "診断を実行",
+        "reset": "リセット",
+        "send": "送信",
+        "run": "実行",
+        "running": "実行中",
+        "checkPi": {
+          "label": "Pi 接続を確認",
+          "description": "Pi helper と SSH ターゲット状態を読み取ります。"
+        },
+        "checkCamera": {
+          "label": "カメラを確認",
+          "description": "Pi helper でカメラデバイスと stream サービスを確認します。"
+        },
+        "configureVideoSource": {
+          "label": "映像ソースを設定",
+          "description": "カメラ設定で streamUrl を入力します。"
+        },
+        "checkFirmwareHelper": {
+          "label": "ファームウェア helper を確認",
+          "description": "ローカル firmware-helper がオンラインか確認します。"
+        },
+        "checkAiVision": {
+          "label": "AI Vision を確認",
+          "description": "ローカル視覚 helper がオンラインか確認します。"
+        },
+        "analyzeFrame": {
+          "label": "画面を再分析",
+          "description": "現在の映像ソースから 1 フレーム取得し、検出結果を更新します。"
+        },
+        "readServoFeedback": {
+          "label": "サーボフィードバックを読む",
+          "description": "{{targetDeviceId}} の現在位置フィードバックを読み取ります。"
+        },
+        "readMotorFeedback": {
+          "label": "モーターフィードバックを読む",
+          "description": "{{targetDeviceId}} の最新フィードバックを読み取ります。"
+        },
+        "connectSerial": {
+          "label": "制御シリアルを接続",
+          "description": "ブラウザーシリアル権限は操作者が手動で確認する必要があります。"
+        },
+        "refreshFirmwarePorts": {
+          "label": "ファームウェアポート更新",
+          "description": "この PC の利用可能な書き込みポートを再読み取りします。"
+        }
+      },
+      "risk": {
+        "confirm": "確認",
+        "blocked": "手動"
+      }
+    },
     "language": {
       "label": "言語",
       "select": "言語を選択"
@@ -38,7 +180,9 @@ export const jaJPResource = {
     "loading": {
       "console": "コンソールを読み込み中...",
       "arm3d": "3D アームを読み込み中...",
-      "architecture": "三層アーキテクチャ作業領域を読み込み中..."
+      "architecture": "三層アーキテクチャ作業領域を読み込み中...",
+      "workspaceErrorTitle": "ワークスペースを読み込めませんでした",
+      "workspaceErrorHint": "ページを再読み込みするか、別のワークスペースへ切り替えてから再試行してください。"
     },
     "sections": {
       "console": "主コンソール",
@@ -94,7 +238,16 @@ export const jaJPResource = {
         "error": "レイアウト保存失敗"
       },
       "targets": {
-        "mainArm": "メインアーム"
+        "mainArm": "メインアーム",
+        "mainCamera": "メインカメラ",
+        "secondaryCamera": "第2カメラ"
+      },
+      "targetMeta": {
+        "telemetry": "プラットフォームのリアルタイム状態",
+        "attitude": "A ボード IMU フィードバック",
+        "joystick": "駆動とジンバルの合成入力",
+        "eventLog": "最近のコンソールイベント",
+        "mainArm": "現在のコンソールアーム"
       },
       "actions": {
         "addPanel": "パネル追加",
@@ -186,6 +339,7 @@ export const jaJPResource = {
     "actions": {
       "connectSerial": "シリアル接続",
       "disconnectSerial": "シリアル切断",
+      "reloadPage": "ページを再読み込み",
       "enterDebug": "デバッグ開始",
       "exitDebug": "デバッグ終了",
       "sendCommand": "コマンド送信",
@@ -214,11 +368,11 @@ export const jaJPResource = {
       "sendPortMapping": "ポート設定を送信",
       "downloadArduinoFirmware": "Arduinoコードをダウンロード",
       "checkAboardBridge": "Aボードブリッジ確認",
-      "startAboardBridge": "Aボード永続ブリッジを起動",
+      "startAboardBridge": "Aボードブリッジを更新/修復",
       "disconnectAboardBridge": "ブリッジ切断",
       "connectAboard": "Aボード接続",
       "checkPiServoBridge": "サーボブリッジ確認",
-      "startPiServoBridge": "Piサーボブリッジ起動",
+      "startPiServoBridge": "Piサーボブリッジを更新/修復",
       "disconnectPiServoBridge": "サーボブリッジ切断",
       "connectPiServo": "サーボブリッジ接続",
       "checkFirmwareHelper": "ヘルパー確認",
@@ -347,6 +501,8 @@ export const jaJPResource = {
         "motor": "モーター",
         "camera": "カメラ",
         "robot-arm": "ロボットアーム",
+        "mecanum-drive": "メカナムホイール",
+        "can-servo-group": "CAN サーボグループ",
         "raspberry-pi": "Raspberry Pi",
         "firmware": "ファームウェア",
         "gamepad": "ゲームパッド",
@@ -596,16 +752,50 @@ export const jaJPResource = {
         "name": "コンポーネント名",
         "kind": {
           "custom": "通常コンポーネント",
-          "robotArm": "ロボットアーム"
+          "robotArm": "ロボットアーム",
+          "mecanumDrive": "メカナムホイール"
         },
         "noAvailablePluginInstances": "利用可能なプラグインインスタンスはありません",
         "createRobotArm": "ロボットアーム作成",
+        "createMecanumDrive": "メカナム作成",
         "createComponent": "コンポーネント作成",
         "count": "{{count}} コンポーネント",
         "panelTitle": "コンポーネントパネル",
         "empty": "コンポーネントはまだありません",
         "pluginCount": "{{count}} プラグイン",
         "selectComponent": "コンポーネントを選択してください"
+      },
+      "mecanum": {
+        "wheels": {
+          "frontLeft": "左前",
+          "frontRight": "右前",
+          "rearLeft": "左後",
+          "rearRight": "右後"
+        },
+        "incomplete": "未完了",
+        "ready": "準備完了",
+        "closedLoop": "閉ループ",
+        "maxRpm": "最大 RPM",
+        "encoderTicksPerRev": "エンコーダ ticks / rev",
+        "closedLoopDefault": "コンポーネントの閉ループ速度制御を有効化",
+        "linkedSpeed": "連動速度",
+        "speedPercent": "速度",
+        "forward": "前進",
+        "backward": "後退",
+        "strafeLeft": "左移動",
+        "strafeRight": "右移動",
+        "rotateLeft": "左旋回",
+        "rotateRight": "右旋回",
+        "stop": "停止",
+        "channel": "チャンネル",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "エンコーダ A / B",
+        "rpm": "RPM",
+        "ticks": "カウント",
+        "targetRpm": "目標",
+        "reverse": "反転",
+        "save": "メカナム底盤を保存"
       },
       "robots": {
         "steps": {
@@ -792,6 +982,9 @@ export const jaJPResource = {
       "maxAngle": "最大角",
       "neutralDeg": "ニュートラル角 deg",
       "segmentLength": "セグメント長 px",
+      "startDirection": "開始方向",
+      "baseDirection": "全体開始方向",
+      "jointStartDirection": "関節開始方向",
       "liveDrag": "リアルタイムドラッグ",
       "targetX": "目標 X",
       "targetY": "目標 Y",
@@ -817,6 +1010,13 @@ export const jaJPResource = {
       "asmgSpeedSlider": "速度スライダー",
       "asmgLiveDrag": "ライブドラッグ",
       "asmgAngleLive": "角度ライブ読取",
+      "asmgStallProtection": "スタック保護",
+      "asmgStallCurrent": "スタック電流しきい値",
+      "asmgLivePrime": "ライブ初期化",
+      "asmgLiveFeedback": "ライブフィードバック",
+      "asmgLivePosition": "ライブ位置",
+      "asmgLiveCurrent": "ライブ電流",
+      "asmgLiveFeedbackAge": "フィードバック経過",
       "canAutoConfigure": "送信前に CAN を自動設定",
       "asmgCurrent": "電流",
       "asmgP": "P",
@@ -873,7 +1073,8 @@ export const jaJPResource = {
       "motionStatus": {
         "idle": "待機",
         "smoothing": "平滑中",
-        "paused": "停止後待機"
+        "paused": "停止後待機",
+        "unreachable": "応答なし"
       },
       "smoothPresets": {
         "soft": "ソフト",
@@ -1002,13 +1203,19 @@ export const jaJPResource = {
         "newId": "新 ID は 0..253 です。",
         "dangerConfirm": "単一サーボバスを確認し、現在の対象 ID を入力してください。",
         "liveUnavailable": "ライブドラッグには A ボードブリッジ接続と有効な対象 ID が必要です。",
+        "livePrimeFailed": "現在位置を読み取れなかったため、ライブドラッグを有効にしませんでした。",
+        "liveFeedbackStale": "位置フィードバックが古いため、ライブ送信を停止しました。",
+        "liveStalled": "ライブドラッグを保護停止しました。目標に動かず電流が高いため、最新フィードバック位置を保持します。",
+        "liveFeedbackLost": "ライブドラッグを保護停止しました。位置/電流フィードバックが失われたため、最後の既知位置を保持します。",
         "commandFailed": "CAN サーボコマンドに失敗しました。"
       },
       "live": {
         "off": "ライブ OFF",
+        "priming": "位置読取中",
         "ready": "ライブ準備完了",
         "configuring": "設定中",
         "sending": "送信中",
+        "stalled": "保護停止",
         "error": "ライブエラー"
       },
       "parsed": {
@@ -1041,8 +1248,8 @@ export const jaJPResource = {
     "encoderDiagnostics": {
       "noFeedback": "エンコーダフィードバックはまだありません。読取を実行するか、Aボードブリッジを確認してください。",
       "oldFirmware": "フィードバックはありますが、A/B診断フィールドがありません。最新のAボードファームウェアを書き込んでください。",
-      "noMovement": "A/Bレベルとカウントがまだ変化していません。エンコーダ電源、E1A/E1B配線、電圧レベルを確認してください。",
-      "levelsOnly": "A/Bレベルは変化しましたが、TIM2カウントが変化していません。PA0/PA1割当またはエンコーダモード設定を確認してください。",
+      "noMovement": "A/Bレベルとカウントがまだ変化していません。エンコーダ電源、選択チャンネルのE*A/E*B配線、電圧レベルを確認してください。",
+      "levelsOnly": "A/Bレベルは変化しましたが、ソフトウェアカウントが変化していません。選択チャンネルのエンコーダA/B割当と相順を確認してください。",
       "slowOrSparse": "カウントは変化しましたが pulseHz は0です。速く回すか、次の更新サンプルを待ってください。",
       "ok": "カウントとパルス周波数が変化しています。エンコーダフィードバック経路はおおむね正常です。"
     },
@@ -1556,6 +1763,18 @@ export const jaJPResource = {
         "runLog": {
           "start": "{{name}} を実行"
         },
+        "smartCheck": {
+          "title": "スマートチェック",
+          "ok": "READY",
+          "ready": "スマートチェックに合格しました。",
+          "blocked": "スマートチェックが実行を止めました。",
+          "blockedCount": "{{count}} 件ブロック",
+          "warningCount": "{{count}} 件ヒント",
+          "runDiagnosis": "実行診断",
+          "noRunIssues": "今回の実行に診断項目はありません。",
+          "logPrefix": "スマート診断",
+          "inspectLastStep": "実行ログの最後のステップを見て、対応するデバイスを確認してください。"
+        },
         "categories": {
           "actions": "ロボット動作",
           "flow": "フロー"
@@ -1564,6 +1783,7 @@ export const jaJPResource = {
           "start": "プログラム開始",
           "motorSet": "モーター設定",
           "motorStop": "モーター停止",
+          "mecanumDrive": "メカナム駆動",
           "servoMove": "サーボ移動",
           "armPose": "アーム姿勢送信",
           "cameraGimbal": "ジンバル設定",
@@ -1576,6 +1796,10 @@ export const jaJPResource = {
         "fields": {
           "ms": "ms",
           "speed": "速度",
+          "forward": "前進",
+          "strafe": "横移動",
+          "turn": "旋回",
+          "duration": "持続",
           "angle": "角度",
           "acc": "加速度",
           "pan": "パン",

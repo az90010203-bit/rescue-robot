@@ -32,10 +32,15 @@ interface UseArmMotionRuntimeOptions {
     physicalAngleDeg: number;
     speedRaw: number;
     acc: number | undefined;
+    live?: boolean;
     waitMs: number;
     logFrame: boolean;
+    setupMode?: boolean;
   }) => Promise<any>;
 }
+
+const ARM_LIVE_SPEED_RAW_LIMIT = 450;
+const ARM_LIVE_ACC_LIMIT = 18;
 
 export function useArmMotionRuntime({
   addLog,
@@ -89,6 +94,14 @@ export function useArmMotionRuntime({
       .filter((target): target is ArmMotionTarget => target !== null);
   }
 
+  function armLiveSpeedRaw(speedRaw: number) {
+    return clamp(Math.round(speedRaw), 0, ARM_LIVE_SPEED_RAW_LIMIT);
+  }
+
+  function armLiveAcc(acc: number | undefined) {
+    return clamp(Math.round(acc ?? ARM_LIVE_ACC_LIMIT), 0, ARM_LIVE_ACC_LIMIT);
+  }
+
   async function runArmPositionMotion(config: ArmConfig, live = false, extraServos: ServoProfile[] = []) {
     const targets = calculateArmMotionTargets(config, extraServos);
 
@@ -107,17 +120,18 @@ export function useArmMotionRuntime({
     }
 
     const ids = targets.map((target) => target.servoId);
-    if (!servoSmoothingEnabled) {
+    if (!servoSmoothingEnabled || live) {
       cancelServoMotionForArm("idle");
       await enqueueServoSerialTask(async () => {
         for (const target of targets) {
           await writeServoPositionUnlocked({
             servo: target.servo,
             physicalAngleDeg: target.physicalAngleDeg,
-            speedRaw: target.speedRaw,
-            acc: target.acc,
+            speedRaw: live ? armLiveSpeedRaw(target.speedRaw) : target.speedRaw,
+            acc: live ? armLiveAcc(target.acc) : target.acc,
             waitMs: live ? 12 : 80,
-            logFrame: !live
+            logFrame: !live,
+            live
           });
         }
       });
@@ -176,7 +190,8 @@ export function useArmMotionRuntime({
               speedRaw: target.speedRaw,
               acc: target.acc,
               waitMs: live ? 12 : 30,
-              logFrame: false
+              logFrame: false,
+              live
             });
           }
         });

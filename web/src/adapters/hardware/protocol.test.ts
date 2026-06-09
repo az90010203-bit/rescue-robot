@@ -5,9 +5,12 @@ import {
   applyServoWheelDirection,
   buildDebugSetCommand,
   buildInstructionFrame,
+  buildMecanumTargetCommand,
   buildMotorConfigCommand,
   buildMotorSetCommand,
   buildMotorStopCommand,
+  buildMotorTargetCommand,
+  buildReadRegisterFrame,
   buildServoMoveCommand,
   buildServoSpeedCommand,
   buildServoIdChangeFrames,
@@ -21,6 +24,7 @@ import {
   isMotorDebugDisabledError,
   isMotorPcCommand,
   parseFeetechStatusPacket,
+  parseFeetechStatusPackets,
   parseServoFeedback,
   rawToAngleDeg,
   requiresMotorDirectionDeadtime,
@@ -44,6 +48,7 @@ describe("feetech protocol helpers", () => {
 
   it("builds Feetech register and physical ID write frames", () => {
     expect(toHex(buildWriteRegisterFrame(9, 0x37, [0]))).toBe("FF FF 09 04 03 37 00 B8");
+    expect(toHex(buildReadRegisterFrame(11, 0x28, 1))).toBe("FF FF 0B 04 02 28 01 C5");
     expect(buildServoIdChangeFrames(9, 12).map(toHex)).toEqual([
       "FF FF 09 02 01 F3",
       "FF FF 09 04 03 37 00 B8",
@@ -127,6 +132,19 @@ describe("feetech protocol helpers", () => {
       currentRaw: 0,
       currentMa: 0
     });
+  });
+
+  it("parses every valid status packet from a combined serial read", () => {
+    const packets = parseFeetechStatusPackets([
+      0xff, 0xff, 0x0a, 0x02, 0x00, 0xf3,
+      0xff, 0xff, 0x09, 0x02, 0x00, 0xf4
+    ]);
+
+    expect(packets.map((packet) => packet.id)).toEqual([10, 9]);
+    expect(parseFeetechStatusPacket([
+      0xff, 0xff, 0x0a, 0x02, 0x00, 0xf3,
+      0xff, 0xff, 0x09, 0x02, 0x00, 0xf4
+    ])?.id).toBe(10);
   });
 });
 
@@ -240,11 +258,14 @@ describe("pwm motor json protocol", () => {
   });
 
   it("builds motor.config commands for TB6618 board-side pin mapping", () => {
-    expect(buildMotorConfigCommand(6, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", enablePin: "d10", sensorPin: "d2", encoderAPin: "pa0", encoderBPin: "pa1" })).toEqual({
+    expect(buildMotorConfigCommand(6, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", enablePin: "d10", sensorPin: "d2", encoderAPin: "pa0", encoderBPin: "pa1", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 })).toEqual({
       type: "motor.config",
       seq: 6,
       channel: "M1",
       driver: "tb6618",
+      closedLoop: true,
+      maxRpm: 6000,
+      encoderTicksPerRev: 52,
       pins: {
         pwm: "D5",
         in1: "D4",
@@ -279,12 +300,14 @@ describe("pwm motor json protocol", () => {
   });
 
   it("builds motor.set commands with signed speed", () => {
-    expect(buildMotorSetCommand(8, { channel: "m1", speedPercent: -50 })).toEqual({
+    expect(buildMotorSetCommand(8, { channel: "m1", speedPercent: -50, closedLoop: true, targetRpm: 1200 })).toEqual({
       type: "motor.set",
       seq: 8,
       channel: "M1",
       speedPercent: -50,
-      stopMode: "coast"
+      stopMode: "coast",
+      closedLoop: true,
+      targetRpm: 1200
     });
   });
 
@@ -292,6 +315,30 @@ describe("pwm motor json protocol", () => {
     expect(() => buildMotorSetCommand(1, { channel: "", speedPercent: 20 })).toThrow("motor channel");
     expect(() => buildMotorSetCommand(1, { channel: "M1", speedPercent: -101 })).toThrow("speedPercent");
     expect(() => buildMotorSetCommand(1, { channel: "M1", speedPercent: 101 })).toThrow("speedPercent");
+  });
+
+  it("builds motor.target commands with signed speed", () => {
+    expect(buildMotorTargetCommand(11, { channel: "m2", speedPercent: 35, stopMode: "brake", closedLoop: true, targetRpm: 900 })).toEqual({
+      type: "motor.target",
+      seq: 11,
+      channel: "M2",
+      speedPercent: 35,
+      stopMode: "brake",
+      closedLoop: true,
+      targetRpm: 900
+    });
+  });
+
+  it("builds semantic mecanum target commands", () => {
+    expect(buildMecanumTargetCommand(12, { forward: 0.5, strafe: -0.25, turn: 1.5, speedLimitPercent: 130, stopMode: "brake" })).toEqual({
+      type: "mecanum.target",
+      seq: 12,
+      forward: 0.5,
+      strafe: -0.25,
+      turn: 1,
+      speedLimitPercent: 100,
+      stopMode: "brake"
+    });
   });
 
   it("builds motor.stop commands for one channel or all channels", () => {

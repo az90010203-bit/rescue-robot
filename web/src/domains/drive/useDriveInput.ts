@@ -20,16 +20,26 @@ import {
   normalizeInputMapping,
   resolveGamepadPreset
 } from "@domains/drive/inputMapping";
+import {
+  findPrimaryMecanumDriveComponent,
+  mecanumDriveChannels,
+  mecanumDriveDirections,
+  mecanumDriveMotorConfigMappings,
+  normalizeMecanumDriveConfig
+} from "@domains/drive/mecanumComponent";
 import { clamp } from "@adapters/hardware/protocol";
 import { ActiveModule, GamepadAxisName, GamepadButtonName, GamepadSummary, LogEntry, isEditableTarget } from "@app/appModel";
+import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 
 interface UseDriveInputOptions {
   activeModule: ActiveModule;
   addSystemLog: (messageKey: string, level?: LogEntry["level"]) => void;
+  components?: ComponentDefinition[];
+  pluginInstances?: PluginInstance[];
   stopAllMotors: (silent?: boolean) => Promise<void>;
 }
 
-export function useDriveInput({ activeModule, addSystemLog, stopAllMotors }: UseDriveInputOptions) {
+export function useDriveInput({ activeModule, addSystemLog, components = [], pluginInstances = [], stopAllMotors }: UseDriveInputOptions) {
   const [activeDriveBase, setActiveDriveBase] = useState<DriveBase>("tracked");
   const [driveSpeedLimit, setDriveSpeedLimit] = useState("60");
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(() => new Set());
@@ -53,9 +63,30 @@ export function useDriveInput({ activeModule, addSystemLog, stopAllMotors }: Use
     () => combineDriveInputs(combineDriveInputs(keyboardInput, gamepadInput), virtualDriveInput),
     [gamepadInput, keyboardInput, virtualDriveInput]
   );
+  const mecanumComponent = useMemo(() => findPrimaryMecanumDriveComponent(components), [components]);
+  const mecanumConfig = useMemo(
+    () => normalizeMecanumDriveConfig(mecanumComponent?.config, pluginInstances),
+    [mecanumComponent?.config, pluginInstances]
+  );
+  const driveMixOptions = useMemo(
+    () => activeDriveBase === "mecanum"
+      ? {
+          channels: mecanumDriveChannels(mecanumConfig, pluginInstances),
+          directions: mecanumDriveDirections(mecanumConfig),
+          speedLimitPercent
+        }
+      : { channels: DEFAULT_DRIVE_CHANNELS, speedLimitPercent },
+    [activeDriveBase, mecanumConfig, pluginInstances, speedLimitPercent]
+  );
   const driveTargets = useMemo(
-    () => mixDriveTargets(activeDriveBase, driveInput, { channels: DEFAULT_DRIVE_CHANNELS, speedLimitPercent }),
-    [activeDriveBase, driveInput, speedLimitPercent]
+    () => mixDriveTargets(activeDriveBase, driveInput, driveMixOptions).map((target) => (
+      activeDriveBase === "mecanum" ? { ...target, closedLoop: mecanumConfig.closedLoop } : target
+    )),
+    [activeDriveBase, driveInput, driveMixOptions, mecanumConfig.closedLoop]
+  );
+  const driveSetupMappings = useMemo(
+    () => activeDriveBase === "mecanum" ? mecanumDriveMotorConfigMappings(mecanumConfig, pluginInstances) : [],
+    [activeDriveBase, mecanumConfig, pluginInstances]
   );
   const activeGamepad = gamepads.find((gamepad) => gamepad.index === selectedGamepadIndex) ?? gamepads[0];
   const recommendedGamepadPreset = useMemo(() => resolveGamepadPreset(activeGamepad), [activeGamepad]);
@@ -352,6 +383,7 @@ export function useDriveInput({ activeModule, addSystemLog, stopAllMotors }: Use
     capturingKey,
     driveInput,
     driveSpeedLimit,
+    driveSetupMappings,
     driveTargets,
     gamepads,
     handleVirtualStickDown,

@@ -194,16 +194,46 @@
   background: var(--green-soft);
 }
 
-.can-servo-live-status.configuring {
+.can-servo-live-status.configuring,
+.can-servo-live-status.priming {
   border-color: rgba(201, 119, 0, 0.22);
   color: var(--orange);
   background: var(--orange-soft);
 }
 
-.can-servo-live-status.error {
+.can-servo-live-status.error,
+.can-servo-live-status.stalled {
   border-color: rgba(212, 86, 86, 0.24);
   color: var(--red);
   background: var(--red-soft);
+}
+
+.can-servo-live-feedback {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.can-servo-live-feedback span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.can-servo-live-feedback strong {
+  color: var(--steel);
+  font-size: 0.72rem;
+}
+
+.can-servo-live-feedback code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 800;
 }
 
 .can-servo-slider-card input[type="range"] {
@@ -245,7 +275,8 @@
   }
 
   .can-servo-form-grid,
-  .can-servo-status-grid {
+  .can-servo-status-grid,
+  .can-servo-live-feedback {
     grid-template-columns: 1fr;
   }
 

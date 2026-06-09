@@ -39,8 +39,8 @@ import {
 interface ServoCommandCardProps {
   formatWheelSliderDirectionLabel: (direction: ReturnType<typeof wheelSliderDirection>) => string;
   handleAngleSliderChange: (servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) => void;
-  handleLiveDragToggle: (id: number, enabled: boolean) => void;
-  handleServoModeChange: (id: number, mode: ServoControlMode) => void;
+  handleLiveDragToggle: (servo: ServoProfile, state: ServoCommandState, enabled: boolean) => void;
+  handleServoModeChange: (servo: ServoProfile, mode: ServoControlMode) => void;
   handleWheelSliderChange: (servo: ServoProfile, state: ServoCommandState, event: ChangeEvent<HTMLInputElement>) => void;
   pauseServo: (servo: ServoProfile, state: ServoCommandState) => void;
   pingServo: (servo: ServoProfile) => void;
@@ -118,6 +118,14 @@ export function ServoCommandCard({
   const feedback = servoFeedback[servo.id];
   const safetyStatus = servoSafetyStatusById[servo.id];
   const safetyTone = servoSafetyStatusTone(safetyStatus);
+  const motionStatusClass =
+    motionStatus === "smoothing"
+      ? "device-signal motion"
+      : motionStatus === "paused"
+        ? "device-signal motion paused"
+        : motionStatus === "unreachable"
+          ? "device-signal motion unreachable"
+          : "device-signal motion muted";
 
   return (
     <article className={selectedId === servo.id ? "servo-command-card selected" : "servo-command-card"} key={servo.id}>
@@ -127,7 +135,7 @@ export function ServoCommandCard({
           <span className="device-name">{servo.name}</span>
         </button>
         <div className="servo-card-status-stack">
-          <span className={motionStatus === "smoothing" ? "device-signal motion" : motionStatus === "paused" ? "device-signal motion paused" : "device-signal motion muted"}>{t(`servo.motionStatus.${motionStatus}`)}</span>
+          <span className={motionStatusClass}>{t(`servo.motionStatus.${motionStatus}`)}</span>
           <span className={`device-signal safety ${safetyTone}`}>{servoSafetyStatusLabel(safetyStatus)}</span>
           <span className={feedback ? "device-signal" : "device-signal muted"}>{feedback ? (feedback.moving ? t("metrics.moving") : t("device.data")) : t("device.idle")}</span>
         </div>
@@ -136,7 +144,7 @@ export function ServoCommandCard({
       <div className="command-grid servo-command-grid">
         <label>
           <span>{t("fields.controlMode")}</span>
-          <select value={state.mode} onChange={(event) => handleServoModeChange(servo.id, event.target.value as ServoControlMode)}>
+          <select value={state.mode} onChange={(event) => handleServoModeChange(servo, event.target.value as ServoControlMode)}>
             <option value="position">{t("fields.positionMode")}</option>
             <option value="wheel">{t("fields.wheelMode")}</option>
           </select>
@@ -157,7 +165,7 @@ export function ServoCommandCard({
             <div className="angle-field-heading">
               <span>{t("fields.angleDeg")}</span>
               <label className="live-drag-toggle">
-                <input checked={state.liveDragEnabled} type="checkbox" onChange={(event) => handleLiveDragToggle(servo.id, event.target.checked)} />
+                <input checked={state.liveDragEnabled} type="checkbox" onChange={(event) => handleLiveDragToggle(servo, state, event.target.checked)} />
                 <span>{t("fields.liveDrag")}</span>
               </label>
             </div>

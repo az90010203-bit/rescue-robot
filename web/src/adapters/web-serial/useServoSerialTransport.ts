@@ -1,6 +1,14 @@
+import { useRef } from "react";
 import { parseFeetechStatusPacket, toHex } from "@adapters/hardware/protocol";
 import type { WebSerialClient } from "@adapters/web-serial/serial";
 import type { ConnectionMode } from "@app/appModel";
+
+export interface ServoFrameSendOptions {
+  ackDrainMs?: number;
+  coalesceKey?: string;
+  minIntervalMs?: number;
+  policy?: "latest";
+}
 
 interface UseServoSerialTransportOptions {
   addErrorLog: (error: unknown, fallbackKey: string) => void;
@@ -9,7 +17,7 @@ interface UseServoSerialTransportOptions {
   connectionMode: ConnectionMode | null;
   piServoBridgeConnected?: boolean;
   seqRef: { current: number };
-  sendPiServoBridgeFrame?: (frame: number[], waitMs: number) => Promise<number[]>;
+  sendPiServoBridgeFrame?: (frame: number[], waitMs: number, options?: ServoFrameSendOptions) => Promise<number[]>;
   serialRef: { current: WebSerialClient | null };
   servoSerialQueueRef: { current: Promise<void> };
 }
@@ -17,20 +25,30 @@ interface UseServoSerialTransportOptions {
 export function useServoSerialTransport({
   addErrorLog,
   addLog,
-  connected,
-  connectionMode,
   piServoBridgeConnected,
   seqRef,
   sendPiServoBridgeFrame,
-  serialRef,
   servoSerialQueueRef
 }: UseServoSerialTransportOptions) {
+  const servoSerialQueueDepthRef = useRef(0);
+  const servoSerialInFlightRef = useRef(false);
+
   function nextSeq() {
     return seqRef.current++;
   }
 
   function enqueueServoSerialTask<T>(task: () => Promise<T>): Promise<T> {
-    const run = servoSerialQueueRef.current.then(task, task);
+    servoSerialQueueDepthRef.current += 1;
+    const runTask = async () => {
+      servoSerialQueueDepthRef.current = Math.max(0, servoSerialQueueDepthRef.current - 1);
+      servoSerialInFlightRef.current = true;
+      try {
+        return await task();
+      } finally {
+        servoSerialInFlightRef.current = false;
+      }
+    };
+    const run = servoSerialQueueRef.current.then(runTask, runTask);
     servoSerialQueueRef.current = run.then(
       () => undefined,
       () => undefined
@@ -38,14 +56,20 @@ export function useServoSerialTransport({
     return run;
   }
 
-  async function sendServoFrameUnlocked(frame: number[], waitMs = 80, logFrame = true) {
-    const webSerialServoConnected = Boolean(serialRef.current && connected && connectionMode === "servo-bus");
-    if (!webSerialServoConnected && piServoBridgeConnected && sendPiServoBridgeFrame) {
+  function getServoSerialQueueStatus() {
+    return {
+      queueDepth: servoSerialQueueDepthRef.current,
+      inFlight: servoSerialInFlightRef.current
+    };
+  }
+
+  async function sendServoFrameUnlocked(frame: number[], waitMs = 80, logFrame = true, options?: ServoFrameSendOptions) {
+    if (piServoBridgeConnected && sendPiServoBridgeFrame) {
       try {
         if (logFrame) {
           addLog("tx", toHex(frame));
         }
-        const rx = await sendPiServoBridgeFrame(frame, waitMs);
+        const rx = await sendPiServoBridgeFrame(frame, waitMs, options);
         if (rx.length > 0 && logFrame) {
           addLog("rx", toHex(rx));
         }
@@ -56,30 +80,12 @@ export function useServoSerialTransport({
       }
     }
 
-    if (!webSerialServoConnected || !serialRef.current) {
-      addLog("system", "Servo bus connection required", "warn");
-      return null;
-    }
-
-    try {
-      serialRef.current.clearBinaryBuffer();
-      await serialRef.current.sendBytes(frame);
-      if (logFrame) {
-        addLog("tx", toHex(frame));
-      }
-      const rx = await serialRef.current.readBufferedBytes(waitMs);
-      if (rx.length > 0 && logFrame) {
-        addLog("rx", toHex(rx));
-      }
-      return parseFeetechStatusPacket(rx);
-    } catch (error) {
-      addErrorLog(error, "logs.serialDisconnected");
-      return null;
-    }
+    addLog("system", "Pi servo bridge connection required", "warn");
+    return null;
   }
 
-  async function sendServoFrame(frame: number[], waitMs = 80, logFrame = true) {
-    return enqueueServoSerialTask(() => sendServoFrameUnlocked(frame, waitMs, logFrame));
+  async function sendServoFrame(frame: number[], waitMs = 80, logFrame = true, options?: ServoFrameSendOptions) {
+    return enqueueServoSerialTask(() => sendServoFrameUnlocked(frame, waitMs, logFrame, options));
   }
 
   async function sendServoFrames(frames: number[] | number[][], waitMs = 80) {
@@ -98,11 +104,12 @@ export function useServoSerialTransport({
   }
 
   function servoBusConnected() {
-    return Boolean(serialRef.current && connected && connectionMode === "servo-bus") || Boolean(piServoBridgeConnected && sendPiServoBridgeFrame);
+    return Boolean(piServoBridgeConnected && sendPiServoBridgeFrame);
   }
 
   return {
     enqueueServoSerialTask,
+    getServoSerialQueueStatus,
     nextSeq,
     sendServoFrame,
     sendServoFrames,
