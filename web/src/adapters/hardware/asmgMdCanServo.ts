@@ -83,6 +83,25 @@ export function buildAsmgMdMoveCommand(seq: number, options: { id: number; posit
   return { type: "can_servo.move", seq, id, position, speed };
 }
 
+export function buildAsmgMdGroupMoveCommand(seq: number, targets: Array<{ id: number; position: number }>, speedRaw: number): PcCommand {
+  if (targets.length === 0) {
+    throw new RangeError("ASMG-MD group move requires at least one target");
+  }
+  if (targets.length > 8) {
+    throw new RangeError("ASMG-MD group move supports at most 8 targets");
+  }
+  const speed = normalizeAsmgMdWord(speedRaw, ASMG_MD_SPEED_MIN, ASMG_MD_SPEED_MAX, "speed");
+  return {
+    type: "can_servo.group_move",
+    seq,
+    targets: targets.map((target) => ({
+      id: normalizeAsmgMdServoId(target.id),
+      position: normalizeAsmgMdWord(target.position, ASMG_MD_POSITION_MIN, ASMG_MD_POSITION_MAX, "position")
+    })),
+    speed
+  };
+}
+
 export function normalizeAsmgMdBaudKbps(value: unknown): AsmgMdBaudKbps {
   const bitrate = Number(value);
   if (bitrate === 500 || bitrate === 1000) {

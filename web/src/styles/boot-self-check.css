@@ -1,0 +1,350 @@
+.boot-self-check-hud {
+  grid-column: 1 / -1;
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 12px;
+  border-color: rgba(61, 174, 255, 0.28);
+  border-radius: 8px;
+  padding: 14px;
+  color: #dcefff;
+  background:
+    linear-gradient(90deg, rgba(61, 174, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(61, 174, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(135deg, #09131f 0%, #111823 52%, #160f15 100%);
+  background-size: 28px 28px, 28px 28px, auto;
+  box-shadow:
+    0 18px 52px rgba(5, 11, 18, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 44px rgba(61, 174, 255, 0.08);
+}
+
+.boot-self-check-hud::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(61, 174, 255, 0.18), transparent 20%, transparent 80%, rgba(255, 85, 48, 0.16)),
+    linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.04) 52%, transparent);
+  content: "";
+}
+
+.boot-self-check-hud > * {
+  position: relative;
+}
+
+.boot-self-check-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.boot-self-check-hud .panel-title {
+  min-width: 0;
+}
+
+.boot-self-check-hud .panel-title svg {
+  color: #7dd3fc;
+}
+
+.boot-self-check-hud .panel-title-main h2,
+.boot-self-check-hud .panel-meta {
+  color: #eaf7ff;
+}
+
+.boot-self-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.boot-self-check-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(6, 13, 22, 0.56);
+}
+
+.boot-self-check-orb {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(125, 211, 252, 0.36);
+  border-radius: 50%;
+  color: #7dd3fc;
+  background: rgba(10, 22, 34, 0.8);
+  box-shadow: 0 0 22px rgba(61, 174, 255, 0.24);
+}
+
+.boot-self-check-orb.online {
+  color: #75f0bd;
+  border-color: rgba(117, 240, 189, 0.42);
+  box-shadow: 0 0 24px rgba(27, 166, 115, 0.28);
+}
+
+.boot-self-check-orb.warning {
+  color: #ffd166;
+  border-color: rgba(255, 209, 102, 0.44);
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.22);
+}
+
+.boot-self-check-orb.danger {
+  color: #ff8f8f;
+  border-color: rgba(255, 143, 143, 0.46);
+  box-shadow: 0 0 24px rgba(212, 86, 86, 0.28);
+}
+
+.boot-self-check-summary strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #f8fbff;
+  font-size: 0.96rem;
+  line-height: 1.35;
+}
+
+.boot-self-check-summary span {
+  display: block;
+  color: #a9c2d8;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.boot-self-check-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.boot-self-check-metric {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(9, 21, 32, 0.7);
+}
+
+.boot-self-check-metric span {
+  color: #8fb1cc;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.boot-self-check-metric strong {
+  color: #f8fbff;
+  font-size: 0.9rem;
+}
+
+.boot-self-check-metric.online strong {
+  color: #75f0bd;
+}
+
+.boot-self-check-metric.warning strong {
+  color: #ffd166;
+}
+
+.boot-self-check-metric.danger strong {
+  color: #ff8f8f;
+}
+
+.boot-self-check-timeline {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(170px, 1fr);
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.boot-self-check-step {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 9px;
+  background: rgba(7, 15, 24, 0.72);
+}
+
+.boot-self-check-step.online {
+  border-left-color: #1ba673;
+}
+
+.boot-self-check-step.warning {
+  border-left-color: #ffd166;
+}
+
+.boot-self-check-step.danger {
+  border-left-color: #ff6969;
+}
+
+.boot-self-check-step-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #7dd3fc;
+  background: rgba(125, 211, 252, 0.12);
+}
+
+.boot-self-check-step.online .boot-self-check-step-icon {
+  color: #75f0bd;
+  background: rgba(27, 166, 115, 0.14);
+}
+
+.boot-self-check-step.warning .boot-self-check-step-icon {
+  color: #ffd166;
+  background: rgba(255, 209, 102, 0.14);
+}
+
+.boot-self-check-step.danger .boot-self-check-step-icon {
+  color: #ff8f8f;
+  background: rgba(212, 86, 86, 0.16);
+}
+
+.boot-self-check-step strong,
+.boot-self-check-repair strong,
+.boot-self-check-section-title strong {
+  display: block;
+  color: #f8fbff;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.boot-self-check-step small,
+.boot-self-check-repair span {
+  display: block;
+  margin-top: 4px;
+  color: #a9c2d8;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.boot-self-check-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.boot-self-check-evidence code,
+.boot-self-check-repair code,
+.boot-self-check-audit code {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 6px;
+  padding: 3px 5px;
+  color: #cfe9ff;
+  background: rgba(2, 8, 14, 0.52);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boot-self-check-repairs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.boot-self-check-section-title {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #7dd3fc;
+}
+
+.boot-self-check-repair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(34, 23, 5, 0.4);
+}
+
+.boot-self-check-repair.done {
+  border-color: rgba(27, 166, 115, 0.26);
+  background: rgba(7, 32, 22, 0.42);
+}
+
+.boot-self-check-repair.failed {
+  border-color: rgba(212, 86, 86, 0.3);
+  background: rgba(40, 10, 12, 0.46);
+}
+
+.boot-self-check-audit {
+  border-top: 1px solid rgba(125, 211, 252, 0.16);
+  padding-top: 8px;
+}
+
+.boot-self-check-audit summary {
+  cursor: pointer;
+  color: #a9c2d8;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.boot-self-check-audit div {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.boot-self-check-hud .icon-button {
+  min-height: 34px;
+  border-color: rgba(125, 211, 252, 0.24);
+  color: #eaf7ff;
+  background: rgba(9, 21, 32, 0.74);
+}
+
+.boot-self-check-hud .icon-button:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.44);
+  background: rgba(16, 40, 60, 0.86);
+}
+
+@media (max-width: 900px) {
+  .boot-self-check-head,
+  .boot-self-check-repair,
+  .boot-self-check-repairs {
+    grid-template-columns: 1fr;
+  }
+
+  .boot-self-check-actions {
+    justify-content: flex-start;
+  }
+
+  .boot-self-check-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .boot-self-check-summary,
+  .boot-self-check-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .boot-self-check-orb {
+    width: 42px;
+    height: 42px;
+  }
+}

@@ -44,6 +44,9 @@ export default defineConfig({
           if (normalizedId.indexOf("/src/i18n/") >= 0) {
             return "app-i18n";
           }
+          if (normalizedId.indexOf("/src/app/") >= 0) {
+            return "app-shell";
+          }
         }
       }
     }

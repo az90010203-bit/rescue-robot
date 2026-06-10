@@ -10,6 +10,7 @@ import {
   buildAsmgMdCanConfigCommand,
   buildAsmgMdCanReadCommand,
   buildAsmgMdFactoryResetCommand,
+  buildAsmgMdGroupMoveCommand,
   buildAsmgMdMoveCommand,
   buildAsmgMdReadCurrentCommand,
   buildAsmgMdReadIdCommand,
@@ -36,6 +37,13 @@ describe("ASMG-MD CAN servo protocol", () => {
     const command = buildAsmgMdMoveCommand(10, { id: 1, position: 0x1234, speed: 0x0500 });
 
     expect(command).toEqual({ type: "can_servo.move", seq: 10, id: 1, position: 0x1234, speed: 0x0500 });
+    expect(buildAsmgMdGroupMoveCommand(11, [{ id: 1, position: 0x1234 }, { id: 2, position: 0x2345 }], 0x0300)).toEqual({
+      type: "can_servo.group_move",
+      seq: 11,
+      targets: [{ id: 1, position: 0x1234 }, { id: 2, position: 0x2345 }],
+      speed: 0x0300
+    });
+    expect(() => buildAsmgMdGroupMoveCommand(12, [], 0)).toThrow(RangeError);
   });
 
   it("maps full-turn angles to ASMG-MD 15-bit position units", () => {

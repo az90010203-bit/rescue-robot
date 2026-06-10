@@ -149,10 +149,17 @@ describe("app platform A-board semantic bridge", () => {
     expect(result.status).toBe("sent");
     expect(sentBatches).toEqual([[
       { type: "can_servo.config", seq: 10, bitrateKbps: 250 },
-      { type: "can_servo.move", seq: 11, id: 1, position: asmgMdDegreesToPositionRaw(60), speed: 300 },
-      { type: "can_servo.move", seq: 12, id: 2, position: asmgMdDegreesToPositionRaw(90), speed: 300 },
-      { type: "can_servo.move", seq: 13, id: 3, position: asmgMdDegreesToPositionRaw(90), speed: 300 },
-      { type: "can_servo.move", seq: 14, id: 4, position: asmgMdDegreesToPositionRaw(180), speed: 300 },
+      {
+        type: "can_servo.group_move",
+        seq: 11,
+        targets: [
+          { id: 1, position: asmgMdDegreesToPositionRaw(60) },
+          { id: 2, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 3, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 4, position: asmgMdDegreesToPositionRaw(180) },
+        ],
+        speed: 300,
+      },
     ]]);
   });
 });

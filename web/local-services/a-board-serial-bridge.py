@@ -20,6 +20,12 @@ DEFAULT_TIMEOUT_MS = int(os.environ.get("A_BOARD_TIMEOUT_MS", "1200"))
 REQUEST_WAIT_MARGIN_SEC = float(os.environ.get("A_BOARD_REQUEST_WAIT_MARGIN_SEC", "2.0"))
 RECONNECT_INTERVAL_SEC = float(os.environ.get("A_BOARD_RECONNECT_INTERVAL_SEC", "1.0"))
 SERIAL_EVENT_LIMIT = int(os.environ.get("A_BOARD_SERIAL_EVENT_LIMIT", "80"))
+SERIAL_PROTOCOL_MODE = os.environ.get("A_BOARD_SERIAL_PROTOCOL", "auto").strip().lower()
+if SERIAL_PROTOCOL_MODE not in ("auto", "json", "binary"):
+    SERIAL_PROTOCOL_MODE = "auto"
+PROTOCOL_VERSION = 1
+PROTOCOL_PROBE_TIMEOUT_MS = int(os.environ.get("A_BOARD_PROTOCOL_PROBE_TIMEOUT_MS", "350"))
+CAN_SERVO_GROUP_MAX_TARGETS = 8
 
 BAUD_FLAGS = {
     9600: termios.B9600,
@@ -29,11 +35,40 @@ BAUD_FLAGS = {
     115200: termios.B115200,
 }
 
-TERMINAL_TYPES = ("error", "motor.feedback", "mecanum.feedback", "can.feedback", "can.frame", "can_servo.feedback", "imu.feedback")
-ACK_ONLY_COMMANDS = ("debug.set",)
-LATEST_WINS_TYPES = ("motor.target", "mecanum.target", "can_servo.move")
+TERMINAL_TYPES = ("error", "protocol.feedback", "motor.feedback", "mecanum.feedback", "can.feedback", "can.frame", "can_servo.feedback", "imu.feedback")
+ACK_ONLY_COMMANDS = ("debug.set", "system.ping")
+LATEST_WINS_TYPES = ("motor.target", "mecanum.target", "can_servo.move", "can_servo.group_move")
 STOP_TYPES = ("motor.stop", "mecanum.stop")
 LOW_PRIORITY_TYPES = ("imu.read",)
+
+BINARY_TARGETS = {
+    "system": 0x00,
+    "base": 0x01,
+    "motor": 0x02,
+    "can-servo-group": 0x03,
+    "can-servo": 0x04,
+    "imu": 0x05,
+}
+BINARY_OPCODES = {
+    "stop": 0x10,
+    "mecanum.velocity": 0x11,
+    "motor.target": 0x20,
+    "can_servo.group_move": 0x30,
+    "can_servo.read": 0x31,
+    "imu.read": 0x40,
+    "system.ping": 0x70,
+    "system.sync_manifest_version": 0x71,
+}
+BINARY_FLAG_LATEST_WINS = 0x01
+BINARY_FLAG_REQUIRES_ACK = 0x02
+BINARY_FLAG_PRIORITY = 0x04
+CAN_SERVO_READ_REQUEST_CODES = {
+    "id": 0,
+    "position": 1,
+    "current": 2,
+    "position_current": 3,
+    "frames": 4,
+}
 
 
 def command_payload(command):
@@ -68,6 +103,213 @@ def translate_command(command):
             "stopMode": payload.get("stopMode", command.get("stopMode", "coast")),
         }
     return command
+
+
+def crc16_ccitt_false(data):
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= (byte & 0xFF) << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc & 0xFFFF
+
+
+def cobs_encode(data):
+    if not data:
+        return b"\x01"
+    output = bytearray()
+    code_index = 0
+    output.append(0)
+    code = 1
+    for byte in data:
+        byte &= 0xFF
+        if byte == 0:
+            output[code_index] = code
+            code_index = len(output)
+            output.append(0)
+            code = 1
+            continue
+        output.append(byte)
+        code += 1
+        if code == 0xFF:
+            output[code_index] = code
+            code_index = len(output)
+            output.append(0)
+            code = 1
+    output[code_index] = code
+    return bytes(output)
+
+
+def clamp_int(value, minimum, maximum, fallback=0):
+    try:
+        number = int(round(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        number = fallback
+    return max(minimum, min(maximum, number))
+
+
+def stop_mode_byte(value):
+    return 1 if value == "brake" else 0
+
+
+def axis_milli(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        number = 0
+    return clamp_int(number * 1000, -1000, 1000)
+
+
+def u8(value):
+    return bytes([clamp_int(value, 0, 255) & 0xFF])
+
+
+def u16_le(value):
+    return clamp_int(value, 0, 0xFFFF).to_bytes(2, "little", signed=False)
+
+
+def i16_le(value):
+    return clamp_int(value, -32768, 32767).to_bytes(2, "little", signed=True)
+
+
+def seq_u16(command):
+    return clamp_int(command.get("seq"), 0, 0xFFFF)
+
+
+def motor_channel_u8(value):
+    channel = str(value or "").strip().upper()
+    if channel.startswith("M") and channel[1:].isdigit():
+        index = int(channel[1:])
+        if 1 <= index <= 4:
+            return index
+    raise ValueError("binary motor.target supports channels M1-M4")
+
+
+def build_binary_payload(command):
+    command_type = command.get("type")
+    if command_type == "mecanum.target":
+        return (
+            BINARY_TARGETS["base"],
+            BINARY_OPCODES["mecanum.velocity"],
+            BINARY_FLAG_LATEST_WINS,
+            b"".join([
+                i16_le(axis_milli(command.get("forward", 0))),
+                i16_le(axis_milli(command.get("strafe", 0))),
+                i16_le(axis_milli(command.get("turn", 0))),
+                u8(command.get("speedLimitPercent", 100)),
+                u8(stop_mode_byte(command.get("stopMode", "coast"))),
+            ]),
+        )
+    if command_type == "mecanum.stop":
+        return (
+            BINARY_TARGETS["base"],
+            BINARY_OPCODES["stop"],
+            BINARY_FLAG_REQUIRES_ACK | BINARY_FLAG_PRIORITY,
+            u8(stop_mode_byte(command.get("stopMode", "coast"))),
+        )
+    if command_type == "motor.target":
+        if "closedLoop" in command or "targetRpm" in command:
+            return None
+        return (
+            BINARY_TARGETS["motor"],
+            BINARY_OPCODES["motor.target"],
+            BINARY_FLAG_LATEST_WINS,
+            b"".join([
+                u8(motor_channel_u8(command.get("channel"))),
+                i16_le(command.get("speedPercent", 0)),
+                u8(stop_mode_byte(command.get("stopMode", "coast"))),
+            ]),
+        )
+    if command_type == "can_servo.group_move":
+        targets = command.get("targets")
+        if not isinstance(targets, list) or not targets:
+            raise ValueError("can_servo.group_move requires at least one target")
+        if len(targets) > CAN_SERVO_GROUP_MAX_TARGETS:
+            raise ValueError("can_servo.group_move supports at most %s targets" % CAN_SERVO_GROUP_MAX_TARGETS)
+        payload = bytearray()
+        payload.append(len(targets) & 0xFF)
+        for target in targets:
+            if not isinstance(target, dict):
+                raise ValueError("can_servo.group_move targets must be objects")
+            payload.extend(u8(target.get("id")))
+            payload.extend(u16_le(target.get("position")))
+        payload.extend(u16_le(command.get("speed", 0)))
+        return (
+            BINARY_TARGETS["can-servo-group"],
+            BINARY_OPCODES["can_servo.group_move"],
+            BINARY_FLAG_LATEST_WINS,
+            bytes(payload),
+        )
+    if command_type == "can_servo.read":
+        request = str(command.get("request", "position_current")).strip() or "position_current"
+        request_code = CAN_SERVO_READ_REQUEST_CODES.get(request)
+        if request_code is None:
+            return None
+        return (
+            BINARY_TARGETS["can-servo"],
+            BINARY_OPCODES["can_servo.read"],
+            BINARY_FLAG_REQUIRES_ACK,
+            b"".join([
+                u8(command.get("id", 0xFE)),
+                u8(request_code),
+            ]),
+        )
+    if command_type == "imu.read":
+        return (
+            BINARY_TARGETS["imu"],
+            BINARY_OPCODES["imu.read"],
+            0,
+            u8(command.get("requestFlags", 0)),
+        )
+    if command_type == "system.ping":
+        return (
+            BINARY_TARGETS["system"],
+            BINARY_OPCODES["system.ping"],
+            BINARY_FLAG_REQUIRES_ACK,
+            b"",
+        )
+    return None
+
+
+def build_binary_command_frame(command):
+    binary_payload = build_binary_payload(command)
+    if binary_payload is None:
+        return None
+    target_id, opcode, flags, payload = binary_payload
+    body = bytearray()
+    body.append(PROTOCOL_VERSION)
+    body.extend(seq_u16(command).to_bytes(2, "little", signed=False))
+    body.append(target_id & 0xFF)
+    body.append(opcode & 0xFF)
+    body.append(flags & 0xFF)
+    body.extend(payload)
+    body.extend(crc16_ccitt_false(body).to_bytes(2, "little", signed=False))
+    return b"\x00" + cobs_encode(bytes(body)) + b"\x00"
+
+
+def serial_json_command(command):
+    if not isinstance(command, dict) or command.get("type") != "can_servo.group_move":
+        return command
+    targets = command.get("targets")
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("can_servo.group_move requires at least one target")
+    if len(targets) > CAN_SERVO_GROUP_MAX_TARGETS:
+        raise ValueError("can_servo.group_move supports at most %s targets" % CAN_SERVO_GROUP_MAX_TARGETS)
+    flat = {
+        "type": "can_servo.group_move",
+        "seq": command.get("seq"),
+        "count": len(targets),
+        "speed": clamp_int(command.get("speed", 0), 0, 0xFFFF),
+    }
+    for index, target in enumerate(targets):
+        if not isinstance(target, dict):
+            raise ValueError("can_servo.group_move targets must be objects")
+        flat["id%s" % index] = clamp_int(target.get("id"), 0, 253)
+        flat["position%s" % index] = clamp_int(target.get("position"), 0, 0x7FFF)
+    return flat
 
 
 def configure_serial(fd):
@@ -150,6 +392,20 @@ class SerialWorker:
         self.dropped_motion_count = 0
         self.can_servo_ready = True
         self.mecanum_ready = True
+        self.serial_protocol_mode = SERIAL_PROTOCOL_MODE
+        self.serial_protocol_active = "binary" if SERIAL_PROTOCOL_MODE == "binary" else "json"
+        self.binary_protocol_ready = SERIAL_PROTOCOL_MODE == "binary"
+        self.protocol_probe_done = SERIAL_PROTOCOL_MODE != "auto"
+        self.bytes_in = 0
+        self.bytes_out = 0
+        self.frames_in = 0
+        self.frames_out = 0
+        self.crc_error = 0
+        self.cobs_error = 0
+        self.drop_count = 0
+        self.last_ack_ms = None
+        self.last_frame_ms = None
+        self.binary_fallback_count = 0
         self.thread = threading.Thread(target=self._run, name="a-board-serial-worker", daemon=True)
         self.reconnect_thread = threading.Thread(target=self._reconnect_loop, name="a-board-serial-reconnect", daemon=True)
 
@@ -216,9 +472,68 @@ class SerialWorker:
         with self.lock:
             return self._queue_depth_locked()
 
+    def _protocol_stats_locked(self):
+        return {
+            "serialProtocolMode": self.serial_protocol_mode,
+            "serialProtocolActive": self.serial_protocol_active,
+            "binaryProtocolReady": self.binary_protocol_ready,
+            "bytesIn": self.bytes_in,
+            "bytesOut": self.bytes_out,
+            "framesIn": self.frames_in,
+            "framesOut": self.frames_out,
+            "crcError": self.crc_error,
+            "cobsError": self.cobs_error,
+            "dropCount": self.drop_count,
+            "lastAckMs": self.last_ack_ms,
+            "lastFrameMs": self.last_frame_ms,
+            "binaryFallbackCount": self.binary_fallback_count,
+        }
+
+    def _protocol_stats(self):
+        with self.lock:
+            return self._protocol_stats_locked()
+
+    def _response_metadata(self):
+        metadata = {
+            "serialPort": SERIAL_PORT,
+            "baudRate": BAUD_RATE,
+            "queueDepth": self._queue_depth(),
+            "inFlight": self.in_flight,
+        }
+        metadata.update(self._protocol_stats())
+        return metadata
+
+    def _write_serial(self, fd, payload):
+        written = os.write(fd, payload)
+        now_ms = round(time.time() * 1000)
+        with self.lock:
+            self.bytes_out += written
+            self.frames_out += 1
+            self.last_frame_ms = now_ms
+        return written
+
+    def _record_inbound_bytes(self, count):
+        with self.lock:
+            self.bytes_in += count
+
+    def _record_inbound_frame(self, message=None):
+        now_ms = round(time.time() * 1000)
+        with self.lock:
+            self.frames_in += 1
+            self.last_frame_ms = now_ms
+            if isinstance(message, dict):
+                if message.get("type") in ("ack", "protocol.feedback") or message.get("ok") is True:
+                    self.last_ack_ms = now_ms
+                if isinstance(message.get("crcError"), int):
+                    self.crc_error = message.get("crcError")
+                if isinstance(message.get("cobsError"), int):
+                    self.cobs_error = message.get("cobsError")
+                if isinstance(message.get("dropCount"), int):
+                    self.drop_count = message.get("dropCount")
+
     def _dropped_response(self, job, reason):
         command = job.get("command", {})
-        return {
+        body = {
             "ok": False,
             "busy": True,
             "accepted": False,
@@ -234,11 +549,15 @@ class SerialWorker:
                 "activeCommand": self.active_command,
                 "message": reason,
             }],
+        }
+        body.update({
             "serialPort": SERIAL_PORT,
             "baudRate": BAUD_RATE,
             "queueDepth": self._queue_depth_locked(),
             "inFlight": self.in_flight,
-        }
+        })
+        body.update(self._protocol_stats_locked())
+        return body
 
     def _drop_pending_motion_locked(self, reason):
         if self.pending_motion_job is None:
@@ -253,7 +572,7 @@ class SerialWorker:
 
     def _low_priority_busy_response_locked(self, job, reason):
         command = job.get("command", {})
-        return {
+        body = {
             "ok": False,
             "busy": True,
             "accepted": False,
@@ -269,11 +588,15 @@ class SerialWorker:
                 "activeCommand": self.active_command,
                 "message": reason,
             }],
+        }
+        body.update({
             "serialPort": SERIAL_PORT,
             "baudRate": BAUD_RATE,
             "queueDepth": self._queue_depth_locked(),
             "inFlight": self.in_flight,
-        }
+        })
+        body.update(self._protocol_stats_locked())
+        return body
 
     def _drop_queued_low_priority_locked(self, reason):
         if not self.queue:
@@ -339,7 +662,7 @@ class SerialWorker:
         with self.lock:
             queue_depth = self._queue_depth_locked()
             in_flight = self.in_flight
-        return {
+        body = {
             "ok": False,
             "busy": True,
             "accepted": False,
@@ -349,11 +672,13 @@ class SerialWorker:
             "queueDepth": queue_depth,
             "inFlight": in_flight,
         }
+        body.update(self._protocol_stats())
+        return body
 
     def stats(self):
         with self.lock:
             queue_depth = self._queue_depth_locked()
-            return {
+            body = {
                 "serialOpen": self.fd is not None,
                 "queueDepth": queue_depth,
                 "inFlight": self.in_flight,
@@ -379,10 +704,12 @@ class SerialWorker:
                 "diagnosticsPath": "/diagnostics",
                 "uptimeSec": round(time.time() - self.started_at, 1),
             }
+            body.update(self._protocol_stats_locked())
+            return body
 
     def diagnostics(self):
         with self.lock:
-            return {
+            body = {
                 "serialOpen": self.fd is not None,
                 "serialPort": SERIAL_PORT,
                 "baudRate": BAUD_RATE,
@@ -408,6 +735,8 @@ class SerialWorker:
                 "events": list(self.serial_events),
                 "uptimeSec": round(time.time() - self.started_at, 1),
             }
+            body.update(self._protocol_stats_locked())
+            return body
 
     def _record_serial_event(self, kind, message=None, **extra):
         event = {
@@ -469,6 +798,10 @@ class SerialWorker:
                 self.last_exception = None
                 self.last_close_reason = None
             self.buffer = b""
+            if self.serial_protocol_mode == "auto":
+                self.protocol_probe_done = False
+                self.binary_protocol_ready = False
+                self.serial_protocol_active = "json"
             print("a-board serial opened %s @ %s" % (SERIAL_PORT, BAUD_RATE), flush=True)
             self._record_serial_event("opened", "serial device opened", device=serial_device_snapshot())
             return self.fd
@@ -519,35 +852,50 @@ class SerialWorker:
                 self.active_command = command.get("type")
             try:
                 messages, matched = self._send_command(command, job["timeout_ms"])
-                response_queue.put({
+                response = {
                     "ok": matched,
                     "busy": False,
                     "accepted": True,
                     "messages": messages,
-                    "serialPort": SERIAL_PORT,
-                    "baudRate": BAUD_RATE,
-                    "queueDepth": self._queue_depth(),
-                    "inFlight": True,
-                })
+                }
+                response.update(self._response_metadata())
+                response_queue.put(response)
                 if not matched:
                     self._record_error("request %s seq=%s timed out or did not match response" % (
                         request_id,
                         command.get("seq"),
                     ))
                     self._record_serial_event("no_matching_response", "request did not receive a terminal response for the same seq", requestId=request_id, seq=command.get("seq"), timeoutMs=job["timeout_ms"], commandType=command.get("type"), messagesSeen=len(messages))
+            except ValueError as exc:
+                self._record_error("request %s rejected: %s" % (request_id, exc))
+                response = {
+                    "ok": False,
+                    "busy": False,
+                    "accepted": False,
+                    "messages": [{
+                        "type": "error",
+                        "seq": command.get("seq", 0),
+                        "command": command.get("type"),
+                        "code": "invalid_argument",
+                        "message": str(exc),
+                    }],
+                    "error": str(exc),
+                }
+                response.update(self._response_metadata())
+                response_queue.put(response)
             except Exception as exc:
                 self._record_error("request %s failed: %s" % (request_id, exc))
                 self._record_serial_event("request_failed", "serial request raised an exception", requestId=request_id, seq=command.get("seq"), commandType=command.get("type"), exception=exception_detail(exc))
                 self._close_serial("request_failed", exc)
-                response_queue.put({
+                response = {
                     "ok": False,
                     "busy": False,
                     "accepted": True,
                     "messages": [],
-                    "serialPort": SERIAL_PORT,
-                    "baudRate": BAUD_RATE,
                     "error": str(exc),
-                })
+                }
+                response.update(self._response_metadata())
+                response_queue.put(response)
             finally:
                 with self.lock:
                     self.in_flight = False
@@ -556,9 +904,68 @@ class SerialWorker:
 
     def _send_command(self, command, timeout_ms):
         fd = self._ensure_serial()
-        payload = (json.dumps(command, separators=(",", ":")) + "\n").encode("utf-8")
-        os.write(fd, payload)
+        if self._should_use_binary(command):
+            frame = build_binary_command_frame(command)
+            if frame is not None:
+                self._write_serial(fd, frame)
+                messages, matched = self._read_lines_until(command.get("seq"), timeout_ms, command.get("type"))
+                if matched:
+                    return messages, True
+                self._record_binary_fallback(command, messages)
+                fallback_messages, fallback_matched = self._send_json_command(fd, command, timeout_ms)
+                return messages + fallback_messages, fallback_matched
+        return self._send_json_command(fd, command, timeout_ms)
+
+    def _send_json_command(self, fd, command, timeout_ms):
+        payload = (json.dumps(serial_json_command(command), separators=(",", ":")) + "\n").encode("utf-8")
+        self._write_serial(fd, payload)
         return self._read_lines_until(command.get("seq"), timeout_ms, command.get("type"))
+
+    def _should_use_binary(self, command):
+        if self.serial_protocol_mode == "json":
+            return False
+        if self.serial_protocol_mode == "binary":
+            return True
+        fd = self._ensure_serial()
+        if not self.protocol_probe_done:
+            self._probe_binary_protocol(fd)
+        return self.binary_protocol_ready
+
+    def _probe_binary_protocol(self, fd):
+        probe = {"type": "system.protocol", "seq": 0, "version": PROTOCOL_VERSION}
+        try:
+            self._send_json_command(fd, probe, PROTOCOL_PROBE_TIMEOUT_MS)
+        except Exception as exc:
+            with self.lock:
+                self.protocol_probe_done = True
+                self.binary_protocol_ready = False
+                self.serial_protocol_active = "json"
+            self._record_serial_event("binary_protocol_probe_failed", "binary protocol probe failed; using JSON", exception=exception_detail(exc))
+            return False
+        ready = False
+        with self.lock:
+            self.protocol_probe_done = True
+            ready = self.binary_protocol_ready
+            self.serial_protocol_active = "binary" if ready else "json"
+        self._record_serial_event(
+            "binary_protocol_probe",
+            "binary protocol ready" if ready else "binary protocol unavailable; using JSON",
+            binaryProtocolReady=ready,
+        )
+        return ready
+
+    def _record_binary_fallback(self, command, messages):
+        with self.lock:
+            self.binary_fallback_count += 1
+            self.binary_protocol_ready = False
+            self.serial_protocol_active = "json"
+        self._record_serial_event(
+            "binary_fallback",
+            "binary command did not receive a matching response; retried with JSON",
+            seq=command.get("seq"),
+            commandType=command.get("type"),
+            messagesSeen=len(messages),
+        )
 
     def _read_lines_until(self, seq, timeout_ms, command_type):
         deadline = time.monotonic() + timeout_ms / 1000.0
@@ -579,6 +986,7 @@ class SerialWorker:
                 continue
             if not chunk:
                 continue
+            self._record_inbound_bytes(len(chunk))
             self._record_rx()
             self.buffer += chunk
             while b"\n" in self.buffer:
@@ -591,10 +999,18 @@ class SerialWorker:
                 except json.JSONDecodeError:
                     message = {"type": "log", "message": text}
                 messages.append(message)
+                self._record_inbound_frame(message)
+                if isinstance(message, dict) and message.get("type") == "protocol.feedback":
+                    with self.lock:
+                        self.binary_protocol_ready = message.get("binaryProtocolReady") is True
+                        if self.serial_protocol_mode != "json":
+                            self.serial_protocol_active = "binary" if self.binary_protocol_ready else "json"
                 if not isinstance(message, dict) or message.get("seq") != seq:
                     continue
                 message_type = message.get("type")
                 if message_type == "ack" and command_type in ACK_ONLY_COMMANDS:
+                    return messages, True
+                if message_type == "protocol.feedback" and command_type == "system.protocol":
                     return messages, True
                 if message_type == "error":
                     return messages, True

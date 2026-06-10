@@ -34,7 +34,20 @@ describe("A board Raspberry Pi serial bridge client", () => {
         deviceExists: true,
         lastSerialEvent: { kind: "opened", deviceExists: true },
         consecutiveOpenFailures: 0,
-        diagnosticsPath: "/diagnostics"
+        diagnosticsPath: "/diagnostics",
+        serialProtocolMode: "auto",
+        serialProtocolActive: "binary",
+        binaryProtocolReady: true,
+        bytesIn: 120,
+        bytesOut: 64,
+        framesIn: 4,
+        framesOut: 3,
+        crcError: 0,
+        cobsError: 0,
+        dropCount: 3,
+        lastAckMs: 1700000000000,
+        lastFrameMs: 1700000000123,
+        binaryFallbackCount: 1
       })
     );
 
@@ -57,7 +70,20 @@ describe("A board Raspberry Pi serial bridge client", () => {
       deviceExists: true,
       lastSerialEvent: { kind: "opened", deviceExists: true },
       consecutiveOpenFailures: 0,
-      diagnosticsPath: "/diagnostics"
+      diagnosticsPath: "/diagnostics",
+      serialProtocolMode: "auto",
+      serialProtocolActive: "binary",
+      binaryProtocolReady: true,
+      bytesIn: 120,
+      bytesOut: 64,
+      framesIn: 4,
+      framesOut: 3,
+      crcError: 0,
+      cobsError: 0,
+      dropCount: 3,
+      lastAckMs: 1700000000000,
+      lastFrameMs: 1700000000123,
+      binaryFallbackCount: 1
     });
     expect(fetcher).toHaveBeenCalledWith("http://pi.local:17353/health", undefined);
   });
@@ -75,6 +101,12 @@ describe("A board Raspberry Pi serial bridge client", () => {
         lastCloseReason: "request_failed",
         lastException: { type: "OSError", errno: 5, message: "Input/output error" },
         consecutiveOpenFailures: 1,
+        serialProtocolMode: "auto",
+        serialProtocolActive: "json",
+        binaryProtocolReady: false,
+        crcError: 2,
+        cobsError: 1,
+        binaryFallbackCount: 4,
         device: { path: "/dev/ttyAMA5", exists: true, realpath: "/dev/ttyAMA5" },
         events: [
           { kind: "no_matching_response", requestId: 4, seq: 18, commandType: "imu.read" },
@@ -92,6 +124,12 @@ describe("A board Raspberry Pi serial bridge client", () => {
       lastCloseReason: "request_failed",
       lastException: { type: "OSError", errno: 5 },
       consecutiveOpenFailures: 1,
+      serialProtocolMode: "auto",
+      serialProtocolActive: "json",
+      binaryProtocolReady: false,
+      crcError: 2,
+      cobsError: 1,
+      binaryFallbackCount: 4,
       device: { exists: true },
       events: [
         { kind: "no_matching_response", requestId: 4, seq: 18 },
@@ -149,6 +187,7 @@ describe("A board Raspberry Pi serial bridge client", () => {
     expect(command).toContain("sudo -n dtoverlay uart5");
     expect(command).toContain("reboot Raspberry Pi after dtoverlay=uart5");
     expect(command).toContain("Environment=A_BOARD_BAUD=115200");
+    expect(command).toContain("Environment=A_BOARD_SERIAL_PROTOCOL=auto");
     expect(command).toContain("Environment=A_BOARD_BRIDGE_HOST=0.0.0.0");
     expect(command).toContain("Environment=A_BOARD_BRIDGE_PORT=17353");
     expect(command).toContain("ExecStart=/usr/bin/python3 /home/robot1/rescue-robot/a_board_serial_bridge.py");
@@ -161,6 +200,9 @@ describe("A board Raspberry Pi serial bridge client", () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({
         ok: true,
+        serialProtocolMode: "auto",
+        serialProtocolActive: "binary",
+        binaryProtocolReady: true,
         messages: [
           { type: "ack", seq: 42, command: "motor.read" },
           { type: "motor.feedback", seq: 42, channel: "M1", encoderTicks: 128, pulseHz: 32, encoderA: 1, encoderB: 0, encoderDelta: 2, encoderDirection: "forward", sampleMs: 4096 }
@@ -175,7 +217,10 @@ describe("A board Raspberry Pi serial bridge client", () => {
         { type: "motor.feedback", seq: 42, channel: "M1", encoderTicks: 128, pulseHz: 32, encoderA: 1, encoderB: 0, encoderDelta: 2, encoderDirection: "forward", sampleMs: 4096 }
       ],
       serialPort: undefined,
-      baudRate: undefined
+      baudRate: undefined,
+      serialProtocolMode: "auto",
+      serialProtocolActive: "binary",
+      binaryProtocolReady: true
     });
 
     const init = (fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1];

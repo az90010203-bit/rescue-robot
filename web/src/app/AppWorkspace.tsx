@@ -5,6 +5,7 @@ import { AppHeaderBar } from "@app/AppHeaderBar";
 import { AppLibraryPanel } from "@app/AppLibraryPanel";
 import { AppSideStack } from "@app/AppSideStack";
 import { ContextTabs } from "@app/ContextTabs";
+import { BootSelfCheckHud } from "@domains/boot-self-check/BootSelfCheckHud";
 import { DiagnosticAgentPanel } from "@domains/diagnostic-agent/DiagnosticAgentPanel";
 import type { AppWorkspaceContext } from "@app/useAppWorkspaceContext";
 
@@ -100,6 +101,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
     toggleDebugMode,
     webSerialAvailable,
     aiVision,
+    bootSelfCheck,
     diagnosticAgent,
     activeDriveBase,
     activeGamepad,
@@ -415,6 +417,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         {activeSection === "console" ? (
           <Suspense fallback={<div className="empty-state">{t("loading.console")}</div>}>
             <div className="console-diagnostic-layout">
+              <BootSelfCheckHud runtime={bootSelfCheck} t={t} />
               <ConsolePage
                 aBoardBridgeBusy={aBoardBridgeBusy}
                 aBoardBridgeConnected={aBoardBridgeConnected}

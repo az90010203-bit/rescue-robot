@@ -1,5 +1,5 @@
 import type { ArmTeachTrack } from "@domains/arm/armTeach";
-import { buildAsmgMdCanConfigCommand, buildAsmgMdMoveCommand } from "@adapters/hardware/asmgMdCanServo";
+import { buildAsmgMdCanConfigCommand, buildAsmgMdGroupMoveCommand } from "@adapters/hardware/asmgMdCanServo";
 import { buildMecanumTargetCommand, clamp, type MotorStopMode, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
 import type { ArmConfig, CameraConfig, CameraVideoSource } from "@adapters/persistence/storage";
 import { armConfigFromCommandPayload, servoProfilesFromCommandPayload } from "@domains/arm/armCommandPayload";
@@ -304,11 +304,11 @@ async function sendCanServoGroupPositions(command: PlatformCommand, options: App
   const first = targets[0];
   const commands: PcCommand[] = [
     buildAsmgMdCanConfigCommand(options.nextSeq(), first.bitrateKbps),
-    ...targets.map((target) => buildAsmgMdMoveCommand(options.nextSeq(), {
-      id: target.id,
-      position: target.position,
-      speed: target.speed
-    }))
+    buildAsmgMdGroupMoveCommand(
+      options.nextSeq(),
+      targets.map((target) => ({ id: target.id, position: target.position })),
+      first.speed
+    )
   ];
   const sent = await options.sendMotorCommandBatch(commands, { log: true });
   return {

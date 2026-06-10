@@ -92,12 +92,32 @@
 #define CLOSED_LOOP_RPM_DEADBAND 30
 #define ENCODER_MIN_SAMPLE_MS 10u
 #define RX_LINE_SIZE 256u
+#define RX_BINARY_SIZE 96u
 #define CAN_STD_ID_MAX 0x7FFu
 #define CAN_EXT_ID_MAX 0x1FFFFFFFu
 #define CAN_MAX_DLC 8u
 #define CAN_TX_TIMEOUT_MS 30u
 #define CAN_STATUS_RX_DRAIN_MAX 8u
 #define MOTION_APPLY_INTERVAL_MS 20u
+#define BINARY_PROTOCOL_VERSION 1u
+#define BINARY_TARGET_SYSTEM 0x00u
+#define BINARY_TARGET_BASE 0x01u
+#define BINARY_TARGET_MOTOR 0x02u
+#define BINARY_TARGET_CAN_SERVO_GROUP 0x03u
+#define BINARY_TARGET_CAN_SERVO 0x04u
+#define BINARY_TARGET_IMU 0x05u
+#define BINARY_OPCODE_STOP 0x10u
+#define BINARY_OPCODE_MECANUM_VELOCITY 0x11u
+#define BINARY_OPCODE_MOTOR_TARGET 0x20u
+#define BINARY_OPCODE_CAN_SERVO_GROUP_MOVE 0x30u
+#define BINARY_OPCODE_CAN_SERVO_READ 0x31u
+#define BINARY_OPCODE_IMU_READ 0x40u
+#define BINARY_OPCODE_SYSTEM_PING 0x70u
+#define BINARY_OPCODE_SYNC_MANIFEST_VERSION 0x71u
+#define BINARY_FLAG_LATEST_WINS 0x01u
+#define BINARY_FLAG_REQUIRES_ACK 0x02u
+#define BINARY_FLAG_PRIORITY 0x04u
+#define CAN_SERVO_GROUP_MAX_TARGETS 8u
 #define ASMG_MD_HOST_EXTENDED_ID 0x18EF0201u
 #define ASMG_MD_BROADCAST_ID 0xFEu
 #define ASMG_MD_POSITION_MIN 0x0000
@@ -190,8 +210,14 @@ typedef enum {
   MOTION_NONE = 0,
   MOTION_MOTOR_TARGET = 1,
   MOTION_MECANUM_TARGET = 2,
-  MOTION_CAN_SERVO_MOVE = 3
+  MOTION_CAN_SERVO_MOVE = 3,
+  MOTION_CAN_SERVO_GROUP_MOVE = 4
 } PendingMotionKind;
+
+typedef struct {
+  int32_t id;
+  int32_t position;
+} CanServoMotionTarget;
 
 typedef struct {
   PendingMotionKind kind;
@@ -209,6 +235,8 @@ typedef struct {
   int32_t can_servo_id;
   int32_t can_servo_position;
   int32_t can_servo_speed;
+  uint32_t can_servo_count;
+  CanServoMotionTarget can_servo_targets[CAN_SERVO_GROUP_MAX_TARGETS];
 } PendingMotion;
 
 static volatile uint32_t g_ms;
@@ -243,6 +271,10 @@ static uint32_t imu_initialized;
 static uint32_t imu_ready;
 static uint32_t imu_mpu_whoami;
 static uint32_t imu_ist_whoami;
+static uint32_t binary_frames_in;
+static uint32_t binary_crc_error;
+static uint32_t binary_cobs_error;
+static uint32_t binary_drop_count;
 
 void SysTick_Handler(void) {
   g_ms++;
@@ -594,6 +626,58 @@ static void uart_write_hex_byte(uint32_t value) {
   static const char hex[] = "0123456789ABCDEF";
   uart_write_char(hex[(value >> 4) & 0xFu]);
   uart_write_char(hex[value & 0xFu]);
+}
+
+static uint16_t read_u16_le(const uint8_t *data) {
+  return (uint16_t)(((uint16_t)data[1] << 8) | data[0]);
+}
+
+static int16_t read_i16_le(const uint8_t *data) {
+  return (int16_t)read_u16_le(data);
+}
+
+static const char *stop_mode_from_code(uint8_t code) {
+  return code ? "brake" : "coast";
+}
+
+static uint16_t crc16_ccitt_false(const uint8_t *data, uint32_t length) {
+  uint16_t crc = 0xFFFFu;
+  for (uint32_t index = 0; index < length; index++) {
+    crc ^= (uint16_t)data[index] << 8;
+    for (uint32_t bit = 0; bit < 8u; bit++) {
+      if (crc & 0x8000u) {
+        crc = (uint16_t)((crc << 1) ^ 0x1021u);
+      } else {
+        crc = (uint16_t)(crc << 1);
+      }
+    }
+  }
+  return crc;
+}
+
+static uint32_t cobs_decode(const uint8_t *input, uint32_t input_len, uint8_t *output, uint32_t output_max, uint32_t *output_len) {
+  uint32_t read_index = 0;
+  uint32_t write_index = 0;
+  while (read_index < input_len) {
+    const uint8_t code = input[read_index++];
+    if (code == 0u) {
+      return 0;
+    }
+    for (uint32_t offset = 1; offset < code; offset++) {
+      if (read_index >= input_len || write_index >= output_max) {
+        return 0;
+      }
+      output[write_index++] = input[read_index++];
+    }
+    if (code < 0xFFu && read_index < input_len) {
+      if (write_index >= output_max) {
+        return 0;
+      }
+      output[write_index++] = 0;
+    }
+  }
+  *output_len = write_index;
+  return 1;
 }
 
 static uint32_t str_eq(const char *left, const char *right) {
@@ -1199,6 +1283,26 @@ static void send_error(int32_t seq, const char *command, const char *code, const
   uart_write_str("\"}\n");
 }
 
+static void send_protocol_feedback(int32_t seq) {
+  uart_write_str("{\"type\":\"protocol.feedback\",\"seq\":");
+  uart_write_i32(seq);
+  uart_write_str(",\"protocolVersion\":");
+  uart_write_u32(BINARY_PROTOCOL_VERSION);
+  uart_write_str(",\"binaryProtocolReady\":true");
+  uart_write_str(",\"framesIn\":");
+  uart_write_u32(binary_frames_in);
+  uart_write_str(",\"framesOut\":0");
+  uart_write_str(",\"crcError\":");
+  uart_write_u32(binary_crc_error);
+  uart_write_str(",\"cobsError\":");
+  uart_write_u32(binary_cobs_error);
+  uart_write_str(",\"dropCount\":");
+  uart_write_u32(dropped_motion_count + binary_drop_count);
+  uart_write_str(",\"lastFrameMs\":");
+  uart_write_u32(millis());
+  uart_write_str("}\n");
+}
+
 static void send_feedback(int32_t seq, uint32_t index) {
   MotorRuntime *state;
   if (index >= MOTOR_COUNT) {
@@ -1632,6 +1736,15 @@ static void copy_stop_mode(char *out, const char *mode) {
   out[5] = 0;
 }
 
+static void indexed_json_key(char *out, const char *prefix, uint32_t index) {
+  uint32_t pos = 0;
+  while (*prefix && pos < 14u) {
+    out[pos++] = *prefix++;
+  }
+  out[pos++] = (char)('0' + (index % 10u));
+  out[pos] = 0;
+}
+
 static void clear_pending_motion(const char *reason) {
   if (motion_pending) {
     motion_pending = 0;
@@ -1711,6 +1824,23 @@ static void apply_can_servo_move_motion(const PendingMotion *motion) {
   (void)can_send_asmg(motion->seq, "can_servo.move", data, 0);
 }
 
+static void apply_can_servo_group_move_motion(const PendingMotion *motion) {
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  uint32_t ok = 1;
+  if (motion->can_servo_count == 0u || motion->can_servo_count > CAN_SERVO_GROUP_MAX_TARGETS) {
+    send_error(motion->seq, "can_servo.group_move", "invalid_argument", "count must be 1-8");
+    return;
+  }
+  for (uint32_t index = 0; index < motion->can_servo_count; index++) {
+    build_asmg_move(data, motion->can_servo_targets[index].id, motion->can_servo_targets[index].position, motion->can_servo_speed);
+    if (!can_send_frame(ASMG_MD_HOST_EXTENDED_ID, 1, data, CAN_MAX_DLC, CAN_TX_TIMEOUT_MS)) {
+      ok = 0;
+      break;
+    }
+  }
+  send_can_servo_feedback(motion->seq, "can_servo.group_move", ok, data, CAN_MAX_DLC);
+}
+
 static void apply_pending_motion(void) {
   PendingMotion motion;
   if (!motion_pending) {
@@ -1732,6 +1862,9 @@ static void apply_pending_motion(void) {
   } else if (motion.kind == MOTION_CAN_SERVO_MOVE) {
     active_command = "can_servo.move";
     apply_can_servo_move_motion(&motion);
+  } else if (motion.kind == MOTION_CAN_SERVO_GROUP_MOVE) {
+    active_command = "can_servo.group_move";
+    apply_can_servo_group_move_motion(&motion);
   }
   active_command = "idle";
 }
@@ -2078,6 +2211,7 @@ static void handle_can_servo_move(const char *line, int32_t seq) {
   PendingMotion motion;
   motion.kind = MOTION_CAN_SERVO_MOVE;
   motion.seq = seq;
+  motion.can_servo_count = 0;
   if (!json_int(line, "id", &motion.can_servo_id) ||
       !json_int(line, "position", &motion.can_servo_position) ||
       !json_int(line, "speed", &motion.can_servo_speed)) {
@@ -2090,12 +2224,231 @@ static void handle_can_servo_move(const char *line, int32_t seq) {
   queue_motion(motion, "can_servo.move");
 }
 
+static void handle_can_servo_group_move(const char *line, int32_t seq) {
+  PendingMotion motion;
+  int32_t count = 0;
+  int32_t speed = 0;
+  motion.kind = MOTION_CAN_SERVO_GROUP_MOVE;
+  motion.seq = seq;
+  motion.can_servo_count = 0;
+  if (!json_int(line, "count", &count) || !json_int(line, "speed", &speed)) {
+    send_error(seq, "can_servo.group_move", "invalid_argument", "count and speed are required");
+    return;
+  }
+  if (count < 1 || count > (int32_t)CAN_SERVO_GROUP_MAX_TARGETS) {
+    send_error(seq, "can_servo.group_move", "invalid_argument", "count must be 1-8");
+    return;
+  }
+  motion.can_servo_speed = clamp_i32(speed, ASMG_MD_SPEED_MIN, ASMG_MD_SPEED_MAX);
+  motion.can_servo_count = (uint32_t)count;
+  for (uint32_t index = 0; index < (uint32_t)count; index++) {
+    char id_key[16];
+    char position_key[16];
+    int32_t id = -1;
+    int32_t position = 0;
+    indexed_json_key(id_key, "id", index);
+    indexed_json_key(position_key, "position", index);
+    if (!json_int(line, id_key, &id) || !json_int(line, position_key, &position)) {
+      send_error(seq, "can_servo.group_move", "invalid_argument", "each target requires idN and positionN");
+      return;
+    }
+    motion.can_servo_targets[index].id = clamp_i32(id, 0, 253);
+    motion.can_servo_targets[index].position = clamp_i32(position, ASMG_MD_POSITION_MIN, ASMG_MD_POSITION_MAX);
+  }
+  queue_motion(motion, "can_servo.group_move");
+}
+
+static void handle_binary_can_servo_read(int32_t seq, uint8_t id, uint8_t request_code) {
+  uint8_t data[CAN_MAX_DLC] = { 0 };
+  if (request_code == 4u) {
+    if (drain_can_servo_rx(seq, "can_servo.read", CAN_STATUS_RX_DRAIN_MAX) == 0u) {
+      send_can_servo_feedback(seq, "can_servo.read", 1, data, 0);
+    }
+    return;
+  }
+  if (request_code == 0u) {
+    build_asmg_read(data, ASMG_MD_BROADCAST_ID, 0xFDu);
+  } else if (request_code == 1u) {
+    build_asmg_read(data, id, 0x02u);
+  } else if (request_code == 2u) {
+    build_asmg_read(data, id, 0x04u);
+  } else {
+    build_asmg_read(data, id, 0x07u);
+  }
+  (void)can_send_asmg(seq, "can_servo.read", data, 1);
+}
+
+static void handle_binary_frame(const uint8_t *encoded, uint32_t encoded_len) {
+  uint8_t decoded[RX_BINARY_SIZE];
+  uint32_t decoded_len = 0;
+  int32_t seq = 0;
+  uint8_t version;
+  uint8_t target_id;
+  uint8_t opcode;
+  uint8_t flags;
+  const uint8_t *payload;
+  uint32_t payload_len;
+  uint16_t expected_crc;
+  uint16_t actual_crc;
+
+  if (!cobs_decode(encoded, encoded_len, decoded, sizeof(decoded), &decoded_len)) {
+    binary_cobs_error++;
+    send_error(0, "binary", "cobs_error", "COBS decode failed");
+    return;
+  }
+  if (decoded_len < 8u) {
+    binary_cobs_error++;
+    send_error(0, "binary", "frame_too_short", "binary frame is too short");
+    return;
+  }
+
+  seq = (int32_t)read_u16_le(&decoded[1]);
+  expected_crc = read_u16_le(&decoded[decoded_len - 2u]);
+  actual_crc = crc16_ccitt_false(decoded, decoded_len - 2u);
+  if (expected_crc != actual_crc) {
+    binary_crc_error++;
+    send_error(seq, "binary", "crc_error", "CRC16 mismatch");
+    return;
+  }
+
+  version = decoded[0];
+  target_id = decoded[3];
+  opcode = decoded[4];
+  flags = decoded[5];
+  payload = &decoded[6];
+  payload_len = decoded_len - 8u;
+  (void)flags;
+  binary_frames_in++;
+
+  if (version != BINARY_PROTOCOL_VERSION) {
+    send_error(seq, "binary", "unsupported_version", "unsupported binary protocol version");
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_SYSTEM && opcode == BINARY_OPCODE_SYSTEM_PING) {
+    send_ack(seq, "system.ping");
+    send_protocol_feedback(seq);
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_SYSTEM && opcode == BINARY_OPCODE_SYNC_MANIFEST_VERSION) {
+    send_ack(seq, "system.sync_manifest_version");
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_BASE && opcode == BINARY_OPCODE_STOP) {
+    char mode[8];
+    const uint8_t stop_code = payload_len >= 1u ? payload[0] : 0u;
+    copy_stop_mode(mode, stop_mode_from_code(stop_code));
+    clear_pending_motion("cleared by binary mecanum.stop");
+    for (uint32_t index = 0; index < MOTOR_COUNT; index++) {
+      apply_motor_stop(index, mode);
+    }
+    send_ack(seq, "mecanum.stop");
+    send_mecanum_feedback(seq, 0, 0, 0, 0, mode, 0, 0, 0, 0);
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_BASE && opcode == BINARY_OPCODE_MECANUM_VELOCITY) {
+    PendingMotion motion;
+    char mode[8];
+    if (payload_len < 8u) {
+      send_error(seq, "mecanum.target", "invalid_argument", "binary mecanum payload is too short");
+      return;
+    }
+    motion.kind = MOTION_MECANUM_TARGET;
+    motion.seq = seq;
+    motion.forward_milli = clamp_i32((int32_t)read_i16_le(&payload[0]), -1000, 1000);
+    motion.strafe_milli = clamp_i32((int32_t)read_i16_le(&payload[2]), -1000, 1000);
+    motion.turn_milli = clamp_i32((int32_t)read_i16_le(&payload[4]), -1000, 1000);
+    motion.speed_limit_percent = clamp_i32(payload[6], 0, 100);
+    copy_stop_mode(mode, stop_mode_from_code(payload[7]));
+    copy_stop_mode(motion.stop_mode, mode);
+    queue_motion(motion, "mecanum.target");
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_MOTOR && opcode == BINARY_OPCODE_MOTOR_TARGET) {
+    PendingMotion motion;
+    char mode[8];
+    if (payload_len < 4u || payload[0] < 1u || payload[0] > MOTOR_COUNT) {
+      send_error(seq, "motor.target", "invalid_argument", "binary motor payload is invalid");
+      return;
+    }
+    motion.kind = MOTION_MOTOR_TARGET;
+    motion.seq = seq;
+    motion.motor_index = (int32_t)payload[0] - 1;
+    motion.speed_percent = clamp_i32((int32_t)read_i16_le(&payload[1]), -100, 100);
+    motion.closed_loop = 0;
+    motion.closed_loop_set = 0;
+    motion.target_rpm = 0;
+    copy_stop_mode(mode, stop_mode_from_code(payload[3]));
+    copy_stop_mode(motion.stop_mode, mode);
+    queue_motion(motion, "motor.target");
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_CAN_SERVO_GROUP && opcode == BINARY_OPCODE_CAN_SERVO_GROUP_MOVE) {
+    PendingMotion motion;
+    uint32_t count;
+    uint32_t expected_len;
+    if (payload_len < 4u) {
+      send_error(seq, "can_servo.group_move", "invalid_argument", "binary CAN group payload is too short");
+      return;
+    }
+    count = payload[0];
+    expected_len = 1u + count * 3u + 2u;
+    if (count < 1u || count > CAN_SERVO_GROUP_MAX_TARGETS || payload_len < expected_len) {
+      send_error(seq, "can_servo.group_move", "invalid_argument", "binary CAN group count is invalid");
+      return;
+    }
+    motion.kind = MOTION_CAN_SERVO_GROUP_MOVE;
+    motion.seq = seq;
+    motion.can_servo_count = count;
+    for (uint32_t index = 0; index < count; index++) {
+      const uint32_t offset = 1u + index * 3u;
+      motion.can_servo_targets[index].id = clamp_i32(payload[offset], 0, 253);
+      motion.can_servo_targets[index].position = clamp_i32(read_u16_le(&payload[offset + 1u]), ASMG_MD_POSITION_MIN, ASMG_MD_POSITION_MAX);
+    }
+    motion.can_servo_speed = clamp_i32(read_u16_le(&payload[1u + count * 3u]), ASMG_MD_SPEED_MIN, ASMG_MD_SPEED_MAX);
+    queue_motion(motion, "can_servo.group_move");
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_CAN_SERVO && opcode == BINARY_OPCODE_CAN_SERVO_READ) {
+    if (payload_len < 2u) {
+      send_error(seq, "can_servo.read", "invalid_argument", "binary CAN servo read payload is too short");
+      return;
+    }
+    handle_binary_can_servo_read(seq, payload[0], payload[1]);
+    return;
+  }
+
+  if (target_id == BINARY_TARGET_IMU && opcode == BINARY_OPCODE_IMU_READ) {
+    send_imu_feedback(seq);
+    return;
+  }
+
+  send_error(seq, "binary", "unsupported_opcode", "binary opcode is not supported");
+}
+
 static void handle_command(const char *line) {
   char type[24];
   char mode[8] = "coast";
   int32_t seq = 0;
   if (!json_string(line, "type", type, sizeof(type)) || !json_int(line, "seq", &seq)) {
     send_error(0, "unknown", "invalid_json", "type and seq are required");
+    return;
+  }
+
+  if (str_eq(type, "system.protocol")) {
+    send_protocol_feedback(seq);
+    return;
+  }
+
+  if (str_eq(type, "system.ping")) {
+    send_ack(seq, "system.ping");
+    send_protocol_feedback(seq);
     return;
   }
 
@@ -2174,6 +2527,11 @@ static void handle_command(const char *line) {
 
   if (str_eq(type, "can_servo.move")) {
     handle_can_servo_move(line, seq);
+    return;
+  }
+
+  if (str_eq(type, "can_servo.group_move")) {
+    handle_can_servo_group_move(line, seq);
     return;
   }
 
@@ -2387,7 +2745,10 @@ static void init_usart2_pd5_pd6(void) {
 
 int main(void) {
   char rx_line[RX_LINE_SIZE];
+  uint8_t rx_binary[RX_BINARY_SIZE];
   uint32_t rx_len = 0;
+  uint32_t rx_binary_len = 0;
+  uint32_t binary_collecting = 0;
 
   init_hse_clock_12mhz();
 
@@ -2421,6 +2782,29 @@ int main(void) {
       continue;
     }
     const char ch = (char)value;
+    if ((uint8_t)value == 0u) {
+      if (binary_collecting && rx_binary_len > 0u) {
+        handle_binary_frame(rx_binary, rx_binary_len);
+        rx_binary_len = 0;
+        binary_collecting = 0;
+      } else {
+        binary_collecting = 1;
+        rx_binary_len = 0;
+      }
+      continue;
+    }
+    if (binary_collecting) {
+      if (rx_binary_len < RX_BINARY_SIZE) {
+        rx_binary[rx_binary_len++] = (uint8_t)value;
+      } else {
+        binary_collecting = 0;
+        rx_binary_len = 0;
+        binary_cobs_error++;
+        binary_drop_count++;
+        send_error(0, "binary", "frame_too_long", "binary frame is too long");
+      }
+      continue;
+    }
     if (ch == '\r') {
       continue;
     }

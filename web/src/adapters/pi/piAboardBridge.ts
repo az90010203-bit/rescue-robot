@@ -45,6 +45,19 @@ export interface AboardBridgeHealth {
   activeCommand?: string | null;
   canServoReady?: boolean;
   mecanumReady?: boolean;
+  serialProtocolMode?: string;
+  serialProtocolActive?: string;
+  binaryProtocolReady?: boolean;
+  bytesIn?: number;
+  bytesOut?: number;
+  framesIn?: number;
+  framesOut?: number;
+  crcError?: number;
+  cobsError?: number;
+  dropCount?: number;
+  lastAckMs?: number | null;
+  lastFrameMs?: number | null;
+  binaryFallbackCount?: number;
 }
 
 export interface AboardBridgeDiagnostics extends AboardBridgeHealth {
@@ -68,6 +81,19 @@ export interface AboardBridgeCommandResult {
   error?: string;
   serialPort?: string;
   baudRate?: number;
+  serialProtocolMode?: string;
+  serialProtocolActive?: string;
+  binaryProtocolReady?: boolean;
+  bytesIn?: number;
+  bytesOut?: number;
+  framesIn?: number;
+  framesOut?: number;
+  crcError?: number;
+  cobsError?: number;
+  dropCount?: number;
+  lastAckMs?: number | null;
+  lastFrameMs?: number | null;
+  binaryFallbackCount?: number;
 }
 
 export interface AboardBridgeStartResult {
@@ -132,6 +158,7 @@ export async function checkAboardBridge(host: string, options: AboardBridgeReque
   if (typeof value.activeCommand === "string" || value.activeCommand === null) health.activeCommand = value.activeCommand;
   if (typeof value.canServoReady === "boolean") health.canServoReady = value.canServoReady;
   if (typeof value.mecanumReady === "boolean") health.mecanumReady = value.mecanumReady;
+  applyAboardBridgeProtocolStats(health, value);
   return health;
 }
 
@@ -185,6 +212,7 @@ export async function sendAboardBridgeCommand(host: string, command: PcCommand, 
   if (typeof value.queueDepth === "number") result.queueDepth = value.queueDepth;
   if (typeof value.inFlight === "boolean") result.inFlight = value.inFlight;
   if (typeof value.error === "string") result.error = value.error;
+  applyAboardBridgeProtocolStats(result, value);
   return result;
 }
 
@@ -246,6 +274,7 @@ export function buildAboardBridgeServiceCommand(options: AboardBridgeServiceComm
     `WorkingDirectory=${workspaceDir}`,
     `Environment=A_BOARD_SERIAL_PORT=${A_BOARD_BRIDGE_SERIAL_PORT}`,
     `Environment=A_BOARD_BAUD=${A_BOARD_BRIDGE_BAUD_RATE}`,
+    "Environment=A_BOARD_SERIAL_PROTOCOL=auto",
     `Environment=A_BOARD_BRIDGE_HOST=${A_BOARD_BRIDGE_HOST}`,
     `Environment=A_BOARD_BRIDGE_PORT=${A_BOARD_BRIDGE_PORT}`,
     `ExecStart=/usr/bin/python3 ${remotePath}`,
@@ -337,7 +366,24 @@ function normalizeAboardBridgeHealth(value: Record<string, unknown>): AboardBrid
   if (typeof value.activeCommand === "string" || value.activeCommand === null) health.activeCommand = value.activeCommand;
   if (typeof value.canServoReady === "boolean") health.canServoReady = value.canServoReady;
   if (typeof value.mecanumReady === "boolean") health.mecanumReady = value.mecanumReady;
+  applyAboardBridgeProtocolStats(health, value);
   return health;
+}
+
+function applyAboardBridgeProtocolStats<T extends Partial<AboardBridgeHealth | AboardBridgeCommandResult>>(target: T, value: Record<string, unknown>): void {
+  if (typeof value.serialProtocolMode === "string") target.serialProtocolMode = value.serialProtocolMode;
+  if (typeof value.serialProtocolActive === "string") target.serialProtocolActive = value.serialProtocolActive;
+  if (typeof value.binaryProtocolReady === "boolean") target.binaryProtocolReady = value.binaryProtocolReady;
+  if (typeof value.bytesIn === "number") target.bytesIn = value.bytesIn;
+  if (typeof value.bytesOut === "number") target.bytesOut = value.bytesOut;
+  if (typeof value.framesIn === "number") target.framesIn = value.framesIn;
+  if (typeof value.framesOut === "number") target.framesOut = value.framesOut;
+  if (typeof value.crcError === "number") target.crcError = value.crcError;
+  if (typeof value.cobsError === "number") target.cobsError = value.cobsError;
+  if (typeof value.dropCount === "number") target.dropCount = value.dropCount;
+  if (typeof value.lastAckMs === "number" || value.lastAckMs === null) target.lastAckMs = value.lastAckMs;
+  if (typeof value.lastFrameMs === "number" || value.lastFrameMs === null) target.lastFrameMs = value.lastFrameMs;
+  if (typeof value.binaryFallbackCount === "number") target.binaryFallbackCount = value.binaryFallbackCount;
 }
 
 function isPiBridgeExceptionDetail(value: unknown): value is PiBridgeExceptionDetail {

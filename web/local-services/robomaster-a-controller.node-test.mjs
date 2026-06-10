@@ -12,6 +12,7 @@ test("RoboMaster A controller exposes semantic motor, mecanum, and CAN servo com
     "mecanum.stop",
     "can_servo.config",
     "can_servo.move",
+    "can_servo.group_move",
     "can_servo.read",
     "can_servo.set_current",
     "can_servo.pid",
@@ -42,4 +43,26 @@ test("RoboMaster A controller builds ASMG-MD CAN servo frames on board", () => {
   assert.match(firmware, /static void build_asmg_u16_command/);
   assert.match(firmware, /static void build_asmg_pid/);
   assert.match(firmware, /send_can_servo_feedback/);
+});
+
+test("RoboMaster A controller supports V1 COBS binary serial frames", () => {
+  assert.match(firmware, /#define BINARY_PROTOCOL_VERSION 1u/);
+  assert.match(firmware, /#define BINARY_OPCODE_MECANUM_VELOCITY 0x11u/);
+  assert.match(firmware, /#define BINARY_OPCODE_CAN_SERVO_GROUP_MOVE 0x30u/);
+  assert.match(firmware, /static uint16_t crc16_ccitt_false/);
+  assert.match(firmware, /0x1021u/);
+  assert.match(firmware, /static uint32_t cobs_decode/);
+  assert.match(firmware, /static void handle_binary_frame/);
+  assert.match(firmware, /send_protocol_feedback/);
+  assert.match(firmware, /str_eq\(type, "system\.protocol"\)/);
+  assert.match(firmware, /handle_binary_frame\(rx_binary, rx_binary_len\)/);
+});
+
+test("RoboMaster A controller queues CAN servo group moves as one latest-wins motion", () => {
+  assert.match(firmware, /MOTION_CAN_SERVO_GROUP_MOVE/);
+  assert.match(firmware, /CanServoMotionTarget can_servo_targets\[CAN_SERVO_GROUP_MAX_TARGETS\]/);
+  assert.match(firmware, /static void handle_can_servo_group_move/);
+  assert.match(firmware, /queue_motion\(motion, "can_servo\.group_move"\)/);
+  assert.match(firmware, /static void apply_can_servo_group_move_motion/);
+  assert.match(firmware, /send_can_servo_feedback\(motion->seq, "can_servo\.group_move"/);
 });

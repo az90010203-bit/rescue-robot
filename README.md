@@ -118,9 +118,9 @@ flowchart LR
     Executor --> Controller[ESP32 / JSON 控制器]
     Controller --> Motors[TB6618 / PWM 电机]
     Controller --> Gimbal[摄像头云台舵机]
-    Executor --> ABoardSemantic[A-board semantic motor / mecanum / CAN-servo commands]
-    ABoardSemantic --> PiAboardBridge[Pi HTTP bridge :17353]
-    PiAboardBridge --> TypeABoard[RoboMaster Type A UART5 firmware]
+    Executor --> ABoardSemantic[A-board semantic motor / mecanum / CAN-servo JSON]
+    ABoardSemantic --> PiAboardBridge[Pi HTTP bridge :17353 / auto binary gateway]
+    PiAboardBridge --> TypeABoard[COBS + CRC16 UART5 firmware]
     TypeABoard --> Motors
     TypeABoard --> CanServos[ASMG-MD CAN servos]
   end
@@ -153,7 +153,8 @@ flowchart LR
 - Local helper HTTP basics live in `web/local-services/local-http-helper.mjs` and are shared by `data-service.mjs`, `firmware-helper.mjs`, and `pi-helper.mjs`.
 - `pi-helper.mjs` is the SSH/SFTP management plane and now schedules operations by resource: default Pi management is serialized per host, camera management is serialized per host/port, and repeated camera checks use latest-wins pending request replacement. Real-time motor/servo traffic stays on the persistent Pi HTTP bridges, and video frames stay on direct MJPEG/WebRTC stream URLs.
 - `pi-image/install-rescue-pi.sh` is the Pi image initialization entrypoint. Run it during image provisioning or once on an already flashed Pi to install both bridge scripts under `/opt/rescue-robot/bridges/`, enable `a-board-serial-bridge.service` on `17353`, and enable `pi-servo-serial-bridge.service` on `17354`.
-- A-board runtime control is now semantic on the PC/Pi path: the web app sends `motor.target`, `mecanum.target`, and `can_servo.*` intent to the Pi bridge, the Pi bridge forwards one UART JSON line, and the Type A firmware owns motor closed loop, mecanum mixing, ASMG-MD CAN frame generation/parsing, and latest-wins motion dropping.
+- A-board runtime control is semantic on the PC/Pi path: the web app sends `motor.target`, `mecanum.target`, and `can_servo.*` intent to the Pi bridge. The bridge defaults to `A_BOARD_SERIAL_PROTOCOL=auto`, probes `system.protocol`, then uses V1 COBS + CRC16 short binary UART frames when the Type A firmware supports them, with newline JSON fallback for bring-up and old firmware.
+- CAN servo group moves are now batched as one `can_servo.group_move` semantic command instead of one UART command per servo; the Type A firmware queues the group as one latest-wins motion and emits one terminal `can_servo.feedback`.
 - AI Vision is an external local helper shell: the web app sends `streamUrl`, `sourceId`, and platform state to `web/local-services/ai-vision-helper.py`, which pulls MJPEG frames and returns normalized `competition_mannequin` detections or captured samples.
 - Diagnostic copilot v1 is a local rule-based side panel: it reads `DeviceStateSnapshot`, logs, camera sources, and current servo/motor lists, then can automatically dispatch only low-risk diagnostic `PlatformCommand` checks while leaving motion, write, upload, and arbitrary Pi commands as manual/confirmation-only suggestions.
 - Display formatting helpers live in `web/src/shared/formatters.ts` for dashboard, platform state, and app metric formatting.
@@ -161,7 +162,7 @@ flowchart LR
 - 主控台仪表盘头部采用紧凑工具条：标题、机器人选择和布局操作在桌面端单行排列，窄屏自动堆叠，减少首屏空白高度。
 - Three-layer workspace primitives and pure helpers now live in `web/src/workspaces/architecture/ArchitectureWorkspacePrimitives.tsx` and `web/src/workspaces/architecture/architectureWorkspaceUtils.ts`.
 - Production TypeScript builds exclude `src/**/*.test.ts(x)`; Vitest remains responsible for test files.
-- Vite splits lazy workspaces and large vendors into route/vendor chunks; Blockly and Three remain intentional lazy-loaded large library chunks with the warning threshold set to 700 kB.
+- Vite splits the app shell/runtime, lazy workspaces, and large vendors into route/vendor chunks; Blockly and Three remain intentional lazy-loaded large library chunks with the warning threshold set to 700 kB.
 
 ## 主要模块
 
@@ -202,7 +203,7 @@ flowchart LR
 - 数据服务：`127.0.0.1:17351`，默认 SQLite 路径为 `%USERPROFILE%\.rescue-robot\rescue-robot.sqlite`。
 - 固件刷写：本机 `firmware-helper.mjs` 调用 PlatformIO 编译和上传。
 - Pi image bridge provisioning: `pi-image/install-rescue-pi.sh` installs the two persistent Pi bridge services during image build or first boot. Runtime bridge checks and commands go directly to `http://<pi-host>:17353` and `http://<pi-host>:17354`; the Pi remote panel's upgrade/repair buttons use `pi-helper` SSH only as a manual recovery path.
-- A-board semantic runtime path: PC/Web sends high-level `PlatformCommand` intent, `appPlatformCommandBridge.ts` converts wheel/servo/motor actions to one A-board semantic JSON command, `a-board-serial-bridge.service` forwards it over `/dev/ttyAMA5`, and the Type A firmware performs closed-loop motor control, mecanum mixing, CAN-servo frame generation, and latest-wins motion dropping.
+- A-board semantic runtime path: PC/Web sends high-level `PlatformCommand` intent, `appPlatformCommandBridge.ts` converts wheel/servo/motor actions to A-board semantic JSON, `a-board-serial-bridge.service` translates supported realtime commands to V1 `version + seq + targetId + opcode + flags + payload + crc16` frames over `/dev/ttyAMA5`, and the Type A firmware performs closed-loop motor control, mecanum mixing, CAN-servo frame generation, and latest-wins motion dropping. Unsupported or unsafe commands stay on newline JSON.
 - 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令；树莓派远程面板可手动保存完整远程配置，避免每次重新输入；无屏找回优先扫描 `rescue-pi.local`、`10.12.194.1` 和 `10.43.0.1`，并可通过 SSH 配置 USB-C gadget 直连。
 
 ## Dual Camera Notes

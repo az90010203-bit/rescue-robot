@@ -29,6 +29,7 @@ export type CanCommandType = "can.config" | "can.send" | "can.read" | "can.robom
 export type CanServoCommandType =
   | "can_servo.config"
   | "can_servo.move"
+  | "can_servo.group_move"
   | "can_servo.read"
   | "can_servo.set_current"
   | "can_servo.pid"
@@ -276,6 +277,18 @@ export type InboundMessage =
       droppedMotionCount?: number;
       activeCommand?: string;
       message?: string;
+    }
+  | {
+      type: "protocol.feedback";
+      seq: number;
+      protocolVersion?: number;
+      binaryProtocolReady?: boolean;
+      framesIn?: number;
+      framesOut?: number;
+      crcError?: number;
+      cobsError?: number;
+      dropCount?: number;
+      lastFrameMs?: number;
     }
   | {
       type: "imu.feedback";

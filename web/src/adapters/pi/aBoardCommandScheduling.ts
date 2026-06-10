@@ -1,7 +1,7 @@
 import type { PcCommand } from "@adapters/hardware/protocol";
 
 export function isLatestWinsAboardMotorCommand(command: PcCommand): boolean {
-  return command.type === "motor.target" || command.type === "mecanum.target" || command.type === "can_servo.move";
+  return command.type === "motor.target" || command.type === "mecanum.target" || command.type === "can_servo.move" || command.type === "can_servo.group_move";
 }
 
 export function isLatestWinsAboardMotorBatch(commands: PcCommand[]): boolean {
