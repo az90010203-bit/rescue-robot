@@ -11,8 +11,7 @@ import { nextMotorLinkageGroupName } from "@app/appModel";
 interface UseMotorLinkageRuntimeOptions {
   addSystemLog: (messageKey: string, level?: any, values?: any) => void;
   cancelMotorLinkageMove: (id?: string) => void;
-  connected: boolean;
-  connectionMode: string | null;
+  motorControllerReady: boolean;
   motorLinkageGenerationRef: { current: Record<string, number> };
   motorLinkageGroups: MotorLinkageGroup[];
   motorLinkageGroupsRef: { current: MotorLinkageGroup[] };
@@ -21,7 +20,7 @@ interface UseMotorLinkageRuntimeOptions {
   motors: Array<{ channel: string; name: string }>;
   nextSeq: () => number;
   pendingMotorLinkageMoveRef: { current: Record<string, MotorLinkageGroup> };
-  sendMotorCommandBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<boolean>;
+  sendAboardMotionBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<boolean>;
   setExpandedMotorLinkageGroupIds: (updater: (current: Set<string>) => Set<string>) => void;
   setMotorLinkageGroups: (updater: (current: MotorLinkageGroup[]) => MotorLinkageGroup[]) => void;
   stopMode: "coast" | "brake";
@@ -30,8 +29,7 @@ interface UseMotorLinkageRuntimeOptions {
 export function useMotorLinkageRuntime({
   addSystemLog,
   cancelMotorLinkageMove,
-  connected,
-  connectionMode,
+  motorControllerReady,
   motorLinkageGenerationRef,
   motorLinkageGroups,
   motorLinkageGroupsRef,
@@ -40,7 +38,7 @@ export function useMotorLinkageRuntime({
   motors,
   nextSeq,
   pendingMotorLinkageMoveRef,
-  sendMotorCommandBatch,
+  sendAboardMotionBatch,
   setExpandedMotorLinkageGroupIds,
   setMotorLinkageGroups,
   stopMode
@@ -189,15 +187,15 @@ export function useMotorLinkageRuntime({
       }
       return false;
     }
-    if (!connected || connectionMode === "servo-bus") {
+    if (!motorControllerReady) {
       if (!live) {
-        addSystemLog("logs.motorDebugRequired", "warn");
+        addSystemLog("logs.aBoardBridgeRequired", "warn");
       }
       return false;
     }
 
     try {
-      const sent = await sendMotorCommandBatch(
+      const sent = await sendAboardMotionBatch(
         targets.map((target) => buildMotorSetCommand(nextSeq(), { channel: target.channel, speedPercent: target.speedPercent, stopMode })),
         {
           log: !live,
@@ -225,15 +223,15 @@ export function useMotorLinkageRuntime({
       }
       return false;
     }
-    if (!connected || connectionMode === "servo-bus") {
+    if (!motorControllerReady) {
       if (!quiet) {
-        addSystemLog("logs.serialDisconnected", "warn");
+        addSystemLog("logs.aBoardBridgeRequired", "warn");
       }
       setMotorLinkageGroups((current) => current.map((item) => (item.id === group.id ? { ...item, masterSpeedPercent: 0 } : item)));
       return false;
     }
 
-    const sent = await sendMotorCommandBatch(
+    const sent = await sendAboardMotionBatch(
       targets.map((target) => buildMotorStopCommand(nextSeq(), { channel: target.channel, stopMode })),
       { log: !quiet }
     );

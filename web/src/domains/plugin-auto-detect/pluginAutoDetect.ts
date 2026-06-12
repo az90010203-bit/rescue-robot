@@ -8,7 +8,6 @@ import { ASMG_MD_DEFAULT_BITRATE_KBPS, parseAsmgMdCanFrame } from "@adapters/har
 
 export type DetectionCandidateSource =
   | "serial-port"
-  | "feetech-servo"
   | "motor-controller"
   | "can-servo"
   | "local-camera"
@@ -70,7 +69,6 @@ export interface PiDetectionProfile {
 
 export const DETECTED_DEVICE_ID_CONFIG_KEY = "detectedDeviceId";
 
-const CATALOG_FEETECH_SERVO = "catalog.feetech.sts3215";
 const CATALOG_ASME_CAN_SERVO = "catalog.asme.asme-se-can-servo";
 const CATALOG_TB6618_MOTOR = "catalog.toshiba.tb6618-motor";
 const CATALOG_BROWSER_CAMERA = "catalog.browser.local-camera";
@@ -166,39 +164,9 @@ export function candidatesFromGamepads(gamepads: GamepadDetectionSummary[], nowM
 }
 
 export function candidatesFromServoFeedback(feedbackById: Record<string | number, { id?: number }>, nowMs = Date.now()): DetectedPluginCandidate[] {
-  return Object.entries(feedbackById)
-    .map(([key, feedback]) => {
-      const servoId = numberOrNull(feedback?.id) ?? numberOrNull(key);
-      if (servoId === null || servoId < 0 || servoId > 253) {
-        return null;
-      }
-      return createCandidate({
-        name: `Servo ID ${servoId}`,
-        type: "servo",
-        catalogItemId: CATALOG_FEETECH_SERVO,
-        brand: "Feetech",
-        model: "STS3215",
-        driverId: "driver.feetech-servo",
-        transportId: "transport.web-serial",
-        capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
-        config: {
-          detectedDeviceId: detectedDeviceIdFromParts("feetech", ["feedback", "id", servoId]),
-          detectedAt: nowMs,
-          detectedSource: "feetech-servo",
-          scanSignature: `servo:${servoId}`,
-          servoId,
-          minDeg: 0,
-          maxDeg: 360,
-          direction: 1,
-          busKind: "web-serial"
-        },
-        tags: ["auto-detected", "servo", "ttl", "feetech"],
-        confidence: "high",
-        source: "feetech-servo",
-        message: "Seen in live servo feedback"
-      });
-    })
-    .filter((candidate): candidate is DetectedPluginCandidate => Boolean(candidate));
+  void feedbackById;
+  void nowMs;
+  return [];
 }
 
 export function candidatesFromMotorFeedback(feedbackByChannel: Record<string, { channel?: string }>, nowMs = Date.now()): DetectedPluginCandidate[] {
@@ -597,7 +565,6 @@ function candidateDetectedDeviceId(candidate: DetectedPluginCandidate): string {
 }
 
 function candidateBrand(candidate: DetectedPluginCandidate): string {
-  if (candidate.catalogItemId === CATALOG_FEETECH_SERVO) return "Feetech";
   if (candidate.catalogItemId === CATALOG_ASME_CAN_SERVO) return "ASME";
   if (candidate.catalogItemId === CATALOG_TB6618_MOTOR) return "Toshiba";
   if (candidate.catalogItemId === CATALOG_BROWSER_CAMERA || candidate.catalogItemId === CATALOG_BROWSER_GAMEPAD) return "Browser";
@@ -606,7 +573,6 @@ function candidateBrand(candidate: DetectedPluginCandidate): string {
 }
 
 function candidateModel(candidate: DetectedPluginCandidate): string {
-  if (candidate.catalogItemId === CATALOG_FEETECH_SERVO) return "STS3215";
   if (candidate.catalogItemId === CATALOG_ASME_CAN_SERVO) return "ASME-SE";
   if (candidate.catalogItemId === CATALOG_TB6618_MOTOR) return "TB6618 Motor Channel";
   if (candidate.catalogItemId === CATALOG_BROWSER_CAMERA) return "Local Camera";

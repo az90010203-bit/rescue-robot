@@ -191,6 +191,7 @@ export function RobotProgramPanel({
       motorStop: programText("programs.blocks.motorStop"),
       mecanumDrive: programText("programs.blocks.mecanumDrive"),
       servoMove: programText("programs.blocks.servoMove"),
+      actionPreset: programText("programs.blocks.actionPreset"),
       armPose: programText("programs.blocks.armPose"),
       cameraGimbal: programText("programs.blocks.cameraGimbal"),
       wait: programText("programs.blocks.wait"),
@@ -542,6 +543,7 @@ function createToolbox(text: (key: string) => string) {
           { kind: "block", type: "robot_motor_stop" },
           { kind: "block", type: "robot_mecanum_drive" },
           { kind: "block", type: "robot_servo_move" },
+          { kind: "block", type: "robot_action_preset" },
           { kind: "block", type: "robot_arm_pose" },
           { kind: "block", type: "robot_camera_gimbal" },
           { kind: "block", type: "robot_emergency_stop" }
@@ -604,6 +606,12 @@ function defineRobotProgramBlocks(blockly: typeof Blockly, options: RobotProgram
     init(this: Blockly.Block) {
       this.appendDummyInput().appendField(labels.servoMove).appendField(new blockly.FieldDropdown(dropdown(options.servos)), "PLUGIN");
       this.appendDummyInput().appendField(labels.angle).appendField(new blockly.FieldNumber(90, 0, 360, 1), "ANGLE").appendField(labels.speed).appendField(new blockly.FieldNumber(600, 0, 4095, 1), "SPEED").appendField(labels.acc).appendField(new blockly.FieldNumber(30, 0, 254, 1), "ACC");
+      statementBlock(this, 205);
+    }
+  };
+  blockly.Blocks.robot_action_preset = {
+    init(this: Blockly.Block) {
+      this.appendDummyInput().appendField(labels.actionPreset).appendField(new blockly.FieldDropdown(dropdown(options.actionPresets)), "ACTION");
       statementBlock(this, 205);
     }
   };

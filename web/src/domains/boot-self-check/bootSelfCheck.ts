@@ -1,4 +1,4 @@
-import { createPlatformCommand, type PlatformCommand, type PlatformCommandResult, type PlatformCommandType } from "@platform/commands";
+import { createPlatformCommand, type PlatformCommand, type PlatformCommandResult } from "@platform/commands";
 import type { DeviceStateSnapshot } from "@platform/types";
 
 export type BootSelfCheckStepId =
@@ -112,20 +112,6 @@ export interface BootSelfCheckStepCommandPlan {
   skipReason?: string;
 }
 
-const DANGEROUS_PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
-  "servo.set_position",
-  "servo.set_speed",
-  "servo.set_torque",
-  "motor.set_speed",
-  "motor.configure",
-  "camera.set_gimbal",
-  "camera.center_gimbal",
-  "robot-arm.set_pose",
-  "robot-arm.teach.play",
-  "mecanum-drive.set_velocity",
-  "can-servo-group.set_positions"
-]);
-
 const DANGEROUS_PC_COMMAND_TYPES = new Set([
   "motor.set",
   "motor.target",
@@ -175,12 +161,12 @@ const STEP_META: Record<BootSelfCheckStepId, Pick<BootSelfCheckStep, "title" | "
   "servo-feedback": {
     title: "舵机反馈",
     description: "读取已配置舵机的当前位置反馈。",
-    critical: true
+    critical: false
   },
   "motor-feedback": {
     title: "电机反馈",
     description: "读取已配置电机通道反馈。",
-    critical: true
+    critical: false
   },
   gamepad: {
     title: "手柄输入",
@@ -219,9 +205,17 @@ export function createBootSelfCheckSignature(input: BootSelfCheckInput): string 
   const cameraSignature = (input.cameraVideoSources ?? [])
     .map((source) => `${source.id}:${source.streamUrl}`)
     .join("|");
+  const serialSignature = input.connected ? `serial:${input.connectionMode}` : "serial:offline";
+  const bridgeSignature = [
+    `a-board:${input.aBoardBridgeStatus === "connected" ? "connected" : "offline"}`,
+    `pi-servo:${input.piServoBridgeStatus === "connected" ? "connected" : "offline"}`,
+    `database:${input.databaseStatus === "saved" ? "saved" : "not-saved"}`
+  ].join("|");
   return [
     input.projectId ?? input.projectName ?? "project",
     input.piHost.trim() || "no-pi-host",
+    serialSignature,
+    bridgeSignature,
     `servos:${input.servos?.length ?? 0}`,
     `motors:${input.motors?.length ?? 0}`,
     `plugins:${input.pluginInstanceCount ?? 0}`,
@@ -376,27 +370,24 @@ export function createBootSelfCheckGateState(run: BootSelfCheckRun | null, overr
     return { ...DEFAULT_BOOT_SELF_CHECK_GATE };
   }
   const blockedSteps = run.steps.filter((step) => step.critical && (step.status === "failed" || step.status === "running"));
-  const locked = !overrideActive && (run.status === "running" || blockedSteps.length > 0);
-  if (!locked) {
-    return {
-      locked: false,
-      overrideActive,
-      reason: overrideActive ? "已临时解除自检门禁。" : "开机自检门禁已放行。",
-      blockedStepIds: []
-    };
-  }
   return {
-    locked: true,
+    locked: false,
     overrideActive,
-    reason: blockedSteps.length > 0
-      ? `危险动作已锁定：${blockedSteps.map((step) => step.title).join("、")} 未通过。`
-      : "开机自检运行中，危险动作暂时锁定。",
+    reason: overrideActive
+      ? "已临时解除自检门禁。"
+      : blockedSteps.length > 0
+        ? `自检发现未通过项：${blockedSteps.map((step) => step.title).join("、")}；仅提示，不阻断控制。`
+        : run.status === "running"
+          ? "开机自检运行中；仅提示，不阻断控制。"
+          : "开机自检门禁已放行。",
     blockedStepIds: blockedSteps.map((step) => step.id)
   };
 }
 
 export function shouldBlockPlatformCommand(command: PlatformCommand, gate: BootSelfCheckGateState): boolean {
-  return gate.locked && DANGEROUS_PLATFORM_COMMAND_TYPES.has(command.type);
+  void command;
+  void gate;
+  return false;
 }
 
 export function blockedPlatformCommandResult(command: PlatformCommand, gate: BootSelfCheckGateState): PlatformCommandResult {
@@ -545,7 +536,7 @@ function evaluateFeedbackStep(
       resultEvidence(results)
     ], repairs);
   }
-  return stepExecution("failed", `${missing.length} 个${prefix === "servo" ? "舵机" : "电机"}缺少反馈。`, [
+  return stepExecution("warning", `${missing.length} 个${prefix === "servo" ? "舵机" : "电机"}缺少反馈。`, [
     `configured=${devices.length}`,
     `missing=${missing.map((device) => device.id).join(",")}`,
     resultEvidence(results)

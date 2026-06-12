@@ -3,6 +3,7 @@ import { createPositionTrajectory, createWheelSpeedTrajectory, resolveServoMotio
 import { calculateServoLinkageTargets, calculateServoLinkageWheelTargets, type ServoLinkageGroup, type ServoLinkageWheelDirection } from "@adapters/persistence/storage";
 import { singleWheelTurnProgressKey, type ServoCommandState } from "@app/appModel";
 type ServoStatus = "idle" | "paused" | "smoothing"; type PositionWrite = { servo: ServoProfile; physicalAngleDeg: number; speedRaw: number; acc: number | undefined; waitMs: number; logFrame: boolean; live?: boolean; setupMode?: boolean };
+type GroupPositionWrite = { coalesceKey?: string; live?: boolean; logFrame: boolean; setupMode?: boolean; targets: Array<{ servo: ServoProfile; physicalAngleDeg: number; speedRaw: number; acc: number | undefined }>; waitMs: number };
 type WheelWrite = { servo: ServoProfile; speedRaw: number; acc: number | undefined; setupMode: boolean; waitMs: number; logFrame: boolean }; interface UseServoMotionRuntimeOptions {
   addLog: (source: "rx" | "tx" | "system", message: string, level?: any) => void;
   addSystemLog: (messageKey: string, level?: any, values?: any) => void;
@@ -31,6 +32,7 @@ type WheelWrite = { servo: ServoProfile; speedRaw: number; acc: number | undefin
   sleepMs: (ms: number) => Promise<void>;
   syncServoLinkageTargetsToCommands: (group: ServoLinkageGroup) => void;
   syncServoLinkageWheelTargetsToCommands: (group: ServoLinkageGroup, direction: ServoLinkageWheelDirection) => void;
+  writeServoGroupPositionUnlocked: (options: GroupPositionWrite) => Promise<any>;
   writeServoPositionUnlocked: (options: PositionWrite) => Promise<any>;
   writeServoWheelSpeedUnlocked: (options: WheelWrite) => Promise<any>;
 }
@@ -62,6 +64,7 @@ export function useServoMotionRuntime({
   sleepMs,
   syncServoLinkageTargetsToCommands,
   syncServoLinkageWheelTargetsToCommands,
+  writeServoGroupPositionUnlocked,
   writeServoPositionUnlocked,
   writeServoWheelSpeedUnlocked
 }: UseServoMotionRuntimeOptions) {
@@ -293,19 +296,23 @@ export function useServoMotionRuntime({
     const ids = targets.map((target) => target.servoId);
     if (!servoSmoothingEnabled || live) {
       cancelServoMotionForLinkage(group.id, "idle");
-      await enqueueServoSerialTask(async () => {
-        for (const target of targets) {
-          await writeServoPositionUnlocked({
+      const sent = await enqueueServoSerialTask(() =>
+        writeServoGroupPositionUnlocked({
+          coalesceKey: `linkage:${group.id}:position`,
+          live,
+          logFrame: !live,
+          targets: targets.map((target) => ({
             servo: target.servo,
             physicalAngleDeg: target.physicalAngleDeg,
             speedRaw: target.speedRaw,
-            acc: target.acc,
-            waitMs: live ? 12 : 80,
-            logFrame: !live,
-            live
-          });
-        }
-      });
+            acc: target.acc
+          })),
+          waitMs: live ? 12 : 80
+        })
+      );
+      if (!sent) {
+        return false;
+      }
       for (const target of targets) {
         beginServoSafetyMonitor({
           servo: target.servo,
@@ -351,19 +358,26 @@ export function useServoMotionRuntime({
           return false;
         }
         const progress = smoothStepQuintic(samplesToSend[index].progress);
-        await enqueueServoSerialTask(async () => {
-          for (const target of motionTargets) {
-            await writeServoPositionUnlocked({
+        const sent = await enqueueServoSerialTask(() =>
+          writeServoGroupPositionUnlocked({
+            coalesceKey: `linkage:${group.id}:position`,
+            live,
+            logFrame: false,
+            targets: motionTargets.map((target) => ({
               servo: target.servo,
               physicalAngleDeg: target.start + target.delta * progress,
               speedRaw: target.speedRaw,
-              acc: target.acc,
-              waitMs: live ? 12 : 30,
-              logFrame: false,
-              live
-            });
+              acc: target.acc
+            })),
+            waitMs: live ? 12 : 30
+          })
+        );
+        if (!sent || !isServoMotionCurrent(key, generation)) {
+          if (!sent) {
+            cancelServoSafetyMonitor();
           }
-        });
+          return false;
+        }
         if (index < samplesToSend.length - 1) {
           await sleepMs(config.tickMs);
         }

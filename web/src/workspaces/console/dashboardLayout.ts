@@ -102,7 +102,7 @@ export const CONSOLE_DASHBOARD_PANEL_DEFINITIONS: Record<ConsoleDashboardPanelId
     capability: "dashboard",
     title: "Telemetry",
     w: 4,
-    h: 4,
+    h: 3,
     minW: 3,
     minH: 3
   },
@@ -228,10 +228,10 @@ export function defaultConsoleDashboardLayout(targets: ConsoleDashboardTarget[],
     ? "robot-arm:main"
     : targets.find((target) => target.panelId === CONSOLE_DASHBOARD_PANEL_IDS.armSvg)?.targetId ?? "";
   const specs: Array<{ panelId: ConsoleDashboardPanelId; targetId: string; x: number; y: number; w: number; h: number }> = [
-    { panelId: CONSOLE_DASHBOARD_PANEL_IDS.telemetry, targetId: "dashboard:telemetry", x: 0, y: 0, w: 4, h: 4 },
-    { panelId: CONSOLE_DASHBOARD_PANEL_IDS.attitude, targetId: "dashboard:attitude", x: 0, y: 4, w: 4, h: 4 },
+    { panelId: CONSOLE_DASHBOARD_PANEL_IDS.telemetry, targetId: "dashboard:telemetry", x: 0, y: 0, w: 4, h: 3 },
+    { panelId: CONSOLE_DASHBOARD_PANEL_IDS.attitude, targetId: "dashboard:attitude", x: 0, y: 3, w: 4, h: 4 },
     { panelId: CONSOLE_DASHBOARD_PANEL_IDS.cameraFeed, targetId: "camera:main", x: 4, y: 0, w: 8, h: 5 },
-    ...(armTargetId ? [{ panelId: CONSOLE_DASHBOARD_PANEL_IDS.armSvg, targetId: armTargetId, x: 0, y: 8, w: 4, h: 5 }] : []),
+    ...(armTargetId ? [{ panelId: CONSOLE_DASHBOARD_PANEL_IDS.armSvg, targetId: armTargetId, x: 0, y: 7, w: 4, h: 5 }] : []),
     { panelId: CONSOLE_DASHBOARD_PANEL_IDS.joystick, targetId: "dashboard:joystick", x: 4, y: 5, w: 4, h: 4 },
     { panelId: CONSOLE_DASHBOARD_PANEL_IDS.eventLog, targetId: "dashboard:event-log", x: 8, y: 5, w: 4, h: 4 }
   ];
@@ -258,7 +258,7 @@ export function mergeConsoleDashboardLayout(existing: PanelLayoutItem[], targets
     .map((item, index) => sanitizeConsoleDashboardLayoutItem(item, targetsByKey.get(targetKey(item.panelId, item.targetId)), index, scopeId))
     .sort((a, b) => a.order - b.order)
     .map((item, order) => ({ ...item, order }));
-  return appendRequiredConsoleDashboardPanels(sanitized, targets, scopeId);
+  return appendRequiredConsoleDashboardPanels(compactLegacyDefaultConsoleDashboardLayout(sanitized), targets, scopeId);
 }
 
 export function addConsoleDashboardPanel(existing: PanelLayoutItem[], target: ConsoleDashboardTarget, scopeId = existing[0]?.scopeId ?? CONSOLE_DASHBOARD_SCOPE): PanelLayoutItem[] {
@@ -412,6 +412,26 @@ function appendRequiredConsoleDashboardPanels(existing: PanelLayoutItem[], targe
     return existing;
   }
   return addConsoleDashboardPanel(existing, attitudeTarget, scopeId);
+}
+
+function compactLegacyDefaultConsoleDashboardLayout(items: PanelLayoutItem[]): PanelLayoutItem[] {
+  const telemetry = items.find((item) => item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.telemetry && item.targetId === "dashboard:telemetry");
+  if (!telemetry || telemetry.x !== 0 || telemetry.y !== 0 || telemetry.w !== 4 || telemetry.h !== 4) {
+    return items;
+  }
+
+  return items.map((item) => {
+    if (item.id === telemetry.id) {
+      return { ...item, h: 3 };
+    }
+    if (item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.attitude && item.targetId === "dashboard:attitude" && item.x === 0 && item.y === 4 && item.w === 4) {
+      return { ...item, y: 3 };
+    }
+    if (item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.armSvg && item.x === 0 && item.y === 8 && item.w === 4) {
+      return { ...item, y: 7 };
+    }
+    return item;
+  });
 }
 
 function sanitizeConsoleDashboardLayoutItem(item: PanelLayoutItem, target: ConsoleDashboardTarget | undefined, fallbackOrder: number, scopeId = item.scopeId || CONSOLE_DASHBOARD_SCOPE): PanelLayoutItem {

@@ -44,4 +44,24 @@ describe("architecture boundaries", () => {
       expect(statSync(join(srcRoot, root)).isDirectory(), `${root} should exist`).toBe(true);
     }
   });
+
+  it("keeps platform-imported domain modules from importing platform runtime back", () => {
+    const architecturePath = join(srcRoot, "platform", "architecture.ts");
+    const importedDomainModules = Array.from(readFileSync(architecturePath, "utf8").matchAll(importPattern))
+      .map((match) => match[1])
+      .filter((specifier) => specifier.startsWith("@domains/"))
+      .map((specifier) => join(srcRoot, specifier.replace("@domains/", "domains/") + ".ts"));
+    const violations: string[] = [];
+
+    for (const file of importedDomainModules) {
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(importPattern)) {
+        if (match[1] === "@platform/architecture") {
+          violations.push(`${relative(srcRoot, file)} -> ${match[1]}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });

@@ -26,6 +26,7 @@ if SERIAL_PROTOCOL_MODE not in ("auto", "json", "binary"):
 PROTOCOL_VERSION = 1
 PROTOCOL_PROBE_TIMEOUT_MS = int(os.environ.get("A_BOARD_PROTOCOL_PROBE_TIMEOUT_MS", "350"))
 CAN_SERVO_GROUP_MAX_TARGETS = 8
+MOTOR_CHANNEL_COUNT = 8
 
 BAUD_FLAGS = {
     9600: termios.B9600,
@@ -40,6 +41,40 @@ ACK_ONLY_COMMANDS = ("debug.set", "system.ping")
 LATEST_WINS_TYPES = ("motor.target", "mecanum.target", "can_servo.move", "can_servo.group_move")
 STOP_TYPES = ("motor.stop", "mecanum.stop")
 LOW_PRIORITY_TYPES = ("imu.read",)
+VALID_COMMAND_CLASSES = ("motor", "arm-servo", "can-servo", "telemetry", "system")
+VALID_COMMAND_POLICIES = ("fifo", "latest", "stop")
+COMMAND_CLASS_PRIORITIES = {
+    "system": 100,
+    "motor": 80,
+    "arm-servo": 60,
+    "can-servo": 40,
+    "telemetry": 20,
+}
+COMMAND_TYPE_PRIORITIES = {
+    "motor.stop": 100,
+    "mecanum.stop": 100,
+    "system.protocol": 100,
+    "system.ping": 100,
+    "motor.target": 80,
+    "mecanum.target": 80,
+    "motor.set": 80,
+    "motor.config": 80,
+    "servo.move": 60,
+    "servo.speed": 60,
+    "servo.torque": 60,
+    "can_servo.config": 40,
+    "can_servo.move": 40,
+    "can_servo.group_move": 40,
+    "can_servo.set_current": 40,
+    "can_servo.pid": 40,
+    "can_servo.set_id": 40,
+    "can_servo.save_center": 40,
+    "can_servo.factory_reset": 40,
+    "can_servo.read": 20,
+    "motor.read": 20,
+    "can.read": 20,
+    "imu.read": 20,
+}
 
 BINARY_TARGETS = {
     "system": 0x00,
@@ -183,12 +218,58 @@ def motor_channel_u8(value):
     channel = str(value or "").strip().upper()
     if channel.startswith("M") and channel[1:].isdigit():
         index = int(channel[1:])
-        if 1 <= index <= 4:
+        if 1 <= index <= 8:
             return index
-    raise ValueError("binary motor.target supports channels M1-M4")
+    raise ValueError("binary motor.target supports channels M1-M8")
+
+
+def command_class(command):
+    if not isinstance(command, dict):
+        return "system"
+    explicit = str(command.get("commandClass", "")).strip()
+    if explicit in VALID_COMMAND_CLASSES:
+        return explicit
+    command_type = str(command.get("type", "")).strip()
+    if command_type in LOW_PRIORITY_TYPES or command_type in ("can_servo.read", "motor.read", "can.read") or command_type == "imu.read":
+        return "telemetry"
+    if command_type.startswith("motor.") or command_type.startswith("mecanum."):
+        return "motor"
+    if command_type.startswith("servo."):
+        return "arm-servo"
+    if command_type.startswith("can_servo."):
+        return "can-servo"
+    return "system"
+
+
+def command_policy(command):
+    if not isinstance(command, dict):
+        return "fifo"
+    explicit = str(command.get("policy", "")).strip()
+    if explicit in VALID_COMMAND_POLICIES:
+        return explicit
+    command_type = command.get("type")
+    if command_type in STOP_TYPES:
+        return "stop"
+    if command_type in LATEST_WINS_TYPES:
+        return "latest"
+    return "fifo"
+
+
+def command_priority(command):
+    if not isinstance(command, dict):
+        return COMMAND_CLASS_PRIORITIES["system"]
+    explicit = command.get("priority")
+    if explicit is not None:
+        return clamp_int(explicit, 0, 1000, COMMAND_CLASS_PRIORITIES[command_class(command)])
+    command_type = str(command.get("type", "")).strip()
+    if command_type in COMMAND_TYPE_PRIORITIES:
+        return COMMAND_TYPE_PRIORITIES[command_type]
+    return COMMAND_CLASS_PRIORITIES[command_class(command)]
 
 
 def build_binary_payload(command):
+    if isinstance(command, dict) and any(key in command for key in ("priority", "commandClass", "policy")):
+        return None
     command_type = command.get("type")
     if command_type == "mecanum.target":
         return (
@@ -304,6 +385,9 @@ def serial_json_command(command):
         "count": len(targets),
         "speed": clamp_int(command.get("speed", 0), 0, 0xFFFF),
     }
+    for key in ("priority", "commandClass", "policy"):
+        if key in command:
+            flat[key] = command[key]
     for index, target in enumerate(targets):
         if not isinstance(target, dict):
             raise ValueError("can_servo.group_move targets must be objects")
@@ -457,13 +541,13 @@ class SerialWorker:
             }
 
     def _is_latest_wins_command(self, command):
-        return isinstance(command, dict) and command.get("type") in LATEST_WINS_TYPES
+        return command_policy(command) == "latest"
 
     def _is_stop_command(self, command):
-        return isinstance(command, dict) and command.get("type") in STOP_TYPES
+        return command_policy(command) == "stop"
 
     def _is_low_priority_command(self, command):
-        return isinstance(command, dict) and command.get("type") in LOW_PRIORITY_TYPES
+        return isinstance(command, dict) and (command_class(command) == "telemetry" or command_priority(command) <= COMMAND_CLASS_PRIORITIES["telemetry"])
 
     def _queue_depth_locked(self):
         return len(self.queue) + (1 if self.pending_motion_job is not None else 0)
@@ -542,6 +626,9 @@ class SerialWorker:
                 "type": "scheduler.feedback",
                 "seq": command.get("seq", 0),
                 "command": command.get("type"),
+                "priority": command_priority(command),
+                "commandClass": command_class(command),
+                "policy": command_policy(command),
                 "accepted": False,
                 "motionPending": self.pending_motion_job is not None,
                 "latestMotionSeq": self.latest_motion_seq,
@@ -581,6 +668,9 @@ class SerialWorker:
                 "type": "scheduler.feedback",
                 "seq": command.get("seq", 0),
                 "command": command.get("type"),
+                "priority": command_priority(command),
+                "commandClass": command_class(command),
+                "policy": command_policy(command),
                 "accepted": False,
                 "motionPending": self.pending_motion_job is not None,
                 "latestMotionSeq": self.latest_motion_seq,
@@ -613,6 +703,17 @@ class SerialWorker:
                 kept.append(queued_job)
         self.queue = kept
 
+    def _insert_job_by_priority_locked(self, job):
+        priority = command_priority(job.get("command"))
+        if not self.queue:
+            self.queue.append(job)
+            return
+        for index, queued_job in enumerate(self.queue):
+            if priority > command_priority(queued_job.get("command")):
+                self.queue.insert(index, job)
+                return
+        self.queue.append(job)
+
     def _enqueue_job(self, job):
         command = job["command"]
         with self.condition:
@@ -623,7 +724,7 @@ class SerialWorker:
                     except queue.Full:
                         pass
                     return
-                self.queue.append(job)
+                self._insert_job_by_priority_locked(job)
             elif self._is_stop_command(command):
                 self._drop_queued_low_priority_locked("preempted by stop command")
                 self._drop_pending_motion_locked("cleared by stop command")
@@ -631,21 +732,36 @@ class SerialWorker:
             elif self._is_latest_wins_command(command):
                 self._drop_queued_low_priority_locked("preempted by motion command")
                 if self.in_flight or self.queue or self.pending_motion_job is not None:
-                    self._drop_pending_motion_locked("replaced by newer motion target")
+                    if self.pending_motion_job is not None:
+                        pending_command = self.pending_motion_job.get("command", {})
+                        same_class = command_class(command) == command_class(pending_command)
+                        if not same_class and command_priority(command) < command_priority(pending_command):
+                            try:
+                                job["response_queue"].put_nowait(self._low_priority_busy_response_locked(job, "kept higher priority pending motion target"))
+                            except queue.Full:
+                                pass
+                            return
+                    self._drop_pending_motion_locked("replaced by newer or higher priority motion target")
                     self.pending_motion_job = job
                     self.latest_motion_seq = command.get("seq")
                 else:
-                    self.queue.append(job)
+                    self._insert_job_by_priority_locked(job)
                     self.latest_motion_seq = command.get("seq")
             else:
                 self._drop_queued_low_priority_locked("preempted by control command")
-                self.queue.append(job)
+                self._insert_job_by_priority_locked(job)
             self.condition.notify()
 
     def _next_job(self):
         with self.condition:
             while not self.queue and self.pending_motion_job is None:
                 self.condition.wait()
+            if self.queue and self.pending_motion_job is not None:
+                if command_priority(self.queue[0].get("command")) >= command_priority(self.pending_motion_job.get("command")):
+                    return self.queue.popleft()
+                job = self.pending_motion_job
+                self.pending_motion_job = None
+                return job
             if self.queue:
                 return self.queue.popleft()
             job = self.pending_motion_job
@@ -908,7 +1024,7 @@ class SerialWorker:
             frame = build_binary_command_frame(command)
             if frame is not None:
                 self._write_serial(fd, frame)
-                messages, matched = self._read_lines_until(command.get("seq"), timeout_ms, command.get("type"))
+                messages, matched = self._read_lines_until(command, timeout_ms)
                 if matched:
                     return messages, True
                 self._record_binary_fallback(command, messages)
@@ -919,7 +1035,7 @@ class SerialWorker:
     def _send_json_command(self, fd, command, timeout_ms):
         payload = (json.dumps(serial_json_command(command), separators=(",", ":")) + "\n").encode("utf-8")
         self._write_serial(fd, payload)
-        return self._read_lines_until(command.get("seq"), timeout_ms, command.get("type"))
+        return self._read_lines_until(command, timeout_ms)
 
     def _should_use_binary(self, command):
         if self.serial_protocol_mode == "json":
@@ -967,11 +1083,20 @@ class SerialWorker:
             messagesSeen=len(messages),
         )
 
-    def _read_lines_until(self, seq, timeout_ms, command_type):
+    def _expected_terminal_count(self, command):
+        if command.get("type") in ("motor.stop", "motor.read") and command.get("all") is True:
+            return MOTOR_CHANNEL_COUNT
+        return 1
+
+    def _read_lines_until(self, command, timeout_ms):
+        seq = command.get("seq")
+        command_type = command.get("type")
         deadline = time.monotonic() + timeout_ms / 1000.0
         settle_deadline = None
         messages = []
         matched = False
+        matched_terminal_count = 0
+        expected_terminal_count = self._expected_terminal_count(command)
         while True:
             active_deadline = settle_deadline if settle_deadline is not None else deadline
             if time.monotonic() >= active_deadline:
@@ -1019,7 +1144,10 @@ class SerialWorker:
                     settle_deadline = min(deadline, time.monotonic() + 0.12)
                     continue
                 if message_type in TERMINAL_TYPES:
-                    return messages, True
+                    matched = True
+                    matched_terminal_count += 1
+                    if matched_terminal_count >= expected_terminal_count:
+                        return messages, True
 
 
 worker = SerialWorker()

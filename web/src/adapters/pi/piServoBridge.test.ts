@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildPiServoBridgeBaseUrl, buildPiServoBridgeServiceCommand, checkPiServoBridge, requestPiServoBridgeDiagnostics, sendPiServoBridgeFrame } from "@adapters/pi/piServoBridge";
+import { buildPiServoBridgeBaseUrl, buildPiServoBridgeServiceCommand, checkPiServoBridge, requestPiServoBridgeDiagnostics, sendPiServoBridgeCommand, sendPiServoBridgeFrame } from "@adapters/pi/piServoBridge";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -26,6 +26,17 @@ describe("Pi servo serial bridge client", () => {
         inFlight: false,
         serialOpen: true,
         deviceExists: true,
+        transportMode: "esp32-cobs",
+        serialProtocolMode: "auto",
+        serialProtocolActive: "binary",
+        binaryProtocolReady: true,
+        controllerReady: true,
+        binaryFramesOut: 2,
+        jsonFramesOut: 1,
+        binaryFallbackCount: 0,
+        crcError: 0,
+        cobsError: 0,
+        dropCount: 0,
         lastSerialEvent: { kind: "opened", deviceExists: true },
         consecutiveOpenFailures: 0,
         diagnosticsPath: "/diagnostics"
@@ -42,6 +53,17 @@ describe("Pi servo serial bridge client", () => {
       inFlight: false,
       serialOpen: true,
       deviceExists: true,
+      transportMode: "esp32-cobs",
+      serialProtocolMode: "auto",
+      serialProtocolActive: "binary",
+      binaryProtocolReady: true,
+      controllerReady: true,
+      binaryFramesOut: 2,
+      jsonFramesOut: 1,
+      binaryFallbackCount: 0,
+      crcError: 0,
+      cobsError: 0,
+      dropCount: 0,
       lastSerialEvent: { kind: "opened", deviceExists: true },
       consecutiveOpenFailures: 0,
       diagnosticsPath: "/diagnostics"
@@ -121,12 +143,83 @@ describe("Pi servo serial bridge client", () => {
     expect(command).toContain("User=robot1");
     expect(command).toContain("Environment=PI_SERVO_SERIAL_PORT=/dev/serial0");
     expect(command).toContain("Environment=PI_SERVO_BAUD=115200");
+    expect(command).toContain("Environment=PI_SERVO_SERIAL_PROTOCOL=auto");
     expect(command).toContain("Environment=PI_SERVO_BRIDGE_PORT=17354");
     expect(command).toContain("enable_uart=1");
     expect(command).toContain("A_BOARD_SERIAL_PORT=/dev/serial0");
     expect(command).toContain("legacy_a_board_serial0:disabled");
     expect(command).toContain("sudo -n systemctl enable --now 'pi-servo-serial-bridge.service'");
     expect(command).toContain("pi_servo_bridge_service:active");
+  });
+
+  it("sends semantic servo commands through the ESP32 bridge endpoint", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: true,
+        protocol: "binary",
+        messages: [{ type: "ack", seq: 4, command: "servo.ping", message: "pong" }],
+        response: { type: "ack", seq: 4, command: "servo.ping", message: "pong" },
+        rawLines: ['{"type":"ack","seq":4,"command":"servo.ping","message":"pong"}'],
+        serialPort: "/dev/serial0",
+        baudRate: 115200
+      })
+    );
+
+    await expect(
+      sendPiServoBridgeCommand("pi.local", { type: "servo.ping", seq: 4, id: 9 }, { fetcher: fetcher as unknown as typeof fetch, waitMs: 140 })
+    ).resolves.toEqual({
+      ok: true,
+      messages: [{ type: "ack", seq: 4, command: "servo.ping", message: "pong" }],
+      response: { type: "ack", seq: 4, command: "servo.ping", message: "pong" },
+      rawLines: ['{"type":"ack","seq":4,"command":"servo.ping","message":"pong"}'],
+      protocol: "binary",
+      serialPort: "/dev/serial0",
+      baudRate: 115200
+    });
+
+    const init = (fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1];
+    expect(fetcher).toHaveBeenCalledWith("http://pi.local:17354/command", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(String(init.body))).toEqual({ command: { type: "servo.ping", seq: 4, id: 9 }, waitMs: 140 });
+  });
+
+  it("sends live latest metadata for semantic servo commands", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        ok: true,
+        messages: [],
+        response: null,
+        rawLines: [],
+        responseExpected: false,
+        skipped: true,
+        reason: "stale"
+      })
+    );
+
+    await expect(
+      sendPiServoBridgeCommand("pi.local", { type: "servo.move", seq: 5, targets: [{ id: 7, angleDeg: 180, speedRaw: 300, acc: 20 }] }, {
+        fetcher: fetcher as unknown as typeof fetch,
+        waitMs: 12,
+        policy: "latest",
+        coalesceKey: "servo:7:position",
+        minIntervalMs: 40
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      messages: [],
+      response: null,
+      responseExpected: false,
+      skipped: true,
+      reason: "stale"
+    });
+
+    const init = (fetcher.mock.calls as unknown as Array<[string, RequestInit]>)[0][1];
+    expect(JSON.parse(String(init.body))).toEqual({
+      command: { type: "servo.move", seq: 5, targets: [{ id: 7, angleDeg: 180, speedRaw: 300, acc: 20 }] },
+      waitMs: 12,
+      policy: "latest",
+      coalesceKey: "servo:7:position",
+      minIntervalMs: 40
+    });
   });
 
   it("sends a Feetech frame and preserves raw bytes plus parsed packet", async () => {

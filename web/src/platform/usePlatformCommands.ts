@@ -1,5 +1,5 @@
 import { MutableRefObject } from "react";
-import { FeetechStatusPacket, ServoProfile, MotorStopMode, PcCommand, TORQUE_ENABLE_ADDR, applyServoWheelDirection, buildEepromLockFrame, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildReadRegisterFrame, buildServoIdWriteFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle, toHex } from "@adapters/hardware/protocol";
+import { FeetechStatusPacket, ServoProfile, MotorStopMode, PcCommand, TORQUE_ENABLE_ADDR, applyServoWheelDirection, buildEepromLockFrame, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildReadRegisterFrame, buildServoIdWriteFrame, buildTorqueFrame, parseServoFeedback, servoLogicalToPhysicalAngle, toHex, type ServoTarget } from "@adapters/hardware/protocol";
 import { PlatformCommand, PlatformCommandResult, platformCommandEventType, validatePlatformCommand } from "@platform/commands";
 import { PlatformEventBus } from "@platform/events";
 import { InboundMessage } from "@adapters/hardware/protocol";
@@ -9,13 +9,14 @@ interface UsePlatformCommandsOptions {
   nextSeq: () => number;
   platformEventBusRef: MutableRefObject<PlatformEventBus>;
   rememberServoFeedback: (feedback: InboundMessage & { type: "servo.feedback" }) => void;
-  sendMotorCommand: (command: PcCommand, options?: { log?: boolean; retryCount?: number }) => Promise<boolean>;
-  sendAboardBridgeMotorCommand?: (command: PcCommand, options?: { log?: boolean }) => Promise<boolean>;
+  sendAboardCommand: (command: PcCommand, options?: { log?: boolean; timeoutMs?: number; exclusive?: boolean }) => Promise<{ ok?: boolean; busy?: boolean; messages?: InboundMessage[] } | null>;
+  sendServoCommand?: (command: PcCommand, waitMs?: number, logCommand?: boolean) => Promise<InboundMessage | null>;
   sendServoFrames: (frames: number[] | number[][], timeoutMs?: number) => Promise<ReturnType<typeof parseServoFeedback> extends never ? never : any>;
   sendServoFrameUnlocked: (frame: number[], waitMs?: number, logFrame?: boolean) => Promise<FeetechStatusPacket | null>;
   servos: ServoProfile[];
   writeServoPositionUnlocked: (options: {
     acc: number | undefined;
+    live?: boolean;
     logFrame: boolean;
     physicalAngleDeg: number;
     servo: ServoProfile;
@@ -37,8 +38,8 @@ export function usePlatformCommands({
   nextSeq,
   platformEventBusRef,
   rememberServoFeedback,
-  sendAboardBridgeMotorCommand,
-  sendMotorCommand,
+  sendAboardCommand,
+  sendServoCommand,
   sendServoFrameUnlocked,
   sendServoFrames,
   servos,
@@ -64,6 +65,42 @@ export function usePlatformCommands({
     return servos.find((servo) => servo.id === servoId) ?? null;
   }
 
+  async function sendServoMovePcCommand(pcCommand: PcCommand): Promise<{ status: PlatformCommandResult["status"]; response?: unknown; message?: string }> {
+    if (sendServoCommand) {
+      const bridgeResponse = await sendServoCommand(pcCommand, 240, true);
+      const bridgeStatus = servoResponseStatus(bridgeResponse);
+      if (bridgeStatus === "sent") {
+        return { status: "sent", response: bridgeResponse ?? undefined };
+      }
+      if (bridgeResponse?.type === "error") {
+        return { status: "failed", response: bridgeResponse, message: bridgeResponse.message };
+      }
+    }
+
+    const targets = servoMoveTargetsFromCommand(pcCommand);
+    const sent = await enqueueServoSerialTask(async () => {
+      const results: unknown[] = [];
+      for (const target of targets) {
+        const servo = servos.find((item) => item.id === target.id);
+        if (!servo) {
+          throw new Error(`servo ${target.id} is not configured`);
+        }
+        results.push(await writeServoPositionUnlocked({
+          servo,
+          physicalAngleDeg: servoLogicalToPhysicalAngle(servo, target.angleDeg),
+          speedRaw: target.speedRaw,
+          acc: target.acc,
+          waitMs: 60,
+          logFrame: true
+        }));
+      }
+      return results;
+    });
+    return sent.every(Boolean)
+      ? { status: "sent", response: sent }
+      : { status: "timeout", response: sent, message: "servo preset move timed out" };
+  }
+
   async function dispatchPlatformCommand(command: PlatformCommand): Promise<PlatformCommandResult> {
     const validationError = validatePlatformCommand(command);
     if (validationError) {
@@ -75,6 +112,12 @@ export function usePlatformCommands({
     try {
       if (command.type === "servo.ping") {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        if (sendServoCommand) {
+          const response = await sendServoCommand({ type: "servo.ping", seq: nextSeq(), id: servoId }, 140, true);
+          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: servoResponseStatus(response), response: response ?? undefined };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
         const packet = await sendServoFrames(buildPingFrame(servoId), 140);
         const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: packet ? "sent" : "timeout", response: packet ?? undefined };
         emitPlatformCommandResult(command, result);
@@ -83,6 +126,15 @@ export function usePlatformCommands({
 
       if (command.type === "servo.read_feedback") {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
+        if (sendServoCommand) {
+          const response = await sendServoCommand({ type: "servo.read", seq: nextSeq(), id: servoId }, 180, true);
+          if (response?.type === "servo.feedback") {
+            rememberServoFeedback(response);
+          }
+          const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: servoResponseStatus(response), response: response ?? undefined };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
         const packet = await sendServoFrames(buildReadFeedbackFrame(servoId), 180);
         if (packet?.status === 0) {
           rememberServoFeedback(parseServoFeedback(packet));
@@ -95,6 +147,19 @@ export function usePlatformCommands({
       if (command.type === "servo.set_torque") {
         const servoId = Number(command.targetDeviceId.replace("servo:", ""));
         const expected = Boolean(command.payload.enabled) ? 1 : 0;
+        if (sendServoCommand) {
+          const response = await sendServoCommand({ type: "servo.torque", seq: nextSeq(), id: servoId, enabled: Boolean(command.payload.enabled) }, 180, true);
+          const status = servoResponseStatus(response);
+          const result: PlatformCommandResult = {
+            commandId: command.id,
+            deviceId: command.targetDeviceId,
+            status,
+            message: status === "sent" ? `ID${servoId} torque=${expected}` : `ID${servoId} torque command failed`,
+            response: response ?? undefined
+          };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
         const response = await enqueueServoSerialTask(async () => {
           const writePacket = await sendServoFrameUnlocked(buildTorqueFrame(servoId, Boolean(command.payload.enabled)), 120, true);
           let verifyPacket = await sendServoFrameUnlocked(buildReadRegisterFrame(servoId, TORQUE_ENABLE_ADDR, 1), 180, true);
@@ -127,6 +192,19 @@ export function usePlatformCommands({
       if (command.type === "servo.set_id") {
         const oldId = Number(command.targetDeviceId.replace("servo:", ""));
         const newId = Number(command.payload.newId);
+        if (sendServoCommand) {
+          const response = await sendServoCommand({ type: "servo.set_id", seq: nextSeq(), oldId, newId }, 800, true);
+          const status = servoResponseStatus(response);
+          const result: PlatformCommandResult = {
+            commandId: command.id,
+            deviceId: command.targetDeviceId,
+            status,
+            message: status === "sent" ? `servo ID changed ${oldId} -> ${newId}` : `servo ID change failed ${oldId} -> ${newId}`,
+            response: response ?? undefined
+          };
+          emitPlatformCommandResult(command, result);
+          return result;
+        }
         const response = await enqueueServoSerialTask(async () => {
           const steps: Array<{ label: string; tx: string; rx: string | null; status: number | null }> = [];
           async function sendStep(label: string, frame: number[], waitMs = 160) {
@@ -183,6 +261,7 @@ export function usePlatformCommands({
             physicalAngleDeg: servoLogicalToPhysicalAngle(servo, Number(command.payload.angleDeg)),
             speedRaw: Number(command.payload.speedRaw),
             acc: typeof command.payload.acc === "number" ? command.payload.acc : undefined,
+            live: command.payload.live === true,
             waitMs: 80,
             logFrame: true
           })
@@ -215,34 +294,83 @@ export function usePlatformCommands({
         return result;
       }
 
+      if (command.type === "servo-preset.run") {
+        const pcCommands = command.payload.pcCommands as PcCommand[];
+        const responses: unknown[] = [];
+        for (const pcCommand of pcCommands) {
+          if (pcCommand.type === "servo.move") {
+            const servoResult = await sendServoMovePcCommand(pcCommand);
+            responses.push(servoResult.response);
+            if (servoResult.status !== "sent") {
+              const result: PlatformCommandResult = {
+                commandId: command.id,
+                deviceId: command.targetDeviceId,
+                status: servoResult.status,
+                message: servoResult.message,
+                response: { pcCommands, responses }
+              };
+              emitPlatformCommandResult(command, result);
+              return result;
+            }
+            continue;
+          }
+          if (pcCommand.type === "can_servo.config" || pcCommand.type === "can_servo.group_move") {
+            const response = await sendAboardCommand(pcCommand, { log: command.payload.log !== false });
+            responses.push(response);
+            const status = aboardResponseStatus(pcCommand, response);
+            if (status !== "sent") {
+              const result: PlatformCommandResult = {
+                commandId: command.id,
+                deviceId: command.targetDeviceId,
+                status,
+                message: "servo preset CAN command was not accepted",
+                response: { pcCommands, responses }
+              };
+              emitPlatformCommandResult(command, result);
+              return result;
+            }
+          }
+        }
+        const result: PlatformCommandResult = {
+          commandId: command.id,
+          deviceId: command.targetDeviceId,
+          status: "sent",
+          response: { pcCommands, responses }
+        };
+        emitPlatformCommandResult(command, result);
+        return result;
+      }
+
       const channel = command.targetDeviceId.replace("motor:", "");
-      const sendSelectedMotorCommand = sendAboardBridgeMotorCommand ?? sendMotorCommand;
       if (command.type === "motor.set_speed") {
-        const response = await sendSelectedMotorCommand(buildMotorSetCommand(nextSeq(), {
+        const motorCommand = buildMotorSetCommand(nextSeq(), {
           channel,
           speedPercent: Number(command.payload.speedPercent),
           stopMode: command.payload.stopMode as MotorStopMode | undefined,
           closedLoop: typeof command.payload.closedLoop === "boolean" ? command.payload.closedLoop : undefined,
           targetRpm: typeof command.payload.targetRpm === "number" ? command.payload.targetRpm : undefined
-        }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        });
+        const response = await sendAboardCommand(motorCommand);
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: aboardResponseStatus(motorCommand, response), response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.stop") {
-        const response = await sendSelectedMotorCommand(buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        const motorCommand = buildMotorStopCommand(nextSeq(), { channel, stopMode: command.payload.stopMode as MotorStopMode | undefined });
+        const response = await sendAboardCommand(motorCommand);
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: aboardResponseStatus(motorCommand, response), response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.read_feedback") {
-        const response = await sendSelectedMotorCommand({ type: "motor.read", seq: nextSeq(), channel });
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        const motorCommand: PcCommand = { type: "motor.read", seq: nextSeq(), channel };
+        const response = await sendAboardCommand(motorCommand);
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: aboardResponseStatus(motorCommand, response), response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
       if (command.type === "motor.configure") {
-        const response = await sendSelectedMotorCommand(buildMotorConfigCommand(nextSeq(), {
+        const motorCommand = buildMotorConfigCommand(nextSeq(), {
           channel,
           driver: "tb6618",
           pwmPin: String(command.payload.pwmPin),
@@ -255,8 +383,9 @@ export function usePlatformCommands({
           closedLoop: typeof command.payload.closedLoop === "boolean" ? command.payload.closedLoop : undefined,
           maxRpm: typeof command.payload.maxRpm === "number" ? command.payload.maxRpm : undefined,
           encoderTicksPerRev: typeof command.payload.encoderTicksPerRev === "number" ? command.payload.encoderTicksPerRev : undefined
-        }));
-        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: response ? "sent" : "timeout", response: response ?? undefined };
+        });
+        const response = await sendAboardCommand(motorCommand);
+        const result: PlatformCommandResult = { commandId: command.id, deviceId: command.targetDeviceId, status: aboardResponseStatus(motorCommand, response), response: response ?? undefined };
         emitPlatformCommandResult(command, result);
         return result;
       }
@@ -279,6 +408,40 @@ export function usePlatformCommands({
 
 function packetOk(packet: FeetechStatusPacket | null): boolean {
   return Boolean(packet && packet.status === 0);
+}
+
+function servoResponseStatus(response: InboundMessage | null): PlatformCommandResult["status"] {
+  if (!response) {
+    return "timeout";
+  }
+  return response.type === "error" ? "failed" : "sent";
+}
+
+function aboardResponseStatus(command: PcCommand, response: { ok?: boolean; busy?: boolean; messages?: InboundMessage[] } | null): PlatformCommandResult["status"] {
+  if (!response) {
+    return "timeout";
+  }
+  if (response.messages?.some((message) => message.type === "error")) {
+    return "failed";
+  }
+  if (response.busy) {
+    return "timeout";
+  }
+  return response.ok || response.messages?.some((message) => message.seq === command.seq) ? "sent" : "timeout";
+}
+
+function servoMoveTargetsFromCommand(command: PcCommand): ServoTarget[] {
+  const targets = Array.isArray(command.targets) ? command.targets : [];
+  return targets.map((target) => {
+    const item = target as Partial<ServoTarget>;
+    return {
+      id: Number(item.id),
+      name: item.name,
+      angleDeg: Number(item.angleDeg),
+      speedRaw: Number(item.speedRaw),
+      acc: typeof item.acc === "number" ? item.acc : undefined
+    };
+  });
 }
 
 function torqueVerifyPacketHasValue(packet: FeetechStatusPacket | null): boolean {

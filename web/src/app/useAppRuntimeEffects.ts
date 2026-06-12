@@ -55,6 +55,7 @@ interface UseAppRuntimeEffectsOptions {
   checkFirmwareHelper: (log?: boolean) => Promise<unknown>;
   connected: boolean;
   currentLanguage: string;
+  driveControllerReady: boolean;
   driveInput: { cameraPan: number; cameraTilt: number };
   driveSetupMappings?: MotorPortMapping[];
   driveTargets: MotorTarget[];
@@ -65,7 +66,7 @@ interface UseAppRuntimeEffectsOptions {
   motors: MotorProfile[];
   nextSeq: () => number;
   nudgeCamera: (deltaPan: number, deltaTilt: number) => Promise<void>;
-  sendMotorCommandBatch: (commands: PcCommand[]) => Promise<unknown>;
+  sendAboardMotionBatch: (commands: PcCommand[]) => Promise<unknown>;
   selectedChannel: string;
   selectedId: number | "";
   servoLinkageGroups: ServoLinkageGroup[];
@@ -94,6 +95,7 @@ export function useAppRuntimeEffects({
   checkFirmwareHelper,
   connected,
   currentLanguage,
+  driveControllerReady,
   driveInput,
   driveSetupMappings = [],
   driveTargets,
@@ -104,7 +106,7 @@ export function useAppRuntimeEffects({
   motors,
   nextSeq,
   nudgeCamera,
-  sendMotorCommandBatch,
+  sendAboardMotionBatch,
   selectedChannel,
   selectedId,
   servoLinkageGroups,
@@ -124,6 +126,11 @@ export function useAppRuntimeEffects({
   stopMode
 }: UseAppRuntimeEffectsOptions) {
   const lastDriveSetupSignatureRef = useRef("");
+  const checkFirmwareHelperRef = useRef(checkFirmwareHelper);
+
+  useEffect(() => {
+    checkFirmwareHelperRef.current = checkFirmwareHelper;
+  }, [checkFirmwareHelper]);
 
   useEffect(() => {
     document.documentElement.lang = currentLanguage;
@@ -215,13 +222,13 @@ export function useAppRuntimeEffects({
       lastDriveCommandRef.current = "";
       lastDriveSetupSignatureRef.current = "";
     }
-    if (!connected) {
+    if (!driveControllerReady) {
       lastDriveSetupSignatureRef.current = "";
     }
-  }, [activeModule, connected, lastDriveCommandRef]);
+  }, [activeModule, driveControllerReady, lastDriveCommandRef]);
 
   useEffect(() => {
-    if (activeModule !== "camera" || !connected) {
+    if (activeModule !== "camera" || !driveControllerReady) {
       return;
     }
     const timer = window.setInterval(async () => {
@@ -239,7 +246,7 @@ export function useAppRuntimeEffects({
         if (setupCommands.length > 0) {
           lastDriveSetupSignatureRef.current = setupSignature;
         }
-        await sendMotorCommandBatch([
+        await sendAboardMotionBatch([
           ...setupCommands,
           ...targets.map((target) => buildMotorSetCommand(nextSeq(), { ...target, stopMode }))
         ]);
@@ -248,7 +255,7 @@ export function useAppRuntimeEffects({
       }
     }, 120);
     return () => window.clearInterval(timer);
-  }, [activeModule, addSystemLog, connected, driveSetupMappings, driveTargetsRef, lastDriveCommandRef, nextSeq, sendMotorCommandBatch, stopMode]);
+  }, [activeModule, addSystemLog, driveControllerReady, driveSetupMappings, driveTargetsRef, lastDriveCommandRef, nextSeq, sendAboardMotionBatch, stopMode]);
 
   useEffect(() => {
     if (activeModule !== "camera" || !cameraCanCommand || (driveInput.cameraPan === 0 && driveInput.cameraTilt === 0)) {
@@ -263,6 +270,6 @@ export function useAppRuntimeEffects({
   }, [activeModule, cameraCanCommand, cameraConfig.panAngleDeg, cameraConfig.stepDeg, cameraConfig.tiltAngleDeg, driveInput.cameraPan, driveInput.cameraTilt, nudgeCamera]);
 
   useEffect(() => {
-    void checkFirmwareHelper(false);
-  }, [checkFirmwareHelper]);
+    void checkFirmwareHelperRef.current(false);
+  }, []);
 }

@@ -158,6 +158,24 @@ describe("app database snapshots", () => {
     expect(Object.keys(snapshot.servoCommands)).toEqual(["1"]);
   });
 
+  it("preserves an explicitly empty servo list in app snapshots", () => {
+    const snapshot = normalizeAppStateSnapshotV2({
+      config: {
+        servos: [],
+        servoCommands: {
+          1: { mode: "position", angleDeg: "45", speedRaw: "800", acc: "30", liveDragEnabled: true, reverse: false, wheelTurnsEnabled: false, wheelTurnsTarget: "1", wheelSliderDeg: "90" }
+        },
+        armConfig: { joints: [{ id: "base", name: "Base", servoId: 1 }] }
+      },
+      ui: { selectedServoId: 1 }
+    });
+
+    expect(snapshot.config.servos).toEqual([]);
+    expect(snapshot.config.servoCommands).toEqual({});
+    expect(snapshot.config.armConfig.joints).toEqual([]);
+    expect(snapshot.ui.selectedServoId).toBe("");
+  });
+
   it("clamps persisted command angles to the servo limits", () => {
     const snapshot = normalizeAppConfigSnapshot({
       servos: [{ id: 1, name: "J1", minDeg: 0, maxDeg: 90, direction: 1 }],

@@ -119,6 +119,108 @@ export interface MotorPortMapping {
   encoderTicksPerRev?: number;
 }
 
+export type MotorPinRole = "pwmPin" | "in1Pin" | "in2Pin" | "enablePin" | "sensorPin" | "encoderAPin" | "encoderBPin";
+export type RoboMasterABoardSilkLabel =
+  | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H"
+  | "I1" | "I2" | "J1" | "J2" | "K1" | "K2" | "L1" | "L2" | "M1" | "M2"
+  | "N1" | "N2" | "O1" | "O2" | "P1" | "P2" | "Q1" | "Q2"
+  | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z";
+
+export const ROBOMASTER_A_BOARD_SILK_TO_PIN: Record<RoboMasterABoardSilkLabel, string> = {
+  A: "PI0",
+  B: "PH12",
+  C: "PH11",
+  D: "PH10",
+  E: "PD15",
+  F: "PD14",
+  G: "PD13",
+  H: "PD12",
+  I1: "PF1",
+  I2: "PF0",
+  J1: "PE5",
+  J2: "PE4",
+  K1: "PE6",
+  K2: "PE12",
+  L1: "PC2",
+  L2: "PB0",
+  M1: "PC3",
+  M2: "PB1",
+  N1: "PC4",
+  N2: "PC0",
+  O1: "PC5",
+  O2: "PC1",
+  P1: "PA5",
+  P2: "PA4",
+  Q1: "PF10",
+  Q2: "PI9",
+  S: "PA0",
+  T: "PA1",
+  U: "PA2",
+  V: "PA3",
+  W: "PI5",
+  X: "PI6",
+  Y: "PI7",
+  Z: "PI2"
+};
+
+export const ROBOMASTER_A_BOARD_GPIO_OPTIONS: Array<{ label: RoboMasterABoardSilkLabel; value: string }> = Object.entries(
+  ROBOMASTER_A_BOARD_SILK_TO_PIN
+).map(([label, value]) => ({ label: label as RoboMasterABoardSilkLabel, value }));
+
+const ROBOMASTER_A_PIN_TO_BOARD_SILK = Object.fromEntries(
+  Object.entries(ROBOMASTER_A_BOARD_SILK_TO_PIN).map(([silk, pin]) => [pin, silk])
+) as Record<string, RoboMasterABoardSilkLabel>;
+
+const ROBOMASTER_A_PIN_ALIASES: Record<string, string> = {
+  ...ROBOMASTER_A_BOARD_SILK_TO_PIN,
+  CAN1_TX: "PD1",
+  CAN1_H: "PD1",
+  CAN1_RX: "PD0",
+  CAN1_L: "PD0",
+  CAN2_TX: "PB13",
+  CAN2_H: "PB13",
+  CAN2_RX: "PB12",
+  CAN2_L: "PB12",
+  UART6_TX: "PG14",
+  USART6_TX: "PG14",
+  UART6_RX: "PG9",
+  USART6_RX: "PG9",
+  UART3_TX: "PD8",
+  USART3_TX: "PD8",
+  UART3_RX: "PD9",
+  USART3_RX: "PD9",
+  USART2_TX: "PD5",
+  USART2_RX: "PD6",
+  KEY: "PD10",
+  USER_KEY: "PD10",
+  LASER: "PG13",
+  BUZZER: "PB4",
+  MPU_INT: "PE1",
+  IMU_INT: "PE1",
+  IST8310_DRDY: "PE3",
+  IST8310_SET_RESET: "PE2"
+};
+
+const ROBOMASTER_A_PIN_DISPLAY_ALIASES: Record<string, string> = {
+  ...ROBOMASTER_A_PIN_TO_BOARD_SILK,
+  PD1: "CAN1_TX",
+  PD0: "CAN1_RX",
+  PB13: "CAN2_TX",
+  PB12: "CAN2_RX",
+  PG14: "UART6_TX",
+  PG9: "UART6_RX",
+  PD8: "UART3_TX",
+  PD9: "UART3_RX",
+  PD5: "USART2_TX",
+  PD6: "USART2_RX",
+  PD10: "USER_KEY",
+  PG13: "LASER",
+  PB4: "BUZZER",
+  PE1: "IMU_INT",
+  PE3: "IST8310_DRDY",
+  PE2: "IST8310_SET_RESET"
+};
+
 export interface MotorStopTarget {
   channel?: string;
   all?: boolean;
@@ -133,6 +235,9 @@ export interface MecanumVelocityTarget {
   stopMode?: MotorStopMode;
 }
 
+export type PcCommandClass = "motor" | "arm-servo" | "can-servo" | "telemetry" | "system";
+export type PcCommandSchedulingPolicy = "fifo" | "latest" | "stop";
+
 export interface PcCommand {
   type:
     | "debug.set"
@@ -142,6 +247,8 @@ export interface PcCommand {
     | "servo.ping"
     | "servo.read"
     | "servo.torque"
+    | "servo.set_id"
+    | "system.protocol"
     | "motor.config"
     | "motor.set"
     | "motor.target"
@@ -152,10 +259,23 @@ export interface PcCommand {
     | CanCommandType
     | CanServoCommandType;
   seq: number;
+  priority?: number;
+  commandClass?: PcCommandClass;
+  policy?: PcCommandSchedulingPolicy;
   [key: string]: unknown;
 }
 
 const MOTOR_COMMAND_TYPES = new Set<MotorCommandType>(["motor.config", "motor.set", "motor.target", "motor.stop", "motor.read"]);
+const SERVO_COMMAND_TYPES = new Set([
+  "servo.move",
+  "servo.group_move",
+  "servo.speed",
+  "servo.mode",
+  "servo.ping",
+  "servo.read",
+  "servo.torque",
+  "servo.set_id"
+]);
 
 export type InboundMessage =
   | { type: "ack"; seq: number; command?: string; message?: string }
@@ -282,7 +402,10 @@ export type InboundMessage =
       type: "protocol.feedback";
       seq: number;
       protocolVersion?: number;
+      binaryProtocolVersion?: number;
       binaryProtocolReady?: boolean;
+      transport?: string;
+      binaryFramesIn?: number;
       framesIn?: number;
       framesOut?: number;
       crcError?: number;
@@ -463,24 +586,50 @@ export function assertMotorChannel(channel: string): void {
   }
 }
 
-export function normalizeMotorPin(pin: string | undefined): string | undefined {
+export function normalizeMotorPin(pin: string | undefined, role?: MotorPinRole, channel?: string): string | undefined {
   const normalized = pin?.trim();
-  return normalized ? normalized.toUpperCase() : undefined;
+  if (!normalized) {
+    return undefined;
+  }
+  return resolveRoboMasterAPinAlias(normalized, role, channel) ?? normalized.toUpperCase();
 }
 
-export function isValidMotorPin(pin: string | undefined, required = false): boolean {
-  const normalized = normalizeMotorPin(pin);
+export function roboMasterAPinAliasForMotorPin(pin: string | undefined, role?: MotorPinRole, channel?: string): string | undefined {
+  const normalized = normalizeMotorPin(pin, role, channel);
+  if (!normalized) {
+    return undefined;
+  }
+  return ROBOMASTER_A_PIN_DISPLAY_ALIASES[normalized] ?? normalized;
+}
+
+export function isValidMotorPin(pin: string | undefined, required = false, role?: MotorPinRole, channel?: string): boolean {
+  const normalized = normalizeMotorPin(pin, role, channel);
   if (!normalized) {
     return !required;
   }
   return /^[A-Z0-9_.:-]{1,24}$/.test(normalized);
 }
 
-export function assertMotorPin(pin: string | undefined, label: string, required = false): string | undefined {
-  if (!isValidMotorPin(pin, required)) {
+export function assertMotorPin(pin: string | undefined, label: string, required = false, role?: MotorPinRole, channel?: string): string | undefined {
+  if (!isValidMotorPin(pin, required, role, channel)) {
     throw new RangeError(`${label} must contain only letters, numbers, _, ., : or -`);
   }
-  return normalizeMotorPin(pin);
+  return normalizeMotorPin(pin, role, channel);
+}
+
+export function resolveRoboMasterAPinAlias(pin: string | undefined, _role?: MotorPinRole, _channel?: string): string | undefined {
+  const key = normalizePinAliasKey(pin);
+  if (!key) {
+    return undefined;
+  }
+  if (/^P[A-I][0-9]{1,2}$/.test(key)) {
+    return key;
+  }
+  return ROBOMASTER_A_PIN_ALIASES[key];
+}
+
+function normalizePinAliasKey(pin: string | undefined): string {
+  return pin?.trim().toUpperCase().replace(/[\s.:-]+/g, "_") ?? "";
 }
 
 export function validateSpeedPercent(speedPercent: number): void {
@@ -807,6 +956,15 @@ export function isMotorDebugDisabledError(message: InboundMessage): message is I
   );
 }
 
+export function isServoDebugDisabledError(message: InboundMessage): message is InboundMessage & { type: "error"; code: "debug_disabled" } {
+  return (
+    message.type === "error" &&
+    message.code === "debug_disabled" &&
+    typeof message.command === "string" &&
+    SERVO_COMMAND_TYPES.has(message.command)
+  );
+}
+
 export function buildMotorSetCommand(seq: number, target: MotorTarget): PcCommand {
   assertMotorChannel(target.channel);
   validateSpeedPercent(target.speedPercent);
@@ -854,20 +1012,21 @@ export function buildMecanumTargetCommand(seq: number, target: MecanumVelocityTa
 
 export function buildMotorConfigCommand(seq: number, mapping: MotorPortMapping): PcCommand {
   assertMotorChannel(mapping.channel);
-  const pwmPin = assertMotorPin(mapping.pwmPin, "pwmPin", true);
-  const in1Pin = assertMotorPin(mapping.in1Pin, "in1Pin", true);
-  const in2Pin = assertMotorPin(mapping.in2Pin, "in2Pin", true);
-  const enablePin = assertMotorPin(mapping.enablePin, "enablePin");
-  const sensorPin = assertMotorPin(mapping.sensorPin, "sensorPin");
-  const encoderAPin = assertMotorPin(mapping.encoderAPin, "encoderAPin");
-  const encoderBPin = assertMotorPin(mapping.encoderBPin, "encoderBPin");
+  const channel = normalizeMotorChannel(mapping.channel);
+  const pwmPin = assertMotorPin(mapping.pwmPin, "pwmPin", true, "pwmPin", channel);
+  const in1Pin = assertMotorPin(mapping.in1Pin, "in1Pin", true, "in1Pin", channel);
+  const in2Pin = assertMotorPin(mapping.in2Pin, "in2Pin", true, "in2Pin", channel);
+  const enablePin = assertMotorPin(mapping.enablePin, "enablePin", false, "enablePin", channel);
+  const sensorPin = assertMotorPin(mapping.sensorPin, "sensorPin", false, "sensorPin", channel);
+  const encoderAPin = assertMotorPin(mapping.encoderAPin, "encoderAPin", false, "encoderAPin", channel);
+  const encoderBPin = assertMotorPin(mapping.encoderBPin, "encoderBPin", false, "encoderBPin", channel);
   const maxRpm = validateOptionalPositiveInteger(mapping.maxRpm, "maxRpm", 30_000);
   const encoderTicksPerRev = validateOptionalPositiveInteger(mapping.encoderTicksPerRev, "encoderTicksPerRev", 100_000);
 
   return {
     type: "motor.config",
     seq,
-    channel: normalizeMotorChannel(mapping.channel),
+    channel,
     driver: mapping.driver ?? "tb6618",
     ...(typeof mapping.closedLoop === "boolean" ? { closedLoop: mapping.closedLoop } : {}),
     ...(maxRpm === undefined ? {} : { maxRpm }),

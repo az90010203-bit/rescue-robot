@@ -862,6 +862,74 @@
   background: rgba(255, 255, 255, 0.66);
 }
 
+.can-servo-live-bar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(140px, 180px) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(240, 248, 255, 0.74);
+}
+
+.can-servo-live-toggle {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.can-servo-live-toggle span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.can-servo-live-bar .metric-card {
+  min-width: 0;
+}
+
+.can-servo-linked-drag-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.can-servo-linked-slider {
+  margin-top: 0;
+}
+
+.can-servo-linked-slider input[type="range"] {
+  accent-color: #111;
+}
+
+.can-servo-group-json-preview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.can-servo-group-json-preview pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .mecanum-wheel-feedback-head {
   min-width: 0;
   display: flex;
@@ -1173,6 +1241,10 @@
 
 @media (max-width: 560px) {
   .architecture-create-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .can-servo-live-bar {
     grid-template-columns: 1fr;
   }
 
@@ -1926,6 +1998,55 @@
 .robot-action-step small {
   color: #93c5fd;
   font-size: 0.68rem;
+}
+
+.robot-servo-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.robot-servo-preset-hotkey {
+  text-align: center;
+  font-weight: 800;
+}
+
+.robot-servo-preset-hotkey.conflict {
+  border-color: rgba(239, 68, 68, 0.78);
+  color: #fecaca;
+}
+
+.robot-servo-preset-targets,
+.robot-servo-preset-json-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.robot-servo-preset-target {
+  display: grid;
+  grid-template-columns: auto minmax(96px, 1.2fr) minmax(110px, 1.4fr) 72px auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.robot-servo-preset-target input[type="number"] {
+  min-width: 0;
+}
+
+.robot-servo-preset-json-preview pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  border-radius: 8px;
+  padding: 8px;
+  color: #dbeafe;
+  background: rgba(2, 6, 23, 0.72);
+  white-space: pre-wrap;
 }
 
 .robot-assembly-backend .robot-assembly-mini-led.kind-power {

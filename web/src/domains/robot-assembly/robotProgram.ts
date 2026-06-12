@@ -15,7 +15,13 @@ import {
 } from "@platform/architecture";
 import type { DeviceStateSnapshot } from "@platform/types";
 import { validateWorkflow, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from "@platform/workflow";
-import type { RobotAssemblyContext, RobotAssemblyStatusContext } from "@domains/robot-assembly/robotAssembly";
+import {
+  compileRobotServoPresetAction,
+  isRobotServoPresetAction,
+  normalizeRobotActionButtons,
+  type RobotAssemblyContext,
+  type RobotAssemblyStatusContext
+} from "@domains/robot-assembly/robotAssembly";
 
 export const ROBOT_PROGRAM_DEFAULT_TIMEOUT_MS = 12_000;
 
@@ -84,6 +90,7 @@ export interface RobotProgramBlockOptions {
   armComponents: RobotProgramBlockOption[];
   mecanumDrives: RobotProgramBlockOption[];
   cameras: RobotProgramBlockOption[];
+  actionPresets: RobotProgramBlockOption[];
   conditionDevices: RobotProgramBlockOption[];
 }
 
@@ -92,6 +99,7 @@ export const ROBOT_PROGRAM_BLOCK_FIELDS: Record<string, string[]> = {
   robot_motor_stop: ["PLUGIN", "STOP_MODE"],
   robot_mecanum_drive: ["COMPONENT", "FORWARD", "STRAFE", "TURN", "SPEED", "DURATION", "STOP_MODE"],
   robot_servo_move: ["PLUGIN", "ANGLE", "SPEED", "ACC"],
+  robot_action_preset: ["ACTION"],
   robot_arm_pose: ["COMPONENT"],
   robot_camera_gimbal: ["TARGET", "PAN", "TILT"],
   robot_wait: ["MS"],
@@ -158,6 +166,9 @@ export function createRobotProgramBlockOptions(context: RobotAssemblyContext): R
   const cameras = effectivePlugins
     .filter((plugin) => plugin.type === "camera")
     .map((plugin) => option(plugin.name, "camera:main"));
+  const actionPresets = normalizeRobotActionButtons(context.robot.config?.actionButtons, context.pluginInstances)
+    .filter(isRobotServoPresetAction)
+    .map((button) => option(button.name, button.id));
   const conditionDevices = [
     ...motors.map((item) => option(`Motor ${item.label}`, deviceIdForPluginValue(item.value, context.pluginInstances))),
     ...servos.map((item) => option(`Servo ${item.label}`, deviceIdForPluginValue(item.value, context.pluginInstances))),
@@ -173,6 +184,7 @@ export function createRobotProgramBlockOptions(context: RobotAssemblyContext): R
     armComponents: withEmptyOption(armComponents, "No robot arm"),
     mecanumDrives: withEmptyOption(mecanumDrives, "No mecanum drive"),
     cameras: withEmptyOption(dedupeOptions(cameras.length > 0 ? cameras : [option("Main camera", "camera:main")]), "No camera"),
+    actionPresets: withEmptyOption(actionPresets, "No preset action"),
     conditionDevices: withEmptyOption(dedupeOptions(conditionDevices), "No device")
   };
 }
@@ -452,6 +464,26 @@ function compileBlock(
     const speedRaw = clampInteger(numberField(block, "SPEED", 600), 0, 4095, 600);
     const acc = clampInteger(numberField(block, "ACC", 30), 0, 254, 30);
     return [commandInstruction(block, `${plugin.name} -> ${angleDeg} deg`, createPlatformCommand("servo.set_position", pluginInstanceDeviceId(plugin), { angleDeg, speedRaw, acc }))];
+  }
+  if (block.type === "robot_action_preset") {
+    const actionId = stringField(block.fields?.ACTION, "");
+    const action = normalizeRobotActionButtons(context.robot.config?.actionButtons, context.pluginInstances).find((button) => button.id === actionId && isRobotServoPresetAction(button));
+    if (!action) {
+      issues.push({ severity: "error", message: "Preset action block requires a valid preset action.", blockId: block.id });
+      return [];
+    }
+    const compiled = compileRobotServoPresetAction(action, context.pluginInstances);
+    for (const issue of compiled.issues) {
+      issues.push({ severity: issue.severity, message: issue.message, blockId: block.id });
+    }
+    if (compiled.blocked) {
+      return [];
+    }
+    return [commandInstruction(block, `${action.name} preset`, createPlatformCommand("servo-preset.run", `servo-preset:${action.id}`, {
+      actionId: action.id,
+      label: action.name,
+      pcCommands: compiled.pcCommands
+    }))];
   }
   if (block.type === "robot_arm_pose") {
     const component = armComponentById(context, stringField(block.fields?.COMPONENT, ""));

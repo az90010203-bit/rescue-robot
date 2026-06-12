@@ -1,4 +1,4 @@
-import type { AboardBridgeStatus, ActiveModule, AppSection, MotorTestBoard, PiServoBridgeStatus, TestPanel } from "@app/appModel";
+import type { AboardBridgeStatus, ActiveModule, AppSection, PiServoBridgeStatus, TestPanel } from "@app/appModel";
 
 interface AboardBridgeAutoCheckState {
   activeSection: AppSection;
@@ -6,7 +6,6 @@ interface AboardBridgeAutoCheckState {
   alreadyCheckedHost: string;
   host: string;
   manualDisconnect: boolean;
-  motorTestBoard: MotorTestBoard;
   status: AboardBridgeStatus;
 }
 
@@ -24,7 +23,7 @@ export function shouldAutoCheckAboardBridge(state: AboardBridgeAutoCheckState): 
   return (
     state.activeSection === "console" ||
     (state.activeSection === "tests" && state.activeTest === "canServo") ||
-    (state.activeSection === "tests" && state.activeTest === "motor" && state.motorTestBoard === "robomaster-a")
+    (state.activeSection === "tests" && state.activeTest === "motor")
   );
 }
 

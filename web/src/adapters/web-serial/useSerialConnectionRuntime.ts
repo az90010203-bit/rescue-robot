@@ -15,8 +15,9 @@ interface UseSerialConnectionRuntimeOptions {
   handleMessage: (message: any) => void;
   lastServoWheelSpeedRef: { current: Record<number, number> };
   livePositionModeServoRef: { current: Set<number> };
+  wheelModeServoRef: { current: Set<number> };
   platformEventBusRef: { current: { emit: (event: any) => void } };
-  resetMotorDebugHandshake: () => void;
+  resetControllerRuntimeState: () => void;
   serialRef: { current: WebSerialClient | null };
   servoSerialQueueRef: { current: Promise<void> };
   setConnected: (connected: boolean) => void;
@@ -40,8 +41,9 @@ export function useSerialConnectionRuntime({
   handleMessage,
   lastServoWheelSpeedRef,
   livePositionModeServoRef,
+  wheelModeServoRef,
   platformEventBusRef,
-  resetMotorDebugHandshake,
+  resetControllerRuntimeState,
   serialRef,
   servoSerialQueueRef,
   setConnected,
@@ -62,11 +64,12 @@ export function useSerialConnectionRuntime({
       await client.connect(mode === "servo-bus" ? 1000000 : 115200, mode === "servo-bus" ? "binary" : "json");
       serialRef.current = client;
       livePositionModeServoRef.current.clear();
+      wheelModeServoRef.current.clear();
       lastServoWheelSpeedRef.current = {};
       servoSerialQueueRef.current = Promise.resolve();
       setConnectionMode(mode);
       setConnected(true);
-      resetMotorDebugHandshake();
+      resetControllerRuntimeState();
       platformEventBusRef.current.emit({
         type: "serial.connected",
         level: "info",
@@ -90,13 +93,14 @@ export function useSerialConnectionRuntime({
     cancelLiveWheelMove();
     cancelArmLiveMove();
     livePositionModeServoRef.current.clear();
+    wheelModeServoRef.current.clear();
     cancelServoMotion();
     cancelServoSafetyMonitor();
     lastServoWheelSpeedRef.current = {};
     servoSerialQueueRef.current = Promise.resolve();
     setConnectionMode(null);
     setConnected(false);
-    resetMotorDebugHandshake();
+    resetControllerRuntimeState();
     platformEventBusRef.current.emit({
       type: "serial.disconnected",
       level: "warn",

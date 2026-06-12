@@ -5,7 +5,9 @@ import {
   DEFAULT_LINKAGE_MEMBER_ACC,
   DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   DEFAULT_LINKAGE_WHEEL_TURNS_TARGET,
+  DEFAULT_MOTORS,
   DEFAULT_SERVOS,
+  MOTOR_LIBRARY_STORAGE_KEY,
   MOTOR_LINKAGE_GROUPS_STORAGE_KEY,
   SERVO_LINKAGE_GROUPS_STORAGE_KEY,
   SERVO_LIBRARY_STORAGE_KEY,
@@ -18,12 +20,14 @@ import {
   armJointShapeSegments,
   loadArmConfig,
   loadCameraConfig,
+  loadMotors,
   loadMotorLinkageGroups,
   loadServoLinkageGroups,
   loadServos,
   normalizeArmConfig,
   saveArmConfig,
   saveCameraConfig,
+  saveMotors,
   saveMotorLinkageGroups,
   saveServoLinkageGroups,
   validateCameraConfig,
@@ -51,6 +55,12 @@ describe("servo library validation", () => {
 
   it("loads ID22 as the default direct-bus test servo", () => {
     expect(loadServos(createStorage())).toEqual(DEFAULT_SERVOS);
+  });
+
+  it("keeps an explicitly empty stored servo library empty", () => {
+    const storage = createStorage({ [SERVO_LIBRARY_STORAGE_KEY]: "[]" });
+
+    expect(loadServos(storage)).toEqual([]);
   });
 
   it("normalizes stored servo limits and direction", () => {
@@ -535,6 +545,13 @@ describe("servo linkage group storage and calculation", () => {
 describe("motor library validation", () => {
   const existing = [{ channel: "M1", name: "Left motor" }];
 
+  it("ships eight Type A motor channels without legacy Arduino pins on M7/M8", () => {
+    expect(DEFAULT_MOTORS.map((motor) => motor.channel)).toEqual(["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]);
+    expect(DEFAULT_MOTORS[5]).toMatchObject({ channel: "M6", pwmPin: "PD12", in1Pin: "PF1", in2Pin: "PE5" });
+    expect(DEFAULT_MOTORS[6]).toEqual({ channel: "M7", name: "Motor 7" });
+    expect(DEFAULT_MOTORS[7]).toEqual({ channel: "M8", name: "Motor 8" });
+  });
+
   it("accepts a new motor channel and name", () => {
     expect(validateMotorDraft({ channel: "M2", name: "Right motor" }, existing)).toBeNull();
   });
@@ -552,8 +569,26 @@ describe("motor library validation", () => {
 
   it("validates motor board pin mappings", () => {
     expect(validateMotorMapping({ channel: "M1", name: "Left motor", pwmPin: "D5", in1Pin: "D4", in2Pin: "D7" })).toBeNull();
+    expect(validateMotorMapping({ channel: "M4", name: "Left motor", pwmPin: "D", in1Pin: "J2", in2Pin: "K2" })).toBeNull();
     expect(validateMotorMapping({ channel: "M1", name: "Left motor", pwmPin: "", in1Pin: "D4", in2Pin: "D7" })).toBe("validation.motorMappingRequired");
     expect(validateMotorMapping({ channel: "M1", name: "Left motor", pwmPin: "D 5", in1Pin: "D4", in2Pin: "D7" })).toBe("validation.invalidMotorPin");
+  });
+
+  it("normalizes RoboMaster Type A board silk aliases when saving motors", () => {
+    const storage = createStorage();
+    saveMotors([{ channel: "M4", name: "A wheel", pwmPin: "D", in1Pin: "J2", in2Pin: "K2", enablePin: "S", encoderAPin: "L2", encoderBPin: "M2" }], storage);
+
+    expect(JSON.parse(storage.getItem(MOTOR_LIBRARY_STORAGE_KEY) ?? "[]")).toEqual([{
+      channel: "M4",
+      name: "A wheel",
+      pwmPin: "PH10",
+      in1Pin: "PE4",
+      in2Pin: "PE12",
+      enablePin: "PA0",
+      encoderAPin: "PB0",
+      encoderBPin: "PB1"
+    }]);
+    expect(loadMotors(storage)[0]).toMatchObject({ channel: "M4", pwmPin: "PH10", in1Pin: "PE4", in2Pin: "PE12" });
   });
 });
 
@@ -755,8 +790,8 @@ describe("camera config storage and validation", () => {
   });
 });
 
-function createStorage(): Storage {
-  const values = new Map<string, string>();
+function createStorage(initial: Record<string, string> = {}): Storage {
+  const values = new Map<string, string>(Object.entries(initial));
   return {
     get length() {
       return values.size;

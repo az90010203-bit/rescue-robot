@@ -22,7 +22,6 @@ describe("platform plugin packages", () => {
         "capability.ai-vision",
         "driver.browser-camera",
         "driver.asme-can-servo",
-        "driver.feetech-servo",
         "driver.tb6618-motor",
         "driver.secondary-camera",
         "driver.browser-gamepad",
@@ -36,7 +35,8 @@ describe("platform plugin packages", () => {
         "transport.local-helper"
       ])
     );
-    expect(BUILTIN_UI_PANELS.map((panel) => panel.id)).toEqual(expect.arrayContaining(["servo-control", "asme-can-servo-control", "motor-control", "camera-gimbal-control", "secondary-camera-control", "browser-camera-control", "robot-arm-control", "raspberry-pi-remote", "firmware-upload", "gamepad-status", "ai-vision-control"]));
+    expect(BUILTIN_UI_PANELS.map((panel) => panel.id)).toEqual(expect.arrayContaining(["asme-can-servo-control", "motor-control", "camera-gimbal-control", "secondary-camera-control", "browser-camera-control", "robot-arm-control", "raspberry-pi-remote", "firmware-upload", "gamepad-status", "ai-vision-control"]));
+    expect(BUILTIN_UI_PANELS.map((panel) => panel.id)).not.toContain("servo-control");
   });
 
   it("rejects duplicate package, plugin, and ui panel ids", () => {

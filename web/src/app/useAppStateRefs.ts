@@ -25,12 +25,8 @@ import {
   type ArmTeachStatus,
   type ConnectionMode,
   type DatabaseSaveStatus,
-  type MotorDebugHandshakeStatus,
   type MotorErrorDisplay,
   type MotorFeedbackMap,
-  type MotorTestBoard,
-  type PendingCommandResponse,
-  type PendingDebugSet,
   type PendingLiveAngleMove,
   type PendingLiveWheelMove,
   type PendingSingleMotorMove,
@@ -74,9 +70,7 @@ export function useAppStateRefs() {
   const [cameraStreamLoaded, setCameraStreamLoaded] = useState(false);
   const [cameraStreamFailed, setCameraStreamFailed] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
-  const [motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState] = useState<MotorDebugHandshakeStatus>("unknown");
   const [lastMotorError, setLastMotorError] = useState<MotorErrorDisplay | null>(null);
-  const [motorTestBoard, setMotorTestBoard] = useState<MotorTestBoard>("arduino");
   const [aBoardBridgeStatus, setABoardBridgeStatus] = useState<AboardBridgeStatus>("idle");
   const [aBoardBridgeError, setABoardBridgeError] = useState<string | null>(null);
   const [aBoardBridgeDetail, setABoardBridgeDetail] = useState("");
@@ -139,12 +133,10 @@ export function useAppStateRefs() {
   const singleMotorLiveSendingRef = useRef(false);
   const pendingSingleMotorMoveRef = useRef<PendingSingleMotorMove | null>(null);
   const singleMotorGenerationRef = useRef(0);
-  const motorSerialQueueRef = useRef<Promise<unknown>>(Promise.resolve());
-  const lastMotorSpeedByChannelRef = useRef<Record<string, number>>({});
-  const pendingCommandResponseBySeqRef = useRef<Map<number, PendingCommandResponse>>(new Map());
   const servoMotionGenerationRef = useRef<Record<string, number>>({});
   const lastServoPhysicalAngleRef = useRef<Record<number, number>>({});
   const lastServoWheelSpeedRef = useRef<Record<number, number>>({});
+  const wheelModeServoRef = useRef<Set<number>>(new Set());
   const servoSafetyTimerRef = useRef<Record<number, number>>({});
   const servoSafetyMonitorRef = useRef<Record<number, ServoSafetyMonitor>>({});
   const servoSafetySettingsRef = useRef<{ enabled: boolean; preset: ServoSafetyPreset }>({ enabled: true, preset: "standard" });
@@ -153,9 +145,6 @@ export function useAppStateRefs() {
   const databaseSaveTimerRef = useRef<number | undefined>(undefined);
   const currentProjectIdRef = useRef<string | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
-  const motorDebugHandshakeStatusRef = useRef<MotorDebugHandshakeStatus>("unknown");
-  const motorDebugHandshakePromiseRef = useRef<Promise<boolean> | null>(null);
-  const pendingDebugSetBySeqRef = useRef<Map<number, PendingDebugSet>>(new Map());
   return {
     activeSection, setActiveSection, activeTest, setActiveTest, activeModule, setActiveModule,
     servos, setServos, armConfig, setArmConfig, armTeachTracks, setArmTeachTracks, selectedArmTeachTrackId, setSelectedArmTeachTrackId,
@@ -165,8 +154,7 @@ export function useAppStateRefs() {
     setMotorLinkageGroups, cameraConfig, setCameraConfig, servoDraft, setServoDraft, motorDraft, setMotorDraft, servoLibraryError,
     setServoLibraryError, motorLibraryError, setMotorLibraryError, motorConfigError, setMotorConfigError, cameraConfigError,
     setCameraConfigError, cameraStreamLoaded, setCameraStreamLoaded, cameraStreamFailed, setCameraStreamFailed, debugEnabled,
-    setDebugEnabled, motorDebugHandshakeStatus, setMotorDebugHandshakeStatusState, lastMotorError, setLastMotorError, motorTestBoard,
-    setMotorTestBoard, aBoardBridgeStatus,
+    setDebugEnabled, lastMotorError, setLastMotorError, aBoardBridgeStatus,
     setABoardBridgeStatus, aBoardBridgeError, setABoardBridgeError, aBoardBridgeDetail, setABoardBridgeDetail,
     piServoBridgeStatus, setPiServoBridgeStatus, piServoBridgeError, setPiServoBridgeError, piServoBridgeDetail, setPiServoBridgeDetail, connected,
     setConnected, connectionMode, setConnectionMode, selectedId, setSelectedId, selectedChannel, setSelectedChannel, servoCommandById,
@@ -181,9 +169,8 @@ export function useAppStateRefs() {
     armLiveSendingRef, pendingArmConfigRef, draggingArmJointIdRef, armTeachTimerRef, armTeachRuntimeRef, armTeachPlaybackGenerationRef,
     linkageLiveTimerRef, linkageLiveSendingRef, pendingLinkageMoveRef, servoLinkageGroupsRef, motorLinkageLiveTimerRef,
     motorLinkageLiveSendingRef, pendingMotorLinkageMoveRef, motorLinkageGroupsRef, motorLinkageGenerationRef, singleMotorLiveTimerRef,
-    singleMotorLiveSendingRef, pendingSingleMotorMoveRef, singleMotorGenerationRef, motorSerialQueueRef, lastMotorSpeedByChannelRef,
-    pendingCommandResponseBySeqRef, servoMotionGenerationRef, lastServoPhysicalAngleRef, lastServoWheelSpeedRef, servoSafetyTimerRef,
+    singleMotorLiveSendingRef, pendingSingleMotorMoveRef, singleMotorGenerationRef, servoMotionGenerationRef, lastServoPhysicalAngleRef, lastServoWheelSpeedRef, wheelModeServoRef, servoSafetyTimerRef,
     servoSafetyMonitorRef, servoSafetySettingsRef, livePositionModeServoRef, databaseLoadedRef, databaseSaveTimerRef, currentProjectIdRef,
-    currentSessionIdRef, motorDebugHandshakeStatusRef, motorDebugHandshakePromiseRef, pendingDebugSetBySeqRef
+    currentSessionIdRef
   };
 }

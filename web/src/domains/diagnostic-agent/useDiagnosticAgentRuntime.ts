@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import type { PlatformCommandResult } from "@platform/commands";
 import {
@@ -24,7 +24,12 @@ export function useDiagnosticAgentRuntime({ context, dispatchPlatformCommand, t 
     [t]
   );
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<DiagnosticAgentMessage[]>(() => [initialAssistantMessage(diagnosticText)]);
+  const initialAssistantTextRef = useRef<string | null>(null);
+  const [messages, setMessages] = useState<DiagnosticAgentMessage[]>(() => {
+    const initial = initialAssistantMessage(diagnosticText);
+    initialAssistantTextRef.current = initial.text;
+    return [initial];
+  });
   const [busyActionIds, setBusyActionIds] = useState<string[]>([]);
 
   const latestResponse = useMemo(
@@ -34,11 +39,17 @@ export function useDiagnosticAgentRuntime({ context, dispatchPlatformCommand, t 
   const busy = busyActionIds.length > 0;
 
   useEffect(() => {
-    setMessages((current) =>
-      current.length === 1 && current[0]?.role === "assistant" && !current[0].issues
-        ? [initialAssistantMessage(diagnosticText)]
-        : current
-    );
+    const nextInitialText = diagnosticText("messages.initial");
+    if (initialAssistantTextRef.current === nextInitialText) {
+      return;
+    }
+    initialAssistantTextRef.current = nextInitialText;
+    setMessages((current) => {
+      if (current.length !== 1 || current[0]?.role !== "assistant" || current[0].issues) {
+        return current;
+      }
+      return [initialAssistantMessage(diagnosticText)];
+    });
   }, [diagnosticText]);
 
   async function sendDraft() {

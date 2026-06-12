@@ -35,6 +35,14 @@ describe("console dashboard layout", () => {
       [CONSOLE_DASHBOARD_PANEL_IDS.joystick, "dashboard:joystick"],
       [CONSOLE_DASHBOARD_PANEL_IDS.eventLog, "dashboard:event-log"]
     ]);
+    expect(layout.map((item) => [item.panelId, item.x, item.y, item.w, item.h])).toEqual([
+      [CONSOLE_DASHBOARD_PANEL_IDS.telemetry, 0, 0, 4, 3],
+      [CONSOLE_DASHBOARD_PANEL_IDS.attitude, 0, 3, 4, 4],
+      [CONSOLE_DASHBOARD_PANEL_IDS.cameraFeed, 4, 0, 8, 5],
+      [CONSOLE_DASHBOARD_PANEL_IDS.armSvg, 0, 7, 4, 5],
+      [CONSOLE_DASHBOARD_PANEL_IDS.joystick, 4, 5, 4, 4],
+      [CONSOLE_DASHBOARD_PANEL_IDS.eventLog, 8, 5, 4, 4]
+    ]);
     expect(layout.every((item) => item.scopeId === "console:main")).toBe(true);
   });
 
@@ -56,6 +64,27 @@ describe("console dashboard layout", () => {
 
     expect(merged.every((item) => item.scopeId === robotScope)).toBe(true);
     expect(merged[0].id.startsWith(`${robotScope}:`)).toBe(true);
+  });
+
+  it("compacts saved legacy default dashboard geometry", () => {
+    const targets = createConsoleDashboardTargets(cameraSources);
+    const legacyLayout = defaultConsoleDashboardLayout(targets).map((item) => {
+      if (item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.telemetry) {
+        return { ...item, h: 4 };
+      }
+      if (item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.attitude) {
+        return { ...item, y: 4 };
+      }
+      if (item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.armSvg) {
+        return { ...item, y: 8 };
+      }
+      return item;
+    });
+    const merged = mergeConsoleDashboardLayout(legacyLayout, targets);
+
+    expect(merged.find((item) => item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.telemetry)).toMatchObject({ y: 0, h: 3 });
+    expect(merged.find((item) => item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.attitude)).toMatchObject({ y: 3, h: 4 });
+    expect(merged.find((item) => item.panelId === CONSOLE_DASHBOARD_PANEL_IDS.armSvg)).toMatchObject({ y: 7, h: 5 });
   });
 
   it("adds two camera panels with different targets", () => {

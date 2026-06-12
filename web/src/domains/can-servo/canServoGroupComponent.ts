@@ -3,14 +3,17 @@ import {
   ASMG_MD_SPEED_MAX,
   asmgMdLogicalAngleToPhysicalDegrees,
   asmgMdLogicalAngleToPositionRaw,
+  buildAsmgMdCanConfigCommand,
+  buildAsmgMdGroupMoveCommand,
   normalizeAsmgMdBaudKbps,
   normalizeAsmgMdServoId,
   normalizeAsmgMdServoProfile,
   type AsmgMdBaudKbps,
   type AsmgMdServoProfile
 } from "@adapters/hardware/asmgMdCanServo";
-import { clamp, isValidServoId, servoLogicalSpan } from "@adapters/hardware/protocol";
-import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
+import { clamp, isValidServoId, servoLogicalSpan, type PcCommand } from "@adapters/hardware/protocol";
+import type { ComponentDefinition, PluginInstance } from "@platform/architectureTypes";
+import { roundedIntegerInRange } from "@shared/normalize";
 
 export const CAN_SERVO_GROUP_COMPONENT_KIND = "can-servo-group";
 export const CAN_SERVO_GROUP_DEFAULT_SPEED_RAW = 300;
@@ -43,6 +46,14 @@ export interface CanServoGroupTarget {
   speed: number;
   bitrateKbps: AsmgMdBaudKbps;
   canBus: string;
+}
+
+export interface CanServoGroupCompiledCommands {
+  commands: PcCommand[];
+  targets: CanServoGroupTarget[];
+  configure: boolean;
+  canBus: string;
+  bitrateKbps: AsmgMdBaudKbps;
 }
 
 export function isAsmgMdCanServoPlugin(instance: PluginInstance | null | undefined): instance is PluginInstance {
@@ -163,12 +174,53 @@ export function canServoGroupTargets(
   }).filter((target): target is CanServoGroupTarget => target !== null);
 }
 
+export function compileCanServoGroupPositionCommands(
+  config: CanServoGroupComponentConfig,
+  pluginInstances: PluginInstance[],
+  positions: CanServoGroupPositionMap,
+  speedRaw: number,
+  options: { configure?: boolean; nextSeq: () => number }
+): CanServoGroupCompiledCommands {
+  const targets = canServoGroupTargets(config, pluginInstances, positions, speedRaw);
+  if (targets.length === 0) {
+    throw new RangeError("CAN servo group has no valid targets");
+  }
+  const first = targets[0];
+  const configure = options.configure !== false;
+  const commands: PcCommand[] = [
+    ...(configure ? [buildAsmgMdCanConfigCommand(options.nextSeq(), first.bitrateKbps)] : []),
+    buildAsmgMdGroupMoveCommand(
+      options.nextSeq(),
+      targets.map((target) => ({ id: target.id, position: target.position })),
+      first.speed
+    )
+  ];
+  return {
+    commands,
+    targets,
+    configure,
+    canBus: first.canBus,
+    bitrateKbps: first.bitrateKbps
+  };
+}
+
+export function canServoGroupCenterPositions(
+  config: CanServoGroupComponentConfig,
+  pluginInstances: PluginInstance[]
+): Record<CanServoGroupSlot, number> {
+  const pluginById = new Map(pluginInstances.map((plugin) => [plugin.id, plugin]));
+  return Object.fromEntries(CAN_SERVO_GROUP_SLOTS.map((slot) => {
+    const plugin = pluginById.get(config.servos[slot]);
+    const profile = plugin ? canServoPluginToProfile(plugin) : null;
+    return [slot, profile ? servoLogicalSpan(profile) / 2 : 180];
+  })) as Record<CanServoGroupSlot, number>;
+}
+
 function numberOrUndefined(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
 
 function integerInRange(value: unknown, min: number, max: number, fallback: number): number {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.round(clamp(number, min, max)) : fallback;
+  return roundedIntegerInRange(value, min, max, fallback);
 }

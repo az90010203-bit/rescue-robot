@@ -47,12 +47,44 @@ export function useBootSelfCheckRuntime({
   const [overrideActive, setOverrideActive] = useState(false);
   const [busyRepairActionIds, setBusyRepairActionIds] = useState<string[]>([]);
   const inputRef = useRef(input);
+  const callbacksRef = useRef({
+    addLog,
+    checkAboardSerialBridge,
+    checkPiServoSerialBridge,
+    dispatchPlatformCommand,
+    selectModule,
+    selectSection,
+    startAboardSerialBridge,
+    startPiServoSerialBridge
+  });
   const generationRef = useRef(0);
   const autoRunSignaturesRef = useRef(new Set<string>());
 
   useEffect(() => {
     inputRef.current = input;
   }, [input]);
+
+  useEffect(() => {
+    callbacksRef.current = {
+      addLog,
+      checkAboardSerialBridge,
+      checkPiServoSerialBridge,
+      dispatchPlatformCommand,
+      selectModule,
+      selectSection,
+      startAboardSerialBridge,
+      startPiServoSerialBridge
+    };
+  }, [
+    addLog,
+    checkAboardSerialBridge,
+    checkPiServoSerialBridge,
+    dispatchPlatformCommand,
+    selectModule,
+    selectSection,
+    startAboardSerialBridge,
+    startPiServoSerialBridge
+  ]);
 
   const signature = useMemo(() => createBootSelfCheckSignature(input), [input]);
   const gate = useMemo<BootSelfCheckGateState>(() => createBootSelfCheckGateState(run, overrideActive), [overrideActive, run]);
@@ -75,7 +107,7 @@ export function useBootSelfCheckRuntime({
       auditLog: [manual ? "手动重新运行开机自检。" : "进入主控台，开机自检启动。"]
     };
     setRun(currentRun);
-    addLog("system", currentRun.summary);
+    callbacksRef.current.addLog("system", currentRun.summary);
 
     for (const stepId of BOOT_SELF_CHECK_STEP_ORDER) {
       if (generationRef.current !== generation) {
@@ -93,7 +125,7 @@ export function useBootSelfCheckRuntime({
           setRun(currentRun);
           return;
         }
-        results.push(await dispatchPlatformCommand(command));
+        results.push(await callbacksRef.current.dispatchPlatformCommand(command));
       }
       const execution = evaluateBootSelfCheckStep(stepId, inputRef.current, results);
       currentRun = completeBootSelfCheckStep(currentRun, stepId, execution);
@@ -120,8 +152,8 @@ export function useBootSelfCheckRuntime({
       activeStepId: undefined
     };
     setRun(currentRun);
-    addLog("system", currentRun.summary, currentRun.status === "failed" ? "warn" : "info");
-  }, [addLog, dispatchPlatformCommand]);
+    callbacksRef.current.addLog("system", currentRun.summary, currentRun.status === "failed" ? "warn" : "info");
+  }, []);
 
   useEffect(() => {
     if (activeSection !== "console") {
@@ -137,12 +169,12 @@ export function useBootSelfCheckRuntime({
   function cancelRun() {
     generationRef.current += 1;
     setRun((current) => current ? cancelBootSelfCheckRun(current) : current);
-    addLog("system", "开机自检已取消。", "warn");
+    callbacksRef.current.addLog("system", "开机自检已取消。", "warn");
   }
 
   function overrideGate() {
     setOverrideActive(true);
-    addLog("system", "操作员已临时解除开机自检门禁。", "warn");
+    callbacksRef.current.addLog("system", "操作员已临时解除开机自检门禁。", "warn");
   }
 
   async function runRepairAction(action: BootSelfCheckRepairAction) {
@@ -150,22 +182,23 @@ export function useBootSelfCheckRuntime({
     setRepairActionStatus(action.id, "running");
     try {
       if (action.kind === "platform-command" && action.command) {
-        const result = await dispatchPlatformCommand(action.command);
+        const result = await callbacksRef.current.dispatchPlatformCommand(action.command);
         setRepairActionStatus(action.id, result.status === "sent" ? "done" : "failed", result.message ?? result.status);
-        addLog("system", `${action.label}: ${result.status}${result.message ? ` (${result.message})` : ""}`, result.status === "sent" ? "info" : "warn");
+        callbacksRef.current.addLog("system", `${action.label}: ${result.status}${result.message ? ` (${result.message})` : ""}`, result.status === "sent" ? "info" : "warn");
       } else if (action.kind === "local-action" && action.localAction) {
         await runLocalRepair(action.localAction);
         setRepairActionStatus(action.id, "done", "done");
-        addLog("system", `${action.label}: done`);
+        callbacksRef.current.addLog("system", `${action.label}: done`);
+        await runSelfCheck({ manual: true });
       } else if (action.kind === "navigate" && action.navigateTo) {
         navigateForRepair(action.navigateTo);
         setRepairActionStatus(action.id, "done", "opened");
-        addLog("system", `${action.label}: opened`);
+        callbacksRef.current.addLog("system", `${action.label}: opened`);
       }
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "repair failed";
       setRepairActionStatus(action.id, "failed", message);
-      addLog("system", `${action.label}: ${message}`, "warn");
+      callbacksRef.current.addLog("system", `${action.label}: ${message}`, "warn");
     } finally {
       setBusyRepairActionIds((current) => current.filter((id) => id !== action.id));
     }
@@ -188,29 +221,29 @@ export function useBootSelfCheckRuntime({
 
   async function runLocalRepair(action: BootSelfCheckLocalAction) {
     if (action === "check-a-board-bridge") {
-      await checkAboardSerialBridge();
+      await callbacksRef.current.checkAboardSerialBridge();
       return;
     }
     if (action === "start-a-board-bridge") {
-      await startAboardSerialBridge();
+      await callbacksRef.current.startAboardSerialBridge();
       return;
     }
     if (action === "check-pi-servo-bridge") {
-      await checkPiServoSerialBridge();
+      await callbacksRef.current.checkPiServoSerialBridge();
       return;
     }
     if (action === "start-pi-servo-bridge") {
-      await startPiServoSerialBridge();
+      await callbacksRef.current.startPiServoSerialBridge();
     }
   }
 
   function navigateForRepair(target: BootSelfCheckNavigateTarget) {
     if (target === "plugins") {
-      selectSection("plugins");
+      callbacksRef.current.selectSection("plugins");
       return;
     }
-    selectSection("tests");
-    selectModule(target === "mapping" ? "mapping" : "camera");
+    callbacksRef.current.selectSection("tests");
+    callbacksRef.current.selectModule(target === "mapping" ? "mapping" : "camera");
   }
 
   return {

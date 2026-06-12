@@ -366,7 +366,6 @@ export const enUSResource = {
       "applyPreset": "Apply Preset",
       "savePortMapping": "Save Port Setup",
       "sendPortMapping": "Send Port Config",
-      "downloadArduinoFirmware": "Download Arduino Code",
       "checkAboardBridge": "Check A Board Bridge",
       "startAboardBridge": "Upgrade/Repair A Board Bridge",
       "disconnectAboardBridge": "Disconnect Bridge",
@@ -542,7 +541,6 @@ export const enUSResource = {
         "firmware_upload": "Firmware upload"
       },
       "drivers": {
-        "feetech_servo": "Feetech Servo",
         "tb6618_motor": "TB6618 Motor",
         "camera_gimbal": "Camera Gimbal",
         "robot_arm_composite": "Robot Arm Composite",
@@ -753,11 +751,13 @@ export const enUSResource = {
         "kind": {
           "custom": "Custom Component",
           "robotArm": "Robot Arm",
-          "mecanumDrive": "Mecanum Drive"
+          "mecanumDrive": "Mecanum Drive",
+          "canServoGroup": "CAN Servo Group"
         },
         "noAvailablePluginInstances": "No available plugin instances",
         "createRobotArm": "Create Robot Arm",
         "createMecanumDrive": "Create Mecanum Drive",
+        "createCanServoGroup": "Create CAN Servo Group",
         "createComponent": "Create Component",
         "count": "{{count}} components",
         "panelTitle": "Component Panel",
@@ -796,6 +796,32 @@ export const enUSResource = {
         "targetRpm": "Target",
         "reverse": "Reverse",
         "save": "Save mecanum drive"
+      },
+      "canServoGroup": {
+        "incomplete": "Incomplete",
+        "ready": "Ready",
+        "referencesPluginConfig": "Uses plugin limits and direction",
+        "speedRaw": "Linked speed raw",
+        "liveLinked": "Live linked drag",
+        "liveStatus": "Live status",
+        "liveConfiguring": "Configuring",
+        "liveSyncing": "Syncing",
+        "liveSending": "Sending",
+        "liveReady": "Live",
+        "liveError": "Error",
+        "liveOff": "Manual",
+        "logicalAngle": "Logical angle",
+        "physicalAngle": "Physical",
+        "rawPosition": "Raw",
+        "aboardJson": "A-board JSON",
+        "center": "Center all",
+        "send": "Send group",
+        "syncCurrent": "Sync current",
+        "linkedDrag": "Linked drag",
+        "linkedDragTargets": "CAN x4",
+        "linkedOffset": "Linked offset",
+        "linkedOffsetDeg": "Offset deg",
+        "save": "Save CAN servo group"
       },
       "robots": {
         "steps": {
@@ -947,7 +973,6 @@ export const enUSResource = {
       "gamepadPreset": "Gamepad Preset",
       "deadzone": "Deadzone",
       "invertAxis": "Invert",
-      "motorTestBoard": "Controller Board",
       "autoRefreshEncoder": "Auto Refresh Encoder",
       "pwmPin": "PWM Output",
       "in1Pin": "IN1",
@@ -1154,7 +1179,6 @@ export const enUSResource = {
       "mode": "Mode",
       "activeDirection": "Active Direction",
       "uiDebug": "UI Debug",
-      "arduinoDebug": "Arduino Debug",
       "lastError": "Last Error",
       "firmwareHelper": "Helper",
       "firmware": "Firmware",
@@ -1241,10 +1265,6 @@ export const enUSResource = {
       "reverse": "Reverse",
       "stopped": "Stopped"
     },
-    "motorTestBoard": {
-      "arduino": "Arduino",
-      "robomasterA": "RoboMaster A"
-    },
     "encoderDiagnostics": {
       "noFeedback": "No encoder feedback yet. Click Read Encoder or enable the A board bridge.",
       "oldFirmware": "Feedback is present, but A/B diagnostics are missing. Flash the latest A board firmware.",
@@ -1275,11 +1295,7 @@ export const enUSResource = {
       "motorMappingInvalid": "Invalid motor port mapping",
       "motorMappingSaved": "Motor port setup saved",
       "motorConfigSent": "Motor port config sent",
-      "motorDebugRequired": "Connect the controller serial first",
-      "motorDebugAutoRecover": "Arduino is not in motor debug mode; handshaking again and retrying",
-      "motorDebugRetryFailed": "Motor command still failed after Arduino debug handshake; check firmware or reconnect serial",
-      "motorDirectionDeadtime": "{{channel}} direction-change safety pause",
-      "motorCommandTimeout": "{{command}} did not receive Arduino confirmation",
+      "aBoardBridgeRequired": "Connect the A board bridge first",
       "firmwareHelperReady": "Local firmware helper is ready",
       "firmwareHelperMissing": "Local firmware helper could not find PlatformIO",
       "firmwareHelperUnavailable": "Local firmware helper is not running",
@@ -1623,7 +1639,6 @@ export const enUSResource = {
         "scanning": "Scanning",
         "scanningLocalCameras": "Scanning local cameras",
         "scanningSerialPorts": "Scanning serial ports",
-        "scanningFeetechServoBus": "Scanning Feetech servo bus",
         "scanningAboardCan": "Scanning A board CAN",
         "scanningAboardMotorChannels": "Scanning A board motor channels",
         "addingPlugins": "Adding plugins",
@@ -1785,6 +1800,7 @@ export const enUSResource = {
           "motorStop": "stop motor",
           "mecanumDrive": "mecanum drive",
           "servoMove": "move servo",
+          "actionPreset": "run preset action",
           "armPose": "send arm pose",
           "cameraGimbal": "set gimbal",
           "wait": "wait",

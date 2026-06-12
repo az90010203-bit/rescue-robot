@@ -178,6 +178,7 @@ const CONFIRM_ONLY_COMMAND_TYPES = new Set<PlatformCommandType>([
   "robot-arm.teach.start",
   "robot-arm.teach.stop",
   "robot-arm.teach.play",
+  "servo-preset.run",
   "pi.setup",
   "pi.upload_file",
   "firmware.compile",

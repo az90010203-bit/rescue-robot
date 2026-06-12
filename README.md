@@ -98,7 +98,6 @@ flowchart LR
   end
 
   subgraph BuiltinPlugins[插件包]
-    Plugins --> ServoPlugin[Feetech Servo]
     Plugins --> MotorPlugin[TB6618 Motor]
     Plugins --> CameraPlugin[Camera Gimbal]
     Plugins --> BrowserCameraPlugin[Browser Camera]
@@ -112,17 +111,19 @@ flowchart LR
   subgraph Hardware[硬件与控制链路]
     ArchitectureModel --> DeviceModel
     Executor --> WebSerial[WebSerial]
+    Executor --> PiServoBridge[Pi servo HTTP bridge :17354 / semantic command]
+    PiServoBridge --> Esp32Feetech[COBS + CRC16 ESP32 Feetech direct controller]
     WebSerial --> Feetech[Feetech TTL 总线]
+    Esp32Feetech --> Feetech
     Feetech --> Servos[STS/SCS 舵机与机械臂]
     ServoAdvanced --> Feetech
-    Executor --> Controller[ESP32 / JSON 控制器]
-    Controller --> Motors[TB6618 / PWM 电机]
-    Controller --> Gimbal[摄像头云台舵机]
     Executor --> ABoardSemantic[A-board semantic motor / mecanum / CAN-servo JSON]
-    ABoardSemantic --> PiAboardBridge[Pi HTTP bridge :17353 / auto binary gateway]
+    ABoardSemantic --> TypeAPinAliases[Type A board silk aliases -> STM32 pins]
+    TypeAPinAliases --> PiAboardBridge[Pi HTTP bridge :17353 / auto binary gateway]
     PiAboardBridge --> TypeABoard[COBS + CRC16 UART5 firmware]
     TypeABoard --> Motors
     TypeABoard --> CanServos[ASMG-MD CAN servos]
+    Feetech --> Gimbal[摄像头云台舵机]
   end
 
   subgraph Helpers[本机辅助服务]
@@ -152,7 +153,7 @@ flowchart LR
 - Plugin auto-detection hardware scanning lives in `web/src/domains/plugin-auto-detect/detectors.ts`; the panel only manages phases, cancellation, rendering, and auto-add.
 - Local helper HTTP basics live in `web/local-services/local-http-helper.mjs` and are shared by `data-service.mjs`, `firmware-helper.mjs`, and `pi-helper.mjs`.
 - `pi-helper.mjs` is the SSH/SFTP management plane and now schedules operations by resource: default Pi management is serialized per host, camera management is serialized per host/port, and repeated camera checks use latest-wins pending request replacement. Real-time motor/servo traffic stays on the persistent Pi HTTP bridges, and video frames stay on direct MJPEG/WebRTC stream URLs.
-- `pi-image/install-rescue-pi.sh` is the Pi image initialization entrypoint. Run it during image provisioning or once on an already flashed Pi to install both bridge scripts under `/opt/rescue-robot/bridges/`, enable `a-board-serial-bridge.service` on `17353`, and enable `pi-servo-serial-bridge.service` on `17354`.
+- `pi-image/install-rescue-pi.sh` is the Pi image initialization entrypoint. Run it during image provisioning or once on an already flashed Pi to install both bridge scripts under `/opt/rescue-robot/bridges/`, enable `a-board-serial-bridge.service` on `17353`, and enable `pi-servo-serial-bridge.service` on `17354`; the servo service defaults to `PI_SERVO_SERIAL_PROTOCOL=auto` so it probes ESP32 COBS binary support and keeps newline JSON as bring-up fallback.
 - A-board runtime control is semantic on the PC/Pi path: the web app sends `motor.target`, `mecanum.target`, and `can_servo.*` intent to the Pi bridge. The bridge defaults to `A_BOARD_SERIAL_PROTOCOL=auto`, probes `system.protocol`, then uses V1 COBS + CRC16 short binary UART frames when the Type A firmware supports them, with newline JSON fallback for bring-up and old firmware.
 - CAN servo group moves are now batched as one `can_servo.group_move` semantic command instead of one UART command per servo; the Type A firmware queues the group as one latest-wins motion and emits one terminal `can_servo.feedback`.
 - AI Vision is an external local helper shell: the web app sends `streamUrl`, `sourceId`, and platform state to `web/local-services/ai-vision-helper.py`, which pulls MJPEG frames and returns normalized `competition_mannequin` detections or captured samples.
@@ -162,6 +163,8 @@ flowchart LR
 - 主控台仪表盘头部采用紧凑工具条：标题、机器人选择和布局操作在桌面端单行排列，窄屏自动堆叠，减少首屏空白高度。
 - Three-layer workspace primitives and pure helpers now live in `web/src/workspaces/architecture/ArchitectureWorkspacePrimitives.tsx` and `web/src/workspaces/architecture/architectureWorkspaceUtils.ts`.
 - Production TypeScript builds exclude `src/**/*.test.ts(x)`; Vitest remains responsible for test files.
+- Runtime link cleanup 2026-06-12: the current app servo runtime translates legacy Feetech frame-shaped UI calls into semantic `PcCommand` messages and sends them through `pi-servo-serial-bridge.service` `POST /command`; `POST /frame` remains only an adapter/server diagnostic guard for old clients, not a normal client fallback.
+- Architecture catalog cleanup 2026-06-12: the built-in device catalog is shared by the React platform model and the local SQLite data service from `web/src/platform/defaultCatalog.json`; platform/domain contracts import pure types from `web/src/platform/architectureTypes.ts` so domain components do not import the platform runtime module back.
 - Vite splits the app shell/runtime, lazy workspaces, and large vendors into route/vendor chunks; Blockly and Three remain intentional lazy-loaded large library chunks with the warning threshold set to 700 kB.
 
 ## 主要模块
@@ -197,12 +200,14 @@ flowchart LR
 
 ## 硬件默认链路
 
-- 舵机测试：默认现场链路为 Web UI -> 树莓派 `pi-servo-serial-bridge.service` -> `/dev/serial0 @ 115200` -> Bus Servo Driver HAT(A) ESP32 transparent firmware -> Feetech STS/SCS 舵机；浏览器 WebSerial -> USB/TTL Feetech 总线适配器仍保留为 `1000000 baud` 直连调试路径。
-- RoboMaster A 板测试：Web UI -> 树莓派 `a-board-serial-bridge.service` -> `/dev/ttyAMA5 @ 115200` -> A 板 `PD5/PD6 USART2`；树莓派物理引脚固定为 `30 GND / 32 TXD5 / 33 RXD5`。当前 A 板电机固件默认打开四路 WHEELTEC G513XL/TB6618：M1 A 左前 `PA0/PB0/PE12 + PE4/PF0`、M2 B 左后 `PA1/PC2/PE6 + PE5/PF1`、M3 C 右后 `PA2/PA4/PC1 + PC0/PB1`、M4 D 右前 `PA3/PA5/PC5 + PC4/PC3`，公共 `STBY=PD12`。
-- 控制器模式：Chrome/Edge WebSerial -> ESP32 JSON 控制器，默认 `115200 baud`。
+- 舵机测试：默认现场链路为 Web UI -> 树莓派 `pi-servo-serial-bridge.service` `POST /command` -> `/dev/serial0 @ 115200` COBS+CRC16 -> ESP32 Feetech direct firmware -> `Serial1 @ 1000000` -> Feetech STS/SCS 舵机；浏览器 WebSerial -> USB/TTL Feetech 总线适配器仍保留为 `1000000 baud` 直连调试路径。
+- RoboMaster A 板测试：Web UI -> 树莓派 `a-board-serial-bridge.service` -> `/dev/ttyAMA5 @ 115200` -> A 板 `PD5/PD6 USART2`；树莓派物理引脚固定为 `30 GND / 32 TXD5 / 33 RXD5`。当前 A 板电机固件支持 `M1`-`M8` 八路 PWM 电机通道，默认启用 M1-M6：M1 `PD14/PB1/PC0 + PC1/PA4, EN=PI0`、M2 `PD13/PF0/PE4 + PE12/PB0, EN=PI0`、M3 `PD15/PI5/PI6 + PI7/PI2, EN=PH12`、M4 `PH11/PC3/PC4 + PC5/PA5, EN=PH12`、M5 `PH10/PA0/PA1 + PA2/PA3, EN=PH12`、M6 `PD12/PF1/PE5 + PE6/PC2, EN=PI0`；M7/M8 为可配置预留通道，必须先下发 `motor.config.pins`。
+- A 板电机映射输入支持官方丝印别名：PWM 字段可填 `A-H`、`S-Z`，GPIO 扩展排针使用带行号的 `I1/I2`、`J1/J2` 这类索引；插件界面会优先显示这些 A 板丝印，保存和下发时再归一化为 `PA3`、`PC5` 这类 STM32 pin；常用 `CAN1_TX`、`CAN1_RX`、`IMU_INT` 等板载接口名也会归一化为 `PD1`、`PD0`、`PE1`。
+- PWM 电机控制：PC 端只走 A 板语义链路，不再提供 Chrome/Edge WebSerial -> ESP32/Arduino JSON 控制器运行线。
 - 数据服务：`127.0.0.1:17351`，默认 SQLite 路径为 `%USERPROFILE%\.rescue-robot\rescue-robot.sqlite`。
 - 固件刷写：本机 `firmware-helper.mjs` 调用 PlatformIO 编译和上传。
 - Pi image bridge provisioning: `pi-image/install-rescue-pi.sh` installs the two persistent Pi bridge services during image build or first boot. Runtime bridge checks and commands go directly to `http://<pi-host>:17353` and `http://<pi-host>:17354`; the Pi remote panel's upgrade/repair buttons use `pi-helper` SSH only as a manual recovery path.
+- Pi servo semantic runtime path: PC/Web sends `servo.ping`, `servo.read`, `servo.torque`, `servo.mode`, `servo.move`, `servo.speed`, and confirmed `servo.set_id` intent to `pi-servo-serial-bridge.service`; the bridge probes `system.protocol`, then uses V1 `version + seq + targetId + opcode + flags + payload + crc16` COBS frames over `/dev/serial0`, with JSON fallback for bring-up and old ESP32 firmware.
 - A-board semantic runtime path: PC/Web sends high-level `PlatformCommand` intent, `appPlatformCommandBridge.ts` converts wheel/servo/motor actions to A-board semantic JSON, `a-board-serial-bridge.service` translates supported realtime commands to V1 `version + seq + targetId + opcode + flags + payload + crc16` frames over `/dev/ttyAMA5`, and the Type A firmware performs closed-loop motor control, mecanum mixing, CAN-servo frame generation, and latest-wins motion dropping. Unsupported or unsafe commands stay on newline JSON.
 - 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令；树莓派远程面板可手动保存完整远程配置，避免每次重新输入；无屏找回优先扫描 `rescue-pi.local`、`10.12.194.1` 和 `10.43.0.1`，并可通过 SSH 配置 USB-C gadget 直连。
 

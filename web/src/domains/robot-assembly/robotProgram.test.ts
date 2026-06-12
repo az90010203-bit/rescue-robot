@@ -127,6 +127,59 @@ describe("robot graphical program model", () => {
     expect(waited).toEqual([250]);
   });
 
+  it("compiles preset action blocks into one servo-preset platform command", async () => {
+    const presetRobot: RobotDefinition = {
+      ...robot,
+      config: {
+        actionButtons: [{
+          id: "button:ready",
+          name: "Ready Pose",
+          color: "#38bdf8",
+          icon: "spark",
+          confirmRequired: false,
+          timeoutMs: 8000,
+          steps: [{
+            id: "step:pose",
+            kind: "servo.pose",
+            label: "Pose",
+            speedRaw: 500,
+            acc: 20,
+            targets: [{ id: "target:servo", pluginInstanceId: servoPlugin.id, angleDeg: 120, enabled: true }]
+          }]
+        }]
+      }
+    };
+    const root: RobotProgramBlockSnapshot = {
+      id: "preset",
+      type: "robot_action_preset",
+      fields: { ACTION: "button:ready" }
+    };
+    const compiled = compileRobotProgramFromBlocks({ id: "program:preset", name: "Preset" }, root, { ...context, robot: presetRobot });
+    const dispatched: Array<{ type: string; target: string; payload: Record<string, unknown> }> = [];
+
+    expect(compiled.blocked).toBe(false);
+    expect(compiled.commandCount).toBe(1);
+    expect(compiled.previewLines).toEqual(["Ready Pose preset"]);
+
+    const result = await runWorkflow(compiled.workflow, {
+      dispatchCommand: async (command) => {
+        dispatched.push({ type: command.type, target: command.targetDeviceId, payload: command.payload });
+        return { commandId: command.id, deviceId: command.targetDeviceId, status: "sent" };
+      }
+    });
+
+    expect(result.status).toBe("completed");
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].type).toBe("servo-preset.run");
+    expect(dispatched[0].target).toBe("servo-preset:button:ready");
+    expect(dispatched[0].payload.pcCommands).toEqual([{
+      type: "servo.move",
+      seq: 1,
+      sync: true,
+      targets: [{ id: 7, name: "Arm Servo", angleDeg: 120, speedRaw: 500, acc: 20 }]
+    }]);
+  });
+
   it("blocks invalid targets and normalizes stored program targets to PC runtime", () => {
     const compiled = compileRobotProgramFromBlocks(
       { id: "program:bad", name: "Bad" },

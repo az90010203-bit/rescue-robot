@@ -45,12 +45,10 @@ export type AppSection = "console" | ArchitectureSection | "tests" | "settings";
 export type TestPanel = "servo" | "motor" | "arm" | "arm3d" | "driveCamera" | "pi" | "canServo";
 export type ConnectionMode = "servo-bus" | "controller";
 export type ServoControlMode = "position" | "wheel";
-export type MotorTestBoard = "arduino" | "robomaster-a";
 export type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused" | "unreachable";
 export type ServoSafetyDisplayState = "idle" | "monitoring" | "stopped";
 export type ArmTeachStatus = "idle" | "preparing" | "recording" | "stopped" | "playing" | "error";
 export type DatabaseSaveStatus = "loading" | "saving" | "saved" | "error" | "offline";
-export type MotorDebugHandshakeStatus = "unknown" | "syncing" | "ready" | "error";
 export type AboardBridgeStatus = "idle" | "checking" | "starting" | "connected" | "error";
 export type PiServoBridgeStatus = "idle" | "checking" | "starting" | "connected" | "error";
 export type FirmwareUploadStatus = "idle" | "checking" | "loadingPorts" | "compiling" | "compiled" | "uploading" | "uploaded" | "error";
@@ -139,15 +137,6 @@ export interface MotorErrorDisplay {
   code?: string;
   message: string;
 }
-export interface PendingCommandResponse {
-  command?: string;
-  resolve: (message: InboundMessage | null) => void;
-  timer: number;
-}
-export interface PendingDebugSet {
-  module: DebugModule;
-  enabled: boolean;
-}
 export interface ServoSafetyMonitor {
   servo: ServoProfile;
   runtime: ServoSafetyRuntime;
@@ -176,7 +165,7 @@ export interface GamepadSummary {
 }
 
 export const defaultServoDraft = { id: "23", name: "ID23" };
-export const defaultMotorDraft = { channel: "M7", name: "Motor 7" };
+export const defaultMotorDraft = { channel: "M9", name: "Motor 9" };
 export const defaultPiRemoteForm: PiRemoteForm = {
   host: "rescue-pi.local",
   port: "22",

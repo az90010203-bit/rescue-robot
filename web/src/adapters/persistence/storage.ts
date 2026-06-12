@@ -223,12 +223,14 @@ export type ValidationErrorKey =
 export const DEFAULT_SERVOS: ServoProfile[] = [normalizeServoProfile({ id: 22, name: "ID22" })];
 
 export const DEFAULT_MOTORS: MotorProfile[] = [
-  { channel: "M1", name: "A 左前轮 WHEELTEC G513XL", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", encoderAPin: "PE4", encoderBPin: "PF0" },
-  { channel: "M2", name: "B 左后轮 WHEELTEC G513XL", pwmPin: "PA1", in1Pin: "PC2", in2Pin: "PE6", enablePin: "PD12", encoderAPin: "PE5", encoderBPin: "PF1" },
-  { channel: "M3", name: "C 右后轮 WHEELTEC G513XL", pwmPin: "PA2", in1Pin: "PA4", in2Pin: "PC1", enablePin: "PD12", encoderAPin: "PC0", encoderBPin: "PB1" },
-  { channel: "M4", name: "D 右前轮 WHEELTEC G513XL", pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", enablePin: "PD12", encoderAPin: "PC4", encoderBPin: "PC3" },
-  { channel: "M5", name: "Mecanum Rear Left" },
-  { channel: "M6", name: "Mecanum Rear Right" }
+  { channel: "M1", name: "Mecanum FR", pwmPin: "PD14", in1Pin: "PB1", in2Pin: "PC0", enablePin: "PI0", encoderAPin: "PC1", encoderBPin: "PA4" },
+  { channel: "M2", name: "Mecanum BR", pwmPin: "PD13", in1Pin: "PF0", in2Pin: "PE4", enablePin: "PI0", encoderAPin: "PE12", encoderBPin: "PB0" },
+  { channel: "M3", name: "Mecanum FL", pwmPin: "PD15", in1Pin: "PI5", in2Pin: "PI6", enablePin: "PH12", encoderAPin: "PI7", encoderBPin: "PI2" },
+  { channel: "M4", name: "Mecanum BL", pwmPin: "PH11", in1Pin: "PC3", in2Pin: "PC4", enablePin: "PH12", encoderAPin: "PC5", encoderBPin: "PA5" },
+  { channel: "M5", name: "Left Track", pwmPin: "PH10", in1Pin: "PA0", in2Pin: "PA1", enablePin: "PH12", encoderAPin: "PA2", encoderBPin: "PA3" },
+  { channel: "M6", name: "Right Track", pwmPin: "PD12", in1Pin: "PF1", in2Pin: "PE5", enablePin: "PI0", encoderAPin: "PE6", encoderBPin: "PC2" },
+  { channel: "M7", name: "Motor 7" },
+  { channel: "M8", name: "Motor 8" }
 ];
 
 export const CAMERA_LATENCY_PROFILE_SETTINGS: Record<CameraLatencyProfile, CameraProfileSettings> = {
@@ -329,17 +331,18 @@ export function validateMotorDraft(draft: MotorDraft, existing: MotorProfile[]):
 }
 
 export function validateMotorMapping(motor: MotorProfile): ValidationErrorKey | null {
+  const channel = normalizeMotorChannel(motor.channel);
   if (!motor.pwmPin?.trim() || !motor.in1Pin?.trim() || !motor.in2Pin?.trim()) {
     return "validation.motorMappingRequired";
   }
   if (
-    !isValidMotorPin(motor.pwmPin, true) ||
-    !isValidMotorPin(motor.in1Pin, true) ||
-    !isValidMotorPin(motor.in2Pin, true) ||
-    !isValidMotorPin(motor.enablePin) ||
-    !isValidMotorPin(motor.sensorPin) ||
-    !isValidMotorPin(motor.encoderAPin) ||
-    !isValidMotorPin(motor.encoderBPin)
+    !isValidMotorPin(motor.pwmPin, true, "pwmPin", channel) ||
+    !isValidMotorPin(motor.in1Pin, true, "in1Pin", channel) ||
+    !isValidMotorPin(motor.in2Pin, true, "in2Pin", channel) ||
+    !isValidMotorPin(motor.enablePin, false, "enablePin", channel) ||
+    !isValidMotorPin(motor.sensorPin, false, "sensorPin", channel) ||
+    !isValidMotorPin(motor.encoderAPin, false, "encoderAPin", channel) ||
+    !isValidMotorPin(motor.encoderBPin, false, "encoderBPin", channel)
   ) {
     return "validation.invalidMotorPin";
   }
@@ -387,10 +390,9 @@ export function loadServos(storage: Storage = window.localStorage): ServoProfile
     if (!Array.isArray(parsed)) {
       return DEFAULT_SERVOS;
     }
-    const valid = parsed
+    return parsed
       .filter((servo) => isValidServoId(servo.id) && typeof servo.name === "string" && servo.name.trim())
       .map((servo) => normalizeServoProfile(servo));
-    return valid.length > 0 ? valid : DEFAULT_SERVOS;
   } catch {
     return DEFAULT_SERVOS;
   }
@@ -1117,17 +1119,18 @@ function radiansToDegrees(value: number): number {
 }
 
 function normalizeMotorProfile(motor: MotorProfile): MotorProfile {
-  const legacyDirPin = normalizeMotorPin(motor.dirPin);
-  const legacyBrakePin = normalizeMotorPin(motor.brakePin);
+  const channel = normalizeMotorChannel(motor.channel);
+  const legacyDirPin = normalizeMotorPin(motor.dirPin, "in1Pin", channel);
+  const legacyBrakePin = normalizeMotorPin(motor.brakePin, "enablePin", channel);
   return {
-    channel: normalizeMotorChannel(motor.channel),
+    channel,
     name: motor.name.trim(),
-    ...(normalizeMotorPin(motor.pwmPin) ? { pwmPin: normalizeMotorPin(motor.pwmPin) } : {}),
-    ...(normalizeMotorPin(motor.in1Pin) || legacyDirPin ? { in1Pin: normalizeMotorPin(motor.in1Pin) ?? legacyDirPin } : {}),
-    ...(normalizeMotorPin(motor.in2Pin) ? { in2Pin: normalizeMotorPin(motor.in2Pin) } : {}),
-    ...(normalizeMotorPin(motor.enablePin) || legacyBrakePin ? { enablePin: normalizeMotorPin(motor.enablePin) ?? legacyBrakePin } : {}),
-    ...(normalizeMotorPin(motor.sensorPin) ? { sensorPin: normalizeMotorPin(motor.sensorPin) } : {}),
-    ...(normalizeMotorPin(motor.encoderAPin) ? { encoderAPin: normalizeMotorPin(motor.encoderAPin) } : {}),
-    ...(normalizeMotorPin(motor.encoderBPin) ? { encoderBPin: normalizeMotorPin(motor.encoderBPin) } : {})
+    ...(normalizeMotorPin(motor.pwmPin, "pwmPin", channel) ? { pwmPin: normalizeMotorPin(motor.pwmPin, "pwmPin", channel) } : {}),
+    ...(normalizeMotorPin(motor.in1Pin, "in1Pin", channel) || legacyDirPin ? { in1Pin: normalizeMotorPin(motor.in1Pin, "in1Pin", channel) ?? legacyDirPin } : {}),
+    ...(normalizeMotorPin(motor.in2Pin, "in2Pin", channel) ? { in2Pin: normalizeMotorPin(motor.in2Pin, "in2Pin", channel) } : {}),
+    ...(normalizeMotorPin(motor.enablePin, "enablePin", channel) || legacyBrakePin ? { enablePin: normalizeMotorPin(motor.enablePin, "enablePin", channel) ?? legacyBrakePin } : {}),
+    ...(normalizeMotorPin(motor.sensorPin, "sensorPin", channel) ? { sensorPin: normalizeMotorPin(motor.sensorPin, "sensorPin", channel) } : {}),
+    ...(normalizeMotorPin(motor.encoderAPin, "encoderAPin", channel) ? { encoderAPin: normalizeMotorPin(motor.encoderAPin, "encoderAPin", channel) } : {}),
+    ...(normalizeMotorPin(motor.encoderBPin, "encoderBPin", channel) ? { encoderBPin: normalizeMotorPin(motor.encoderBPin, "encoderBPin", channel) } : {})
   };
 }

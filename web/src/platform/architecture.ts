@@ -4,12 +4,13 @@ import {
   isValidMotorChannel,
   isValidServoId,
   normalizeMotorChannel,
-  normalizeServoProfile
+  normalizeMotorPin,
+  normalizeServoProfile,
+  type MotorPinRole
 } from "@adapters/hardware/protocol";
-import { CapabilityId, DeviceCapability, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "@platform/types";
-import type { PanelLayoutItem } from "@platform/panelLayoutCore";
-import type { WorkflowDefinition } from "@platform/workflow";
+import { CapabilityId, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } from "@platform/types";
 import { findPlatformUiPanelForDevice } from "@platform/ui";
+import builtInDeviceCatalogItems from "@platform/defaultCatalog.json";
 import { validateMecanumDriveComponentConfig } from "@domains/drive/mecanumComponent";
 import { validateCanServoGroupComponentConfig } from "@domains/can-servo/canServoGroupComponent";
 export {
@@ -20,534 +21,87 @@ export {
 } from "@platform/panelLayoutCore";
 export type { PanelLayoutItem, PanelLayoutTarget } from "@platform/panelLayoutCore";
 
-export type DeviceConfigValue = string | number | boolean | null;
-export type DeviceConfig = Record<string, DeviceConfigValue>;
-export type ComponentKind = "custom" | "robot-arm" | "mecanum-drive" | "can-servo-group";
-export type ComponentConfig = Record<string, unknown>;
-export type DeviceConfigFieldKind = "text" | "number" | "select" | "toggle";
+import type {
+  ArchitectureSnapshot,
+  CatalogFilter,
+  ComponentConfig,
+  ComponentDefinition,
+  ComponentKind,
+  DeviceCatalogItem,
+  DeviceCodeLibraryFilter,
+  DeviceCodeLibraryItem,
+  DeviceConfig,
+  DeviceConfigField,
+  DeviceConfigFieldKind,
+  DeviceConfigOption,
+  DeviceConfigValue,
+  DriverLibraryFilter,
+  DriverLibraryItem,
+  PluginInstance,
+  PluginUsage,
+  RobotActionButton,
+  RobotActionButtonServoTarget,
+  RobotActionButtonStep,
+  RobotActionButtonStepKind,
+  RobotAssemblyConfig,
+  RobotAssemblyEdge,
+  RobotAssemblyHarness,
+  RobotAssemblyHardwareKind,
+  RobotAssemblyNode,
+  RobotAssemblyNodeSourceType,
+  RobotAssemblyPort,
+  RobotAssemblyPortDirection,
+  RobotAssemblyPortKind,
+  RobotAssemblyVisualKind,
+  RobotAssemblyWarning,
+  RobotConfig,
+  RobotControlMapping,
+  RobotDefinition,
+  RobotProgram,
+  RobotProgramTarget
+} from "@platform/architectureTypes";
+export type {
+  ArchitectureSnapshot,
+  CatalogFilter,
+  ComponentConfig,
+  ComponentDefinition,
+  ComponentKind,
+  DeviceCatalogItem,
+  DeviceCodeLibraryFilter,
+  DeviceCodeLibraryItem,
+  DeviceConfig,
+  DeviceConfigField,
+  DeviceConfigFieldKind,
+  DeviceConfigOption,
+  DeviceConfigValue,
+  DriverLibraryFilter,
+  DriverLibraryItem,
+  PluginInstance,
+  PluginUsage,
+  RobotActionButton,
+  RobotActionButtonServoTarget,
+  RobotActionButtonStep,
+  RobotActionButtonStepKind,
+  RobotAssemblyConfig,
+  RobotAssemblyEdge,
+  RobotAssemblyHarness,
+  RobotAssemblyHardwareKind,
+  RobotAssemblyNode,
+  RobotAssemblyNodeSourceType,
+  RobotAssemblyPort,
+  RobotAssemblyPortDirection,
+  RobotAssemblyPortKind,
+  RobotAssemblyVisualKind,
+  RobotAssemblyWarning,
+  RobotConfig,
+  RobotControlMapping,
+  RobotDefinition,
+  RobotProgram,
+  RobotProgramTarget
+} from "@platform/architectureTypes";
 
-export interface DeviceConfigOption {
-  label: string;
-  value: string | number | boolean;
-}
-
-export interface DeviceConfigField {
-  id: string;
-  label: string;
-  kind: DeviceConfigFieldKind;
-  required?: boolean;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: DeviceConfigOption[];
-}
-
-export interface DeviceCatalogItem {
-  id: string;
-  type: CapabilityId;
-  brand: string;
-  model: string;
-  displayName: string;
-  driverId: string;
-  transportId: string;
-  capabilities: DeviceCapability[];
-  configSchema: DeviceConfigField[];
-  defaultConfig: DeviceConfig;
-  tags: string[];
-  userDefined?: boolean;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface PluginInstance {
-  id: string;
-  name: string;
-  type: CapabilityId;
-  catalogItemId: string | null;
-  brand: string;
-  model: string;
-  driverId: string;
-  transportId: string;
-  capabilities: DeviceCapability[];
-  config: DeviceConfig;
-  tags: string[];
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface ComponentDefinition {
-  id: string;
-  name: string;
-  kind: ComponentKind;
-  pluginInstanceIds: string[];
-  config: ComponentConfig;
-  tags: string[];
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export type RobotAssemblyNodeSourceType = "component" | "plugin" | "hardware";
-export type RobotAssemblyHardwareKind = "esp32" | "robomaster-a" | "raspberry-pi" | "tb6612" | "tb6618" | "power-module";
-export type RobotAssemblyVisualKind = "component" | "plugin" | "robot-arm" | "tracked-base" | "mecanum-drive" | "hardware-board" | "motor-driver" | "power-module";
-export type RobotAssemblyPortKind = "uart-tx" | "uart-rx" | "uart" | "can" | "pwm" | "gpio" | "power" | "ground" | "usb" | "servo-bus" | "signal";
-export type RobotAssemblyPortDirection = "in" | "out" | "bidirectional" | "power";
-
-export interface RobotAssemblyNode {
-  id: string;
-  sourceType: RobotAssemblyNodeSourceType;
-  sourceId: string;
-  hardwareKind?: RobotAssemblyHardwareKind;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  visualKind: RobotAssemblyVisualKind;
-}
-
-export interface RobotAssemblyPort {
-  id: string;
-  nodeId: string;
-  name: string;
-  label: string;
-  kind: RobotAssemblyPortKind;
-  direction: RobotAssemblyPortDirection;
-  side: "left" | "right" | "top" | "bottom";
-  x: number;
-  y: number;
-  voltage?: string;
-  required?: boolean;
-}
-
-export interface RobotAssemblyEdge {
-  id: string;
-  fromNodeId: string;
-  toNodeId: string;
-  fromPortId?: string;
-  toPortId?: string;
-  kind: string;
-  label: string;
-  serialName?: string;
-  baudRate?: number;
-  protocol?: string;
-  voltage?: string;
-  harnessId?: string;
-  hidden?: boolean;
-}
-
-export interface RobotAssemblyHarness {
-  id: string;
-  name: string;
-  color: string;
-  hidden: boolean;
-}
-
-export interface RobotAssemblyWarning {
-  id: string;
-  severity: "warning" | "error";
-  targetId: string;
-  message: string;
-}
-
-export interface RobotControlMapping {
-  id: string;
-  label: string;
-  sourceId?: string;
-  targetNodeId?: string;
-  action?: string;
-  enabled?: boolean;
-}
-
-export interface RobotAssemblyConfig {
-  version: 1 | 2;
-  nodes: RobotAssemblyNode[];
-  ports?: RobotAssemblyPort[];
-  edges: RobotAssemblyEdge[];
-  harnesses?: RobotAssemblyHarness[];
-  controlMappings: RobotControlMapping[];
-}
-
-export type RobotActionButtonStepKind = "servo.move" | "motor.set" | "motor.stop" | "wait" | "parallel";
-
-export interface RobotActionButtonStep {
-  id: string;
-  kind: RobotActionButtonStepKind;
-  label: string;
-  pluginInstanceId?: string;
-  angleDeg?: number;
-  speedRaw?: number;
-  acc?: number;
-  speedPercent?: number;
-  stopMode?: "coast" | "brake";
-  durationMs?: number;
-  steps?: RobotActionButtonStep[];
-}
-
-export interface RobotActionButton {
-  id: string;
-  name: string;
-  color: string;
-  icon: string;
-  confirmRequired: boolean;
-  timeoutMs: number;
-  steps: RobotActionButtonStep[];
-}
-
-export type RobotProgramTarget = "pc";
-
-export interface RobotProgram {
-  id: string;
-  name: string;
-  target: RobotProgramTarget;
-  blocklyWorkspaceJson: Record<string, unknown> | null;
-  workflow: WorkflowDefinition;
-  timeoutMs: number;
-  updatedAt?: number;
-}
-
-export interface RobotConfig {
-  assembly?: RobotAssemblyConfig;
-  actionButtons?: RobotActionButton[];
-  programs?: RobotProgram[];
-  [key: string]: unknown;
-}
-
-export interface RobotDefinition {
-  id: string;
-  name: string;
-  componentIds: string[];
-  pluginInstanceIds: string[];
-  config: RobotConfig;
-  tags: string[];
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface ArchitectureSnapshot {
-  catalog: DeviceCatalogItem[];
-  pluginInstances: PluginInstance[];
-  components: ComponentDefinition[];
-  robots: RobotDefinition[];
-  panelLayouts: Record<string, PanelLayoutItem[]>;
-}
-
-export interface CatalogFilter {
-  type?: CapabilityId | "";
-  brand?: string;
-  model?: string;
-  query?: string;
-}
-
-export interface DriverLibraryItem {
-  packageId: string;
-  packageName: string;
-  driverId: string;
-  name: string;
-  version: string;
-  type: CapabilityId;
-  transportIds: string[];
-  protocol?: string;
-  sourceFile: string;
-  description?: string;
-}
-
-export interface DriverLibraryFilter {
-  type?: CapabilityId | "";
-  query?: string;
-}
-
-export interface DeviceCodeLibraryItem {
-  id: string;
-  catalogItemId: string;
-  type: CapabilityId;
-  brand: string;
-  model: string;
-  displayName: string;
-  packageId: string;
-  packageName: string;
-  driverId: string;
-  driverName: string;
-  version: string;
-  transportId: string;
-  transportIds: string[];
-  protocol?: string;
-  sourceFile: string;
-  tags: string[];
-}
-
-export interface DeviceCodeLibraryFilter {
-  type?: CapabilityId | "";
-  brand?: string;
-  model?: string;
-  query?: string;
-}
-
-export interface PluginUsage {
-  ownerKind: "component" | "robot";
-  ownerId: string;
-  ownerName: string;
-}
-
-export const BUILTIN_DEVICE_CATALOG_ITEMS: DeviceCatalogItem[] = [
-  {
-    id: "catalog.feetech.sts3215",
-    type: "servo",
-    brand: "Feetech",
-    model: "STS3215",
-    displayName: "Feetech STS3215 Servo",
-    driverId: "driver.feetech-servo",
-    transportId: "transport.web-serial",
-    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      {
-        id: "direction",
-        label: "Direction",
-        kind: "select",
-        options: [
-          { label: "Normal", value: 1 },
-          { label: "Reverse", value: -1 }
-        ]
-      }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1 },
-    tags: ["servo", "ttl", "feetech"]
-  },
-  {
-    id: "catalog.feetech.scservo",
-    type: "servo",
-    brand: "Feetech",
-    model: "STS/SCS Generic",
-    displayName: "Feetech STS/SCS Generic Servo",
-    driverId: "driver.feetech-servo",
-    transportId: "transport.web-serial",
-    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      {
-        id: "direction",
-        label: "Direction",
-        kind: "select",
-        options: [
-          { label: "Normal", value: 1 },
-          { label: "Reverse", value: -1 }
-        ]
-      }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1 },
-    tags: ["servo", "ttl", "feetech"]
-  },
-  {
-    id: "catalog.asme.asme-se-can-servo",
-    type: "servo",
-    brand: "ASME",
-    model: "ASME-SE",
-    displayName: "ASME ASME-SE CAN Servo",
-    driverId: "driver.asme-can-servo",
-    transportId: "transport.a-board-can1",
-    capabilities: [{ id: "servo", features: ["position_control", "feedback", "current_config", "pid_config", "id_config", "can1"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      {
-        id: "direction",
-        label: "Direction",
-        kind: "select",
-        options: [
-          { label: "Normal", value: 1 },
-          { label: "Reverse", value: -1 }
-        ]
-      },
-      {
-        id: "bitrateKbps",
-        label: "CAN Bitrate",
-        kind: "select",
-        options: [
-          { label: "250 kbit/s", value: 250 },
-          { label: "500 kbit/s", value: 500 },
-          { label: "1000 kbit/s", value: 1000 }
-        ]
-      },
-      {
-        id: "canBus",
-        label: "CAN Bus",
-        kind: "select",
-        options: [{ label: "RoboMaster A CAN1", value: "CAN1" }]
-      }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
-    tags: ["servo", "can", "asme", "asmg-md", "robomaster-a"]
-  },
-  {
-    id: "catalog.toshiba.tb6618-motor",
-    type: "motor",
-    brand: "Toshiba",
-    model: "TB6618 Motor Channel",
-    displayName: "TB6618 Motor Channel",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: motorChannelOptions(8) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
-    tags: ["motor", "pwm", "h-bridge"]
-  },
-  {
-    id: "catalog.wheeltec.g513xl",
-    type: "motor",
-    brand: "WHEELTEC",
-    model: "G513XL",
-    displayName: "WHEELTEC G513XL Motor",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: motorChannelOptions(8) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", sensorPin: "", encoderAPin: "PE4", encoderBPin: "PF0" },
-    tags: ["motor", "wheeltec", "pwm", "encoder"]
-  },
-  {
-    id: "catalog.wheeltec.mg540",
-    type: "motor",
-    brand: "WHEELTEC",
-    model: "MG540",
-    displayName: "WHEELTEC MG540 Motor",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: motorChannelOptions(8) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
-    tags: ["motor", "wheeltec", "pwm", "encoder"]
-  },
-  {
-    id: "catalog.generic.camera-gimbal",
-    type: "camera",
-    brand: "Generic",
-    model: "Camera Gimbal",
-    displayName: "Generic Camera Gimbal",
-    driverId: "driver.camera-gimbal",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "camera", features: ["mjpeg_stream", "servo_gimbal"] }],
-    configSchema: [
-      { id: "streamUrl", label: "Stream URL", kind: "text" },
-      { id: "panServoId", label: "Pan Servo ID", kind: "number", min: 0, max: 253, step: 1 },
-      { id: "tiltServoId", label: "Tilt Servo ID", kind: "number", min: 0, max: 253, step: 1 },
-      { id: "panAngleDeg", label: "Pan Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "tiltAngleDeg", label: "Tilt Angle", kind: "number", min: 0, max: 360, step: 1 }
-    ],
-    defaultConfig: { streamUrl: "http://192.168.55.220:8080/stream", webrtcOfferUrl: "http://192.168.55.220:8080/offer", streamMode: "mjpeg", latencyProfile: "lowLatency", panServoId: 1, tiltServoId: 2, panAngleDeg: 90, tiltAngleDeg: 90 },
-    tags: ["camera", "gimbal"]
-  },
-  {
-    id: "catalog.generic.secondary-camera",
-    type: "camera",
-    brand: "Generic",
-    model: "Second Camera",
-    displayName: "Generic Second Camera",
-    driverId: "driver.secondary-camera",
-    transportId: "transport.ssh",
-    capabilities: [{ id: "camera", features: ["mjpeg_stream", "secondary_source"] }],
-    configSchema: [
-      { id: "streamUrl", label: "Stream URL", kind: "text" },
-      { id: "devicePath", label: "Device Path", kind: "text" },
-      { id: "port", label: "Port", kind: "number", min: 1, max: 65535, step: 1 }
-    ],
-    defaultConfig: { streamUrl: "http://192.168.55.220:8081/stream", devicePath: "/dev/video1", port: 8081 },
-    tags: ["camera", "secondary", "raspberry-pi"]
-  },
-  {
-    id: "catalog.browser.gamepad",
-    type: "gamepad",
-    brand: "Browser",
-    model: "Gamepad API",
-    displayName: "Browser Gamepad",
-    driverId: "driver.browser-gamepad",
-    transportId: "transport.browser-gamepad-api",
-    capabilities: [{ id: "gamepad", features: ["drive_input", "camera_gimbal_input", "button_mapping", "live_axes"] }],
-    configSchema: [
-      { id: "preferredIndex", label: "Preferred Index", kind: "number", min: 0, max: 15, step: 1 },
-      {
-        id: "preset",
-        label: "Preset",
-        kind: "select",
-        options: [
-          { label: "Auto", value: "auto" },
-          { label: "Xbox / XInput", value: "xinput" },
-          { label: "PlayStation", value: "playstation" },
-          { label: "Switch Pro", value: "switchPro" },
-          { label: "Generic", value: "generic" }
-        ]
-      }
-    ],
-    defaultConfig: { preferredIndex: null, preset: "auto" },
-    tags: ["gamepad", "browser", "input"]
-  },
-  {
-    id: "catalog.browser.local-camera",
-    type: "camera",
-    brand: "Browser",
-    model: "Local Camera",
-    displayName: "Browser Local Camera",
-    driverId: "driver.browser-camera",
-    transportId: "transport.browser-media",
-    capabilities: [{ id: "camera", features: ["local_media_stream", "browser_camera"] }],
-    configSchema: [
-      { id: "preferredDeviceId", label: "Preferred Device", kind: "text" },
-      { id: "width", label: "Width", kind: "number", min: 1, max: 7680, step: 1 },
-      { id: "height", label: "Height", kind: "number", min: 1, max: 4320, step: 1 },
-      { id: "fps", label: "FPS", kind: "number", min: 1, max: 240, step: 1 }
-    ],
-    defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
-    tags: ["camera", "browser", "local", "usb", "webcam"]
-  },
-  {
-    id: "catalog.local.ai-vision",
-    type: "ai-vision",
-    brand: "Local",
-    model: "AI Vision Helper",
-    displayName: "Local AI Vision Helper",
-    driverId: "driver.ai-vision-helper",
-    transportId: "transport.local-helper",
-    capabilities: [{ id: "ai-vision", features: ["mjpeg_stream_analysis", "competition_mannequin", "sample_capture", "external_helper"] }],
-    configSchema: [
-      { id: "sourceId", label: "Source ID", kind: "text", required: true },
-      { id: "streamUrl", label: "Stream URL", kind: "text", required: true },
-      { id: "label", label: "Label", kind: "text" },
-      { id: "helperUrl", label: "Helper URL", kind: "text" }
-    ],
-    defaultConfig: { sourceId: "main", streamUrl: "http://192.168.55.220:8080/stream", label: "competition_mannequin", helperUrl: "http://127.0.0.1:17353" },
-    tags: ["ai", "vision", "local-helper", "competition_mannequin"]
-  }
-];
+const MOTOR_PIN_FIELD_IDS = new Set<string>(["pwmPin", "in1Pin", "in2Pin", "enablePin", "sensorPin", "encoderAPin", "encoderBPin"]);
+export const BUILTIN_DEVICE_CATALOG_ITEMS = builtInDeviceCatalogItems as unknown as DeviceCatalogItem[];
 
 export function filterDeviceCatalogItems(items: DeviceCatalogItem[], filter: CatalogFilter): DeviceCatalogItem[] {
   const brand = filter.brand?.trim().toLowerCase() ?? "";
@@ -901,17 +455,20 @@ export function pluginInstancesToServoProfiles(instances: PluginInstance[]): Ser
 export function pluginInstancesToMotorProfiles(instances: PluginInstance[]): MotorProfile[] {
   return instances
     .filter((instance) => instance.type === "motor")
-    .map((instance) => ({
-      channel: normalizeMotorChannel(String(instance.config.channel ?? "")),
-      name: instance.name,
-      pwmPin: stringOrUndefined(instance.config.pwmPin),
-      in1Pin: stringOrUndefined(instance.config.in1Pin),
-      in2Pin: stringOrUndefined(instance.config.in2Pin),
-      enablePin: stringOrUndefined(instance.config.enablePin),
-      sensorPin: stringOrUndefined(instance.config.sensorPin),
-      encoderAPin: stringOrUndefined(instance.config.encoderAPin),
-      encoderBPin: stringOrUndefined(instance.config.encoderBPin)
-    }))
+    .map((instance) => {
+      const channel = normalizeMotorChannel(String(instance.config.channel ?? ""));
+      return {
+        channel,
+        name: instance.name,
+        pwmPin: normalizeMotorPin(stringOrUndefined(instance.config.pwmPin), "pwmPin", channel),
+        in1Pin: normalizeMotorPin(stringOrUndefined(instance.config.in1Pin), "in1Pin", channel),
+        in2Pin: normalizeMotorPin(stringOrUndefined(instance.config.in2Pin), "in2Pin", channel),
+        enablePin: normalizeMotorPin(stringOrUndefined(instance.config.enablePin), "enablePin", channel),
+        sensorPin: normalizeMotorPin(stringOrUndefined(instance.config.sensorPin), "sensorPin", channel),
+        encoderAPin: normalizeMotorPin(stringOrUndefined(instance.config.encoderAPin), "encoderAPin", channel),
+        encoderBPin: normalizeMotorPin(stringOrUndefined(instance.config.encoderBPin), "encoderBPin", channel)
+      };
+    })
     .filter((motor) => isValidMotorChannel(motor.channel));
 }
 
@@ -971,7 +528,10 @@ export function normalizeConfigForSchema(schema: DeviceConfigField[], config: De
     } else if (field.kind === "toggle") {
       normalized[field.id] = value === true;
     } else if (field.kind === "select") {
-      const option = (field.options ?? []).find((item) => String(item.value).toLowerCase() === String(value).toLowerCase());
+      const selectValue = typeof value === "string" && MOTOR_PIN_FIELD_IDS.has(field.id)
+        ? normalizeMotorPin(value, field.id as MotorPinRole) ?? value
+        : value;
+      const option = (field.options ?? []).find((item) => String(item.value).toLowerCase() === String(selectValue).toLowerCase());
       normalized[field.id] = option ? option.value : field.options?.[0]?.value ?? null;
     } else {
       normalized[field.id] = value === null || value === undefined ? "" : String(value);
@@ -1026,18 +586,10 @@ function pushUsage(usage: Map<string, PluginUsage[]>, pluginId: string, owner: P
   usage.set(pluginId, [...(usage.get(pluginId) ?? []), owner]);
 }
 
-function motorChannelOptions(count: number): DeviceConfigOption[] {
-  return Array.from({ length: count }, (_, index) => {
-    const channel = `M${index + 1}`;
-    return { label: channel, value: channel };
-  });
-}
-
 function driverPackageSourceFile(packageId: string): string {
   const sourceFiles: Record<string, string> = {
     "builtin.camera-gimbal": "plugins/builtin/cameraGimbal.ts",
     "builtin.asme-can-servo": "plugins/builtin/asmeCanServo.ts",
-    "builtin.feetech-servo": "plugins/builtin/feetechServo.ts",
     "builtin.firmware-upload": "plugins/builtin/firmwareUpload.ts",
     "builtin.ai-vision": "plugins/builtin/aiVision.ts",
     "builtin.browser-gamepad": "plugins/builtin/browserGamepad.ts",

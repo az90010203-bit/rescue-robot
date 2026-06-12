@@ -21,6 +21,7 @@ export type PluginDebugDraft = {
   speedRaw: string;
   acc: string;
   liveDragEnabled: boolean;
+  pluginDirection: 1 | -1;
   reverse: boolean;
   minDeg: string;
   maxDeg: string;

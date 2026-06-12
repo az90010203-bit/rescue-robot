@@ -1,27 +1,12 @@
 import { InboundMessage, MotorProfile, ServoProfile, normalizeMotorChannel } from "@adapters/hardware/protocol";
 import { ArmConfig, CameraConfig, MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID } from "@adapters/persistence/storage";
 import { DeviceDescriptor, DeviceStatus } from "@platform/types";
+import { gamepadSnapshotValues, type PlatformGamepadSnapshotInput } from "@platform/gamepadState";
 
 export type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 export type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;
 
-export interface PlatformGamepadInput {
-  index: number;
-  id: string;
-  axes: number;
-  buttons: number;
-  mapping: string;
-  axesValues?: number[];
-  pressedButtons?: number[];
-  input?: {
-    forward?: number;
-    strafe?: number;
-    turn?: number;
-    cameraPan?: number;
-    cameraTilt?: number;
-    stop?: boolean;
-  };
-}
+export type PlatformGamepadInput = PlatformGamepadSnapshotInput;
 
 export interface PlatformDeviceModelInput {
   servos: ServoProfile[];
@@ -228,22 +213,7 @@ export function createPlatformDevices(input: PlatformDeviceModelInput): DeviceDe
         features: ["drive_input", "camera_gimbal_input", "button_mapping", "live_axes"]
       }
     ],
-    metadata: {
-      connected: Boolean(input.activeGamepad),
-      index: input.activeGamepad?.index ?? null,
-      id: input.activeGamepad?.id ?? null,
-      mapping: input.activeGamepad?.mapping ?? null,
-      axes: input.activeGamepad?.axes ?? null,
-      buttons: input.activeGamepad?.buttons ?? null,
-      axesValues: input.activeGamepad?.axesValues?.join(" ") ?? null,
-      pressedButtons: input.activeGamepad?.pressedButtons?.join(", ") ?? null,
-      forward: input.activeGamepad?.input?.forward ?? null,
-      strafe: input.activeGamepad?.input?.strafe ?? null,
-      turn: input.activeGamepad?.input?.turn ?? null,
-      cameraPan: input.activeGamepad?.input?.cameraPan ?? null,
-      cameraTilt: input.activeGamepad?.input?.cameraTilt ?? null,
-      stop: input.activeGamepad?.input?.stop ?? null
-    }
+    metadata: gamepadSnapshotValues(input.activeGamepad)
   };
 
   const aiVisionDevice: DeviceDescriptor = {

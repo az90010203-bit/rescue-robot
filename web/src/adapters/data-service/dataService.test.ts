@@ -220,13 +220,13 @@ const project = {
 };
 
 const catalogItem = {
-  id: "catalog.feetech.sts3215",
+  id: "catalog.asme.asme-se-can-servo",
   type: "servo" as const,
-  brand: "Feetech",
-  model: "STS3215",
-  displayName: "Feetech STS3215 Servo",
-  driverId: "driver.feetech-servo",
-  transportId: "transport.web-serial",
+  brand: "ASME",
+  model: "ASME-SE",
+  displayName: "ASME ASME-SE CAN Servo",
+  driverId: "driver.asme-can-servo",
+  transportId: "transport.a-board-can1",
   capabilities: [{ id: "servo" as const, features: ["position_control"] }],
   configSchema: [{ id: "servoId", label: "ID", kind: "number" as const, required: true }],
   defaultConfig: { servoId: 1 },
@@ -246,7 +246,7 @@ const pluginInstance = {
   driverId: catalogItem.driverId,
   transportId: catalogItem.transportId,
   capabilities: catalogItem.capabilities,
-  config: { servoId: 7, detectedDeviceId: "feetech:feedback:id:7", detectedAt: 1234, detectedSource: "feetech-servo" },
+  config: { servoId: 7, detectedDeviceId: "can-servo:feedback:id:7", detectedAt: 1234, detectedSource: "can-servo" },
   tags: ["servo"],
   createdAt: 1,
   updatedAt: 1

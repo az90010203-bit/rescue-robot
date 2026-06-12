@@ -7,7 +7,7 @@ export const robotArmPackage: PlatformPluginPackage = {
     version: "0.1.0",
     description: "Composite robot arm driver and teach/playback UI schema.",
     provides: ["driver.robot-arm-composite", "ui.robot-arm-control"],
-    requires: ["capability.robot-arm", "transport.web-serial", "driver.feetech-servo"]
+    requires: ["capability.robot-arm", "transport.web-serial"]
   },
   plugins: [
     {

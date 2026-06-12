@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LineDelimitedJsonParser,
+  ROBOMASTER_A_BOARD_GPIO_OPTIONS,
   angleDegToRaw,
   applyServoWheelDirection,
   buildDebugSetCommand,
@@ -23,11 +24,15 @@ import {
   feetechChecksum,
   isMotorDebugDisabledError,
   isMotorPcCommand,
+  isServoDebugDisabledError,
+  normalizeMotorChannel,
+  normalizeMotorPin,
   parseFeetechStatusPacket,
   parseFeetechStatusPackets,
   parseServoFeedback,
   rawToAngleDeg,
   requiresMotorDirectionDeadtime,
+  roboMasterAPinAliasForMotorPin,
   servoPhysicalToLogicalAngle,
   servoPhysicalToLogicalAngleWithReverse,
   toHex,
@@ -255,6 +260,9 @@ describe("pwm motor json protocol", () => {
     expect(withCommandSeq(command, 9)).toEqual({ ...command, seq: 9 });
     expect(isMotorDebugDisabledError({ type: "error", seq: 6, command: "motor.config", code: "debug_disabled", message: "enable debug mode before motor commands" })).toBe(true);
     expect(isMotorDebugDisabledError({ type: "error", seq: 7, command: "servo.move", code: "debug_disabled", message: "debug disabled" })).toBe(false);
+    expect(isServoDebugDisabledError({ type: "error", seq: 8, command: "servo.move", code: "debug_disabled", message: "enable debug mode before servo commands" })).toBe(true);
+    expect(isServoDebugDisabledError({ type: "error", seq: 9, command: "servo.group_move", code: "debug_disabled", message: "debug disabled" })).toBe(true);
+    expect(isServoDebugDisabledError({ type: "error", seq: 10, command: "motor.set", code: "debug_disabled", message: "debug disabled" })).toBe(false);
   });
 
   it("builds motor.config commands for TB6618 board-side pin mapping", () => {
@@ -278,6 +286,38 @@ describe("pwm motor json protocol", () => {
     });
   });
 
+  it("resolves RoboMaster Type A board silk labels into STM32 pins", () => {
+    expect(normalizeMotorChannel("A")).toBe("A");
+    expect(normalizeMotorPin("S", "pwmPin", "M1")).toBe("PA0");
+    expect(normalizeMotorPin("V", "pwmPin", "M4")).toBe("PA3");
+    expect(normalizeMotorPin("F", "pwmPin", "M1")).toBe("PD14");
+    expect(normalizeMotorPin("H", "pwmPin", "M6")).toBe("PD12");
+    expect(normalizeMotorPin("J2", "in1Pin", "M1")).toBe("PE4");
+    expect(normalizeMotorPin("K2", "in2Pin", "M1")).toBe("PE12");
+    expect(normalizeMotorPin("H", "enablePin", "M1")).toBe("PD12");
+    expect(normalizeMotorPin("Q2")).toBe("PI9");
+    expect(normalizeMotorPin("CAN1_TX")).toBe("PD1");
+    expect(normalizeMotorPin("IMU_INT")).toBe("PE1");
+  });
+
+  it("displays RoboMaster Type A GPIO pins as board silk labels", () => {
+    expect(roboMasterAPinAliasForMotorPin("PA0", "pwmPin", "M1")).toBe("S");
+    expect(roboMasterAPinAliasForMotorPin("PA3", "pwmPin", "M4")).toBe("V");
+    expect(roboMasterAPinAliasForMotorPin("PD14", "pwmPin", "M1")).toBe("F");
+    expect(roboMasterAPinAliasForMotorPin("PD12", "pwmPin", "M6")).toBe("H");
+    expect(roboMasterAPinAliasForMotorPin("PE4", "in1Pin", "M1")).toBe("J2");
+    expect(roboMasterAPinAliasForMotorPin("PE12", "in2Pin", "M1")).toBe("K2");
+    expect(roboMasterAPinAliasForMotorPin("PD12", "enablePin", "M1")).toBe("H");
+    expect(roboMasterAPinAliasForMotorPin("PD1")).toBe("CAN1_TX");
+  });
+
+  it("exports RoboMaster Type A GPIO select options without power-only labels", () => {
+    expect(ROBOMASTER_A_BOARD_GPIO_OPTIONS).toContainEqual({ label: "S", value: "PA0" });
+    expect(ROBOMASTER_A_BOARD_GPIO_OPTIONS).toContainEqual({ label: "J2", value: "PE4" });
+    expect(ROBOMASTER_A_BOARD_GPIO_OPTIONS).toContainEqual({ label: "K2", value: "PE12" });
+    expect(ROBOMASTER_A_BOARD_GPIO_OPTIONS.some((option) => option.label === "R1" || option.label === "R2")).toBe(false);
+  });
+
   it("keeps legacy sensor-only motor.config mappings compatible", () => {
     expect(buildMotorConfigCommand(7, { channel: "m1", pwmPin: "d5", in1Pin: "d4", in2Pin: "d7", sensorPin: "d2" })).toEqual({
       type: "motor.config",
@@ -289,6 +329,40 @@ describe("pwm motor json protocol", () => {
         in1: "D4",
         in2: "D7",
         sensor: "D2"
+      }
+    });
+  });
+
+  it("builds motor.config from RoboMaster Type A board silk aliases", () => {
+    expect(buildMotorConfigCommand(8, { channel: "M1", pwmPin: "S", in1Pin: "L2", in2Pin: "K2", enablePin: "H", encoderAPin: "J2", encoderBPin: "I2" })).toEqual({
+      type: "motor.config",
+      seq: 8,
+      channel: "M1",
+      driver: "tb6618",
+      pins: {
+        pwm: "PA0",
+        in1: "PB0",
+        in2: "PE12",
+        enable: "PD12",
+        encoderA: "PE4",
+        encoderB: "PF0"
+      }
+    });
+  });
+
+  it("builds motor.config from RoboMaster Type A GPIO option values", () => {
+    expect(buildMotorConfigCommand(9, { channel: "M1", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", encoderAPin: "PE4", encoderBPin: "PF0" })).toEqual({
+      type: "motor.config",
+      seq: 9,
+      channel: "M1",
+      driver: "tb6618",
+      pins: {
+        pwm: "PA0",
+        in1: "PB0",
+        in2: "PE12",
+        enable: "PD12",
+        encoderA: "PE4",
+        encoderB: "PF0"
       }
     });
   });

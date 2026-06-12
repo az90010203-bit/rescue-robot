@@ -52,6 +52,7 @@ import { BUILTIN_PLUGIN_PACKAGES } from "@platform/builtinPlugins";
 import { CapabilityId, DeviceDescriptor, UiControlSchema, UiPanelSchema } from "@platform/types";
 import { findPlatformUiPanelForDevice, platformCommandForControl, platformControlDefaultsForDevice } from "@platform/ui";
 import { LocalCameraView } from "@domains/camera/LocalCameraView";
+import { updateArmJointNumberValue, type ArmJointNumberField } from "@domains/arm/armConfigEditing";
 import { RobotAssemblyWorkspace } from "@domains/robot-assembly/RobotAssemblyWorkspace";
 import { PluginAutoDetectPanel } from "@domains/plugin-auto-detect/PluginAutoDetectPanel";
 import { ArchitectureCreatePanel } from "@workspaces/architecture/ArchitectureCreatePanel";
@@ -92,16 +93,27 @@ import {
   normalizeArmConfig
 } from "@adapters/persistence/storage";
 import {
+  asmgMdPositionRawToLogicalDegrees,
+  buildAsmgMdCanConfigCommand,
+  buildAsmgMdReadPositionCurrentCommand,
+  parseAsmgMdCanFrame
+} from "@adapters/hardware/asmgMdCanServo";
+import {
   clamp,
   FeetechStatusPacket,
+  ROBOMASTER_A_BOARD_GPIO_OPTIONS,
+  type InboundMessage,
+  type MotorPinRole,
   MotorProfile,
   MotorTarget,
   MotorStopMode,
+  normalizeMotorPin,
   normalizeMotorChannel,
   normalizeServoProfile,
   parseServoFeedback,
   PcCommand,
   rawToAngleDeg,
+  roboMasterAPinAliasForMotorPin,
   ServoProfile,
   servoLogicalSpan,
   servoPhysicalToLogicalAngleWithReverse
@@ -124,10 +136,12 @@ import {
   CAN_SERVO_GROUP_DEFAULT_SPEED_RAW,
   CAN_SERVO_GROUP_SLOT_LABELS,
   CAN_SERVO_GROUP_SLOTS,
+  canServoGroupCenterPositions,
   canServoGroupPluginIds,
   canServoGroupTargets,
   canServoPluginInstances,
   canServoPluginToProfile,
+  compileCanServoGroupPositionCommands,
   createDefaultCanServoGroupConfig,
   normalizeCanServoGroupConfig,
   validateCanServoGroupComponentConfig,
@@ -152,6 +166,8 @@ type ServoFeedbackValue = ReturnType<typeof parseServoFeedback>;
 type MecanumDriveTestVector = { forward: number; strafe: number; turn: number };
 type MecanumDriveTestDraft = { speedPercent: number };
 type CanServoGroupTestDraft = { positions: Record<CanServoGroupSlot, number>; speedRaw: number };
+type CanServoGroupLinkedDragState = { basePositions: Record<CanServoGroupSlot, number>; offsetDeg: number };
+type CanServoGroupLiveStatus = "off" | "configuring" | "syncing" | "ready" | "sending" | "error";
 
 interface ThreeLayerWorkspaceProps {
   layer: ArchitectureLayer;
@@ -168,7 +184,7 @@ interface ThreeLayerWorkspaceProps {
   onPrepareCommand?: (capability: CapabilityId) => Promise<void> | void;
   piRemoteProfile?: PiDetectionProfile | null;
   renderPluginDebugPanel?: (instance: PluginInstance, context: { refreshArchitecture: () => Promise<void>; replacePluginInstance: (instance: PluginInstance) => void }) => ReactNode;
-  sendAboardBridgeCanServoCommand?: (command: PcCommand, options?: { log?: boolean }) => Promise<AboardBridgeCommandResult | null>;
+  sendAboardBridgeCanServoCommand?: (command: PcCommand, options?: { log?: boolean; timeoutMs?: number; exclusive?: boolean }) => Promise<AboardBridgeCommandResult | null>;
   servoFeedback?: ServoFeedbackMap;
 }
 
@@ -208,13 +224,17 @@ function servoFeedbackPhysicalAngle(response: unknown): number | null {
   return null;
 }
 
-function servoFeedbackFromResponse(response: unknown): ServoFeedbackValue | null {
+export function servoFeedbackFromResponse(response: unknown): ServoFeedbackValue | null {
   if (!response || typeof response !== "object") {
     return null;
   }
   const maybeFeedback = response as Partial<ServoFeedbackValue>;
   if (maybeFeedback.type === "servo.feedback") {
-    return maybeFeedback as ServoFeedbackValue;
+    const positionDeg = servoFeedbackPhysicalAngle(maybeFeedback);
+    return {
+      ...maybeFeedback,
+      ...(positionDeg === null ? {} : { positionDeg })
+    } as ServoFeedbackValue;
   }
   const maybePacket = response as Partial<FeetechStatusPacket>;
   if (typeof maybePacket.id === "number" && Array.isArray(maybePacket.params) && typeof maybePacket.status === "number") {
@@ -285,6 +305,9 @@ export function ThreeLayerWorkspace({
   const [mecanumTestDraftByComponentId, setMecanumTestDraftByComponentId] = useState<Record<string, MecanumDriveTestDraft>>({});
   const [canServoGroupDraftByComponentId, setCanServoGroupDraftByComponentId] = useState<Record<string, CanServoGroupComponentConfig>>({});
   const [canServoGroupTestDraftByComponentId, setCanServoGroupTestDraftByComponentId] = useState<Record<string, CanServoGroupTestDraft>>({});
+  const [canServoGroupLiveEnabledByComponentId, setCanServoGroupLiveEnabledByComponentId] = useState<Record<string, boolean>>({});
+  const [canServoGroupLiveStatusByComponentId, setCanServoGroupLiveStatusByComponentId] = useState<Record<string, CanServoGroupLiveStatus>>({});
+  const [canServoGroupLinkedDragByComponentId, setCanServoGroupLinkedDragByComponentId] = useState<Record<string, CanServoGroupLinkedDragState>>({});
   const [componentServoLimitDraftByInstanceId, setComponentServoLimitDraftByInstanceId] = useState<Record<string, { minDeg: string; maxDeg: string }>>({});
   const [componentServoLimitErrorByInstanceId, setComponentServoLimitErrorByInstanceId] = useState<Record<string, string>>({});
   const [draggingArmJointId, setDraggingArmJointId] = useState<string | null>(null);
@@ -306,6 +329,11 @@ export function ThreeLayerWorkspace({
   const armLiveTimerRef = useRef<Record<string, number>>({});
   const armLiveSendingRef = useRef<Record<string, boolean>>({});
   const pendingArmLiveMoveRef = useRef<Record<string, { component: ComponentDefinition; config: ArmConfig }>>({});
+  const canServoGroupLiveEnabledRef = useRef<Record<string, boolean>>({});
+  const canServoGroupLiveTimerRef = useRef<Record<string, number>>({});
+  const canServoGroupLiveSendingRef = useRef<Record<string, boolean>>({});
+  const fallbackCanServoGroupSeqRef = useRef(1);
+  const pendingCanServoGroupLiveMoveRef = useRef<Record<string, { component: ComponentDefinition; draft: CanServoGroupTestDraft }>>({});
   const armAutoRecordingStartRef = useRef<Record<string, number>>({});
   const armArchivePlaybackGenerationRef = useRef(0);
   const layerTitle = layer === "plugins" ? uiText("sections.plugins", "插件") : layer === "components" ? uiText("sections.components", "组件") : uiText("sections.robots", "机器人");
@@ -364,6 +392,7 @@ export function ThreeLayerWorkspace({
   const selectedComponent = components.find((component) => component.id === selectedComponentId) ?? components[0];
   const selectedRobot = robots.find((robot) => robot.id === selectedRobotId) ?? robots[0];
   const selectedPlugin = pluginInstances.find((instance) => instance.id === selectedPluginId) ?? null;
+  const selectedPluginOwnerName = selectedPlugin ? usage.get(selectedPlugin.id)?.[0]?.ownerName : undefined;
   const shownPluginInstances = useMemo(
     () => pluginInstances.filter((instance) => !pluginLibraryFilter || instance.type === pluginLibraryFilter),
     [pluginInstances, pluginLibraryFilter]
@@ -383,6 +412,10 @@ export function ThreeLayerWorkspace({
   }, [dataServiceOnline, project?.id]);
 
   useEffect(() => {
+    canServoGroupLiveEnabledRef.current = canServoGroupLiveEnabledByComponentId;
+  }, [canServoGroupLiveEnabledByComponentId]);
+
+  useEffect(() => {
     return () => {
       for (const timer of Object.values(armSaveTimerRef.current)) {
         window.clearTimeout(timer);
@@ -390,10 +423,16 @@ export function ThreeLayerWorkspace({
       for (const timer of Object.values(armLiveTimerRef.current)) {
         window.clearTimeout(timer);
       }
+      for (const timer of Object.values(canServoGroupLiveTimerRef.current)) {
+        window.clearTimeout(timer);
+      }
       armSaveTimerRef.current = {};
       armLiveTimerRef.current = {};
       armLiveSendingRef.current = {};
       pendingArmLiveMoveRef.current = {};
+      canServoGroupLiveTimerRef.current = {};
+      canServoGroupLiveSendingRef.current = {};
+      pendingCanServoGroupLiveMoveRef.current = {};
     };
   }, []);
 
@@ -705,7 +744,19 @@ export function ThreeLayerWorkspace({
     return canServoGroupDraftByComponentId[component.id] ?? normalizeCanServoGroupConfig(component.config, pluginInstances);
   }
 
+  function clearCanServoGroupLinkedDrag(componentId: string) {
+    setCanServoGroupLinkedDragByComponentId((current) => {
+      if (!current[componentId]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[componentId];
+      return next;
+    });
+  }
+
   function updateCanServoGroupDraft(component: ComponentDefinition, patch: Partial<CanServoGroupComponentConfig>) {
+    clearCanServoGroupLinkedDrag(component.id);
     setCanServoGroupDraftByComponentId((current) => ({
       ...current,
       [component.id]: {
@@ -727,38 +778,372 @@ export function ThreeLayerWorkspace({
     };
   }
 
-  function updateCanServoGroupTestDraft(component: ComponentDefinition, patch: Partial<CanServoGroupTestDraft>) {
+  function updateCanServoGroupTestDraft(component: ComponentDefinition, patch: Partial<CanServoGroupTestDraft>, options: { live?: boolean } = {}) {
+    const nextDraft = {
+      ...canServoGroupTestDraftForComponent(component),
+      ...patch
+    };
     setCanServoGroupTestDraftByComponentId((current) => ({
       ...current,
-      [component.id]: {
-        ...canServoGroupTestDraftForComponent(component),
-        ...patch
-      }
+      [component.id]: nextDraft
     }));
+    if (options.live) {
+      scheduleCanServoGroupLiveMove(component, nextDraft);
+    }
   }
 
-  async function sendCanServoGroupPositions(component: ComponentDefinition) {
+  function nextCanServoGroupCommandSeq() {
+    return nextCommandSeq ? nextCommandSeq() : fallbackCanServoGroupSeqRef.current++;
+  }
+
+  function canServoGroupPreviewJson(config: CanServoGroupComponentConfig, draft: CanServoGroupTestDraft, configure: boolean) {
+    let seq = 0;
+    try {
+      const compiled = compileCanServoGroupPositionCommands(config, pluginInstances, draft.positions, draft.speedRaw, {
+        configure,
+        nextSeq: () => seq++
+      });
+      return JSON.stringify(compiled.commands, null, 2);
+    } catch {
+      return "--";
+    }
+  }
+
+  function canServoGroupSlotSpan(config: CanServoGroupComponentConfig, slot: CanServoGroupSlot): number {
+    const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]);
+    const profile = plugin ? canServoPluginToProfile(plugin) : null;
+    return profile ? servoLogicalSpan(profile) : 360;
+  }
+
+  function canServoGroupLinkedDragRange(config: CanServoGroupComponentConfig, linked: CanServoGroupLinkedDragState) {
+    let min = -360;
+    let max = 360;
+    for (const slot of CAN_SERVO_GROUP_SLOTS) {
+      const span = canServoGroupSlotSpan(config, slot);
+      const base = clamp(linked.basePositions[slot] ?? span / 2, 0, span);
+      min = Math.max(min, -base);
+      max = Math.min(max, span - base);
+    }
+    if (min > max) {
+      return { min: 0, max: 0 };
+    }
+    return { min: Math.ceil(min), max: Math.floor(max) };
+  }
+
+  function defaultCanServoGroupLinkedDrag(config: CanServoGroupComponentConfig, draft: CanServoGroupTestDraft): CanServoGroupLinkedDragState {
+    return {
+      basePositions: Object.fromEntries(CAN_SERVO_GROUP_SLOTS.map((slot) => {
+        const span = canServoGroupSlotSpan(config, slot);
+        return [slot, clamp(draft.positions[slot] ?? span / 2, 0, span)];
+      })) as Record<CanServoGroupSlot, number>,
+      offsetDeg: 0
+    };
+  }
+
+  function canServoGroupPositionsFromLinkedOffset(
+    config: CanServoGroupComponentConfig,
+    linked: CanServoGroupLinkedDragState,
+    offsetDeg: number
+  ): Record<CanServoGroupSlot, number> {
+    return Object.fromEntries(CAN_SERVO_GROUP_SLOTS.map((slot) => {
+      const span = canServoGroupSlotSpan(config, slot);
+      const base = clamp(linked.basePositions[slot] ?? span / 2, 0, span);
+      return [slot, clamp(base + offsetDeg, 0, span)];
+    })) as Record<CanServoGroupSlot, number>;
+  }
+
+  function updateCanServoGroupLinkedDrag(component: ComponentDefinition, rawOffsetDeg: number) {
+    const config = canServoGroupDraftForComponent(component);
+    const draft = canServoGroupTestDraftForComponent(component);
+    const linked = canServoGroupLinkedDragByComponentId[component.id] ?? defaultCanServoGroupLinkedDrag(config, draft);
+    const range = canServoGroupLinkedDragRange(config, linked);
+    const offsetDeg = clamp(Number.isFinite(rawOffsetDeg) ? rawOffsetDeg : 0, range.min, range.max);
+    const nextLinked = { ...linked, offsetDeg };
+    const nextPositions = canServoGroupPositionsFromLinkedOffset(config, nextLinked, offsetDeg);
+    setCanServoGroupLinkedDragByComponentId((current) => ({
+      ...current,
+      [component.id]: nextLinked
+    }));
+    updateCanServoGroupTestDraft(component, { positions: nextPositions }, { live: canServoGroupLiveEnabledRef.current[component.id] === true });
+  }
+
+  function canServoGroupPositionFromMessages(messages: InboundMessage[], servoId: number): number | null {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.type === "can_servo.feedback" && message.servoId === servoId) {
+        if (typeof message.currentPosition === "number") {
+          return message.currentPosition;
+        }
+        if (typeof message.position === "number") {
+          return message.position;
+        }
+      }
+      const parsed = parseAsmgMdCanFrame(message);
+      if (parsed?.servoId === servoId) {
+        if (typeof parsed.currentPosition === "number") {
+          return parsed.currentPosition;
+        }
+        if (typeof parsed.position === "number") {
+          return parsed.position;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function syncCanServoGroupCurrentPositions(component: ComponentDefinition, options: { live?: boolean; configure?: boolean } = {}): Promise<CanServoGroupTestDraft | null> {
     const config = normalizeCanServoGroupConfig(canServoGroupDraftForComponent(component), pluginInstances);
     const validation = validateCanServoGroupComponentConfig({ ...component, kind: "can-servo-group", pluginInstanceIds: canServoGroupPluginIds(config), config }, pluginInstances);
     if (validation) {
       setError(validation);
       setStatus("error");
-      return;
+      return null;
     }
-    const draft = canServoGroupTestDraftForComponent(component);
+    if (!sendAboardBridgeCanServoCommand) {
+      setError("CAN servo group current sync requires the A-board bridge");
+      setStatus("error");
+      return null;
+    }
+    const profiles = CAN_SERVO_GROUP_SLOTS.map((slot) => {
+      const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]);
+      const profile = plugin ? canServoPluginToProfile(plugin) : null;
+      return profile ? { slot, profile } : null;
+    }).filter((item): item is { slot: CanServoGroupSlot; profile: NonNullable<ReturnType<typeof canServoPluginToProfile>> } => item !== null);
+    if (profiles.length === 0) {
+      setError("CAN servo group has no valid servos to sync");
+      setStatus("error");
+      return null;
+    }
+
+    const syncTouchesLiveStatus = options.live === true || canServoGroupLiveEnabledRef.current[component.id] === true;
+    if (syncTouchesLiveStatus) {
+      setCanServoGroupLiveStatus(component.id, "syncing");
+    }
+    const syncedPositions: Partial<Record<CanServoGroupSlot, number>> = {};
     try {
-      await onPrepareCommand?.("can-servo-group");
+      if (!options.live) {
+        await onPrepareCommand?.("can-servo-group");
+      }
+      if (options.configure !== false) {
+        const configCommand = buildAsmgMdCanConfigCommand(nextCanServoGroupCommandSeq(), profiles[0].profile.bitrateKbps);
+        const configResult = await sendAboardBridgeCanServoCommand(configCommand, { log: options.live !== true });
+        if (!configResult || configResult.messages.some((message) => message.type === "error")) {
+        setError(configResult?.error ?? "CAN servo group config failed before current sync");
+        setStatus("error");
+        if (syncTouchesLiveStatus) {
+          setCanServoGroupLiveStatus(component.id, "error");
+        }
+        return null;
+      }
+      }
+      for (const item of profiles) {
+        const readCommand = buildAsmgMdReadPositionCurrentCommand(nextCanServoGroupCommandSeq(), item.profile.id);
+        const result = await sendAboardBridgeCanServoCommand(readCommand, { log: false, timeoutMs: 350 });
+        if (!result || result.messages.some((message) => message.type === "error")) {
+          continue;
+        }
+        const rawPosition = canServoGroupPositionFromMessages(result.messages, item.profile.id);
+        if (rawPosition !== null) {
+          syncedPositions[item.slot] = clamp(asmgMdPositionRawToLogicalDegrees(item.profile, rawPosition), 0, servoLogicalSpan(item.profile));
+        }
+      }
+      const syncedCount = Object.keys(syncedPositions).length;
+      if (syncedCount === 0) {
+        setError("没有同步到 CAN 舵机当前位置，请确认 A 板 CAN 反馈正常");
+        setStatus("error");
+        if (syncTouchesLiveStatus) {
+          setCanServoGroupLiveStatus(component.id, "error");
+        }
+        clearCanServoGroupLinkedDrag(component.id);
+        return null;
+      }
+      const currentDraft = canServoGroupTestDraftForComponent(component);
+      const nextDraft = {
+        ...currentDraft,
+        positions: {
+          ...currentDraft.positions,
+          ...syncedPositions
+        }
+      };
+      setCanServoGroupTestDraftByComponentId((current) => ({
+        ...current,
+        [component.id]: nextDraft
+      }));
+      if (syncedCount !== profiles.length) {
+        clearCanServoGroupLinkedDrag(component.id);
+        setError(`只同步到 ${syncedCount}/${profiles.length} 个 CAN 舵机当前位置，未同步的保持当前面板值`);
+        setStatus("error");
+        if (syncTouchesLiveStatus) {
+          setCanServoGroupLiveStatus(component.id, "error");
+        }
+        return null;
+      }
+      setCanServoGroupLinkedDragByComponentId((current) => ({
+        ...current,
+        [component.id]: {
+          basePositions: nextDraft.positions,
+          offsetDeg: 0
+        }
+      }));
+      setError("");
+      setStatus("idle");
+      setCanServoGroupLiveStatus(component.id, syncTouchesLiveStatus ? "ready" : "off");
+      return nextDraft;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "CAN servo group current sync failed");
+      setStatus("error");
+      if (syncTouchesLiveStatus) {
+        setCanServoGroupLiveStatus(component.id, "error");
+      }
+      return null;
+    }
+  }
+
+  async function sendCanServoGroupPositions(
+    component: ComponentDefinition,
+    draftOverride?: CanServoGroupTestDraft,
+    options: { configure?: boolean; live?: boolean } = {}
+  ): Promise<PlatformCommandResult | null> {
+    const config = normalizeCanServoGroupConfig(canServoGroupDraftForComponent(component), pluginInstances);
+    const validation = validateCanServoGroupComponentConfig({ ...component, kind: "can-servo-group", pluginInstanceIds: canServoGroupPluginIds(config), config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return null;
+    }
+    const draft = draftOverride ?? canServoGroupTestDraftForComponent(component);
+    let pcCommands: PcCommand[];
+    try {
+      pcCommands = compileCanServoGroupPositionCommands(config, pluginInstances, draft.positions, draft.speedRaw, {
+        configure: options.configure !== false,
+        nextSeq: nextCanServoGroupCommandSeq
+      }).commands;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "CAN servo group command compile failed");
+      setStatus("error");
+      return null;
+    }
+    try {
+      if (!options.live) {
+        await onPrepareCommand?.("can-servo-group");
+      }
       const result = await dispatchPlatformCommand(createPlatformCommand("can-servo-group.set_positions", `can-servo-group:${component.id}`, {
-        config,
-        positions: draft.positions,
-        speedRaw: draft.speedRaw
+        pcCommands,
+        live: options.live === true,
+        log: options.live !== true
       }));
       setError(result.message ?? "");
       setStatus(result.status === "failed" ? "error" : "idle");
+      return result;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "CAN servo group command failed");
       setStatus("error");
+      return null;
     }
+  }
+
+  function setCanServoGroupLiveStatus(componentId: string, liveStatus: CanServoGroupLiveStatus) {
+    setCanServoGroupLiveStatusByComponentId((current) => ({
+      ...current,
+      [componentId]: liveStatus
+    }));
+  }
+
+  function setCanServoGroupLiveEnabled(component: ComponentDefinition, enabled: boolean) {
+    const nextEnabled = {
+      ...canServoGroupLiveEnabledRef.current,
+      [component.id]: enabled
+    };
+    canServoGroupLiveEnabledRef.current = nextEnabled;
+    setCanServoGroupLiveEnabledByComponentId(nextEnabled);
+    if (enabled) {
+      void primeCanServoGroupLiveMove(component);
+      return;
+    }
+    setCanServoGroupLiveStatus(component.id, "off");
+    delete pendingCanServoGroupLiveMoveRef.current[component.id];
+    if (canServoGroupLiveTimerRef.current[component.id] !== undefined) {
+      window.clearTimeout(canServoGroupLiveTimerRef.current[component.id]);
+      delete canServoGroupLiveTimerRef.current[component.id];
+    }
+  }
+
+  function schedulePendingCanServoGroupLiveFlush(componentId: string) {
+    if (
+      canServoGroupLiveEnabledRef.current[componentId] &&
+      pendingCanServoGroupLiveMoveRef.current[componentId] &&
+      canServoGroupLiveTimerRef.current[componentId] === undefined
+    ) {
+      canServoGroupLiveTimerRef.current[componentId] = window.setTimeout(() => {
+        delete canServoGroupLiveTimerRef.current[componentId];
+        void flushCanServoGroupLiveMove(componentId);
+      }, 40);
+    }
+  }
+
+  async function primeCanServoGroupLiveMove(component: ComponentDefinition) {
+    canServoGroupLiveSendingRef.current[component.id] = true;
+    setCanServoGroupLiveStatus(component.id, "configuring");
+    try {
+      await onPrepareCommand?.("can-servo-group");
+      const syncedDraft = await syncCanServoGroupCurrentPositions(component, { configure: true, live: true });
+      if (!syncedDraft || !canServoGroupLiveEnabledRef.current[component.id]) {
+        setCanServoGroupLiveStatus(component.id, "error");
+        return;
+      }
+      const result = await sendCanServoGroupPositions(component, syncedDraft, { configure: false, live: true });
+      if (canServoGroupLiveEnabledRef.current[component.id]) {
+        setCanServoGroupLiveStatus(component.id, !result || result.status === "failed" ? "error" : "ready");
+      }
+    } finally {
+      canServoGroupLiveSendingRef.current[component.id] = false;
+      schedulePendingCanServoGroupLiveFlush(component.id);
+    }
+  }
+
+  function scheduleCanServoGroupLiveMove(component: ComponentDefinition, draft: CanServoGroupTestDraft) {
+    if (!canServoGroupLiveEnabledRef.current[component.id]) {
+      return;
+    }
+    pendingCanServoGroupLiveMoveRef.current[component.id] = { component, draft };
+    if (canServoGroupLiveTimerRef.current[component.id] !== undefined || canServoGroupLiveSendingRef.current[component.id]) {
+      return;
+    }
+    canServoGroupLiveTimerRef.current[component.id] = window.setTimeout(() => {
+      delete canServoGroupLiveTimerRef.current[component.id];
+      void flushCanServoGroupLiveMove(component.id);
+    }, 40);
+  }
+
+  async function flushCanServoGroupLiveMove(componentId: string) {
+    const pending = pendingCanServoGroupLiveMoveRef.current[componentId];
+    delete pendingCanServoGroupLiveMoveRef.current[componentId];
+    if (!pending || !canServoGroupLiveEnabledRef.current[componentId]) {
+      return;
+    }
+    canServoGroupLiveSendingRef.current[componentId] = true;
+    setCanServoGroupLiveStatus(componentId, "sending");
+    try {
+      const result = await sendCanServoGroupPositions(pending.component, pending.draft, { configure: false, live: true });
+      setCanServoGroupLiveStatus(componentId, !result || result.status === "failed" ? "error" : "ready");
+    } finally {
+      canServoGroupLiveSendingRef.current[componentId] = false;
+      schedulePendingCanServoGroupLiveFlush(componentId);
+    }
+  }
+
+  async function centerCanServoGroup(component: ComponentDefinition) {
+    const config = normalizeCanServoGroupConfig(canServoGroupDraftForComponent(component), pluginInstances);
+    const nextDraft = {
+      ...canServoGroupTestDraftForComponent(component),
+      positions: canServoGroupCenterPositions(config, pluginInstances)
+    };
+    clearCanServoGroupLinkedDrag(component.id);
+    setCanServoGroupTestDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: nextDraft
+    }));
+    await sendCanServoGroupPositions(component, nextDraft, { configure: true });
   }
 
   async function saveCanServoGroupComponent(component: ComponentDefinition) {
@@ -799,6 +1184,9 @@ export function ThreeLayerWorkspace({
     const existing = pluginDebugDraftById[instance.id];
     const servo = pluginInstancesToServoProfiles([instance])[0];
     const motor = pluginInstancesToMotorProfiles([instance])[0];
+    const motorChannel = motor?.channel ?? normalizeMotorChannel(String(instance.config.channel ?? ""));
+    const displayMotorPin = (pin: string | undefined, role: MotorPinRole) =>
+      roboMasterAPinAliasForMotorPin(pin, role, motorChannel) ?? pin ?? "";
     const minDeg = servo?.minDeg ?? 0;
     const maxDeg = servo?.maxDeg ?? 360;
     const span = Math.max(1, maxDeg - minDeg);
@@ -811,19 +1199,20 @@ export function ThreeLayerWorkspace({
       speedRaw: "300",
       acc: "30",
       liveDragEnabled: true,
+      pluginDirection: servo?.direction === -1 ? -1 : 1,
       reverse: false,
       minDeg: formatArmNumber(minDeg),
       maxDeg: formatArmNumber(maxDeg),
       resetDeg: formatArmNumber(resetDeg),
       motorSpeedPercent: "0",
       stopMode: "brake",
-      pwmPin: motor?.pwmPin ?? String(instance.config.pwmPin ?? ""),
-      in1Pin: motor?.in1Pin ?? String(instance.config.in1Pin ?? ""),
-      in2Pin: motor?.in2Pin ?? String(instance.config.in2Pin ?? ""),
-      enablePin: motor?.enablePin ?? String(instance.config.enablePin ?? ""),
-      sensorPin: motor?.sensorPin ?? String(instance.config.sensorPin ?? ""),
-      encoderAPin: motor?.encoderAPin ?? String(instance.config.encoderAPin ?? ""),
-      encoderBPin: motor?.encoderBPin ?? String(instance.config.encoderBPin ?? "")
+      pwmPin: displayMotorPin(motor?.pwmPin ?? String(instance.config.pwmPin ?? ""), "pwmPin"),
+      in1Pin: displayMotorPin(motor?.in1Pin ?? String(instance.config.in1Pin ?? ""), "in1Pin"),
+      in2Pin: displayMotorPin(motor?.in2Pin ?? String(instance.config.in2Pin ?? ""), "in2Pin"),
+      enablePin: displayMotorPin(motor?.enablePin ?? String(instance.config.enablePin ?? ""), "enablePin"),
+      sensorPin: displayMotorPin(motor?.sensorPin ?? String(instance.config.sensorPin ?? ""), "sensorPin"),
+      encoderAPin: displayMotorPin(motor?.encoderAPin ?? String(instance.config.encoderAPin ?? ""), "encoderAPin"),
+      encoderBPin: displayMotorPin(motor?.encoderBPin ?? String(instance.config.encoderBPin ?? ""), "encoderBPin")
     };
     return existing ? { ...defaults, ...existing } : defaults;
   }
@@ -1390,6 +1779,7 @@ export function ThreeLayerWorkspace({
     const draft = pluginDebugDraft(instance);
     const minDeg = clamp(Number(draft.minDeg), 0, 360);
     const maxDeg = clamp(Number(draft.maxDeg), 0, 360);
+    const direction = draft.pluginDirection === -1 ? -1 : 1;
     if (!Number.isFinite(minDeg) || !Number.isFinite(maxDeg) || minDeg >= maxDeg) {
       setPluginDebugMessage(instance.id, "限位范围必须在 0-360 度，并且最小值小于最大值", "danger");
       return;
@@ -1402,6 +1792,7 @@ export function ThreeLayerWorkspace({
           ...instance.config,
           minDeg,
           maxDeg,
+          direction,
           resetDeg
         }
       });
@@ -1409,6 +1800,7 @@ export function ThreeLayerWorkspace({
       updatePluginDebugDraft(instance.id, {
         minDeg: formatArmNumber(minDeg),
         maxDeg: formatArmNumber(maxDeg),
+        pluginDirection: direction,
         resetDeg: formatArmNumber(resetDeg),
         angleDeg: formatArmNumber(clampPluginServoLogical(updated, Number(draft.angleDeg)))
       });
@@ -1428,13 +1820,13 @@ export function ThreeLayerWorkspace({
     return result;
   }
 
-  async function readPluginServo(instance: PluginInstance) {
+  async function readPluginServo(instance: PluginInstance, options: { syncDraft?: boolean } = {}) {
     const result = await runPluginCommand(instance, "servo.read_feedback");
     const feedback = servoFeedbackFromResponse(result.response);
     if (feedback) {
       setPluginServoFeedbackById((current) => ({ ...current, [instance.id]: feedback }));
       const servo = pluginInstancesToServoProfiles([instance])[0];
-      if (servo && feedback.positionDeg !== undefined) {
+      if (options.syncDraft !== false && servo && feedback.positionDeg !== undefined) {
         const logical = servoPhysicalToLogicalAngleWithReverse(servo, feedback.positionDeg, pluginDebugDraft(instance).reverse);
         updatePluginDebugDraft(instance.id, { angleDeg: formatArmNumber(clampPluginServoLogical(instance, logical)) });
       }
@@ -1444,24 +1836,26 @@ export function ThreeLayerWorkspace({
   }
 
   async function sendPluginServoPosition(instance: PluginInstance, options: { live?: boolean; draft?: PluginDebugDraft } = {}) {
+    const live = options.live === true;
     const hadFeedback = pluginServoFeedbackById[instance.id]?.positionDeg !== undefined;
-    if (!(options.live === true && hadFeedback)) {
+    if (!live && !hadFeedback) {
       const feedback = await readPluginServo(instance);
       if (!feedback) {
         return;
       }
-      if (!hadFeedback) {
-        setPluginDebugMessage(instance.id, "Synced current servo position; first target blocked. Adjust again to move.", "warning");
-        return;
-      }
+      setPluginDebugMessage(instance.id, "Synced current servo position; first target blocked. Adjust again to move.", "warning");
+      return;
     }
     const draft = options.draft ?? pluginDebugDraft(instance);
     const span = servoLogicalSpanForInstance(instance);
     const logicalAngle = clampPluginServoLogical(instance, Number(draft.angleDeg));
+    if (live) {
+      updatePluginDebugDraft(instance.id, { angleDeg: formatArmNumber(logicalAngle) });
+    }
     const commandAngle = draft.reverse ? span - logicalAngle : logicalAngle;
     const speedRaw = clamp(Math.round(Number(draft.speedRaw)), 0, 4095);
     const acc = clamp(Math.round(Number(draft.acc)), 0, 254);
-    await runPluginCommand(instance, "servo.set_position", { angleDeg: commandAngle, speedRaw, acc, live: options.live === true });
+    await runPluginCommand(instance, "servo.set_position", { angleDeg: commandAngle, speedRaw, acc, live });
   }
 
   async function sendPluginServoWheel(instance: PluginInstance, draft = pluginDebugDraft(instance)) {
@@ -1735,6 +2129,11 @@ export function ThreeLayerWorkspace({
 
   async function handleDeletePlugin(instanceId: string) {
     if (!project) {
+      return;
+    }
+    const ownerName = usage.get(instanceId)?.[0]?.ownerName;
+    if (ownerName) {
+      setError(t("architecture.library.removeBeforeDelete", { owner: ownerName }));
       return;
     }
     setStatus("saving");
@@ -2155,9 +2554,13 @@ export function ThreeLayerWorkspace({
       config
     }, pluginInstances);
     const testDraft = mecanumTestDraftForComponent(component);
-    const configText = (value: unknown) => {
+    const motorPinText = (plugin: PluginInstance, value: unknown, role: MotorPinRole) => {
       const text = String(value ?? "").trim();
-      return text || "--";
+      if (!text) {
+        return "--";
+      }
+      const channel = normalizeMotorChannel(String(plugin.config.channel ?? ""));
+      return roboMasterAPinAliasForMotorPin(text, role, channel) ?? text;
     };
     const numberText = (value: unknown, digits = 0) => (
       typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "--"
@@ -2320,15 +2723,15 @@ export function ThreeLayerWorkspace({
                     </span>
                     <span>
                       <small>{uiText("architecture.mecanum.motorPins", "PWM / IN")}</small>
-                      <strong>{plugin ? `${configText(plugin.config.pwmPin)} / ${configText(plugin.config.in1Pin)} / ${configText(plugin.config.in2Pin)}` : "--"}</strong>
+                      <strong>{plugin ? `${motorPinText(plugin, plugin.config.pwmPin, "pwmPin")} / ${motorPinText(plugin, plugin.config.in1Pin, "in1Pin")} / ${motorPinText(plugin, plugin.config.in2Pin, "in2Pin")}` : "--"}</strong>
                     </span>
                     <span>
                       <small>{uiText("architecture.mecanum.stbyPin", "STBY")}</small>
-                      <strong>{plugin ? configText(plugin.config.enablePin) : "--"}</strong>
+                      <strong>{plugin ? motorPinText(plugin, plugin.config.enablePin, "enablePin") : "--"}</strong>
                     </span>
                     <span>
                       <small>{uiText("architecture.mecanum.encoderPins", "Encoder A / B")}</small>
-                      <strong>{plugin ? `${configText(plugin.config.encoderAPin)} / ${configText(plugin.config.encoderBPin)}` : "--"}</strong>
+                      <strong>{plugin ? `${motorPinText(plugin, plugin.config.encoderAPin, "encoderAPin")} / ${motorPinText(plugin, plugin.config.encoderBPin, "encoderBPin")}` : "--"}</strong>
                     </span>
                     <span>
                       <small>{uiText("architecture.mecanum.rpm", "RPM")}</small>
@@ -2375,6 +2778,24 @@ export function ThreeLayerWorkspace({
     const testDraft = canServoGroupTestDraftForComponent(component);
     const targets = canServoGroupTargets(config, pluginInstances, testDraft.positions, testDraft.speedRaw);
     const targetBySlot = new Map(targets.map((target) => [target.slot, target]));
+    const liveEnabled = canServoGroupLiveEnabledByComponentId[component.id] === true;
+    const liveStatus = canServoGroupLiveStatusByComponentId[component.id] ?? "off";
+    const aboardJsonPreview = validation ? "--" : canServoGroupPreviewJson(config, testDraft, !liveEnabled);
+    const linkedDrag = canServoGroupLinkedDragByComponentId[component.id] ?? defaultCanServoGroupLinkedDrag(config, testDraft);
+    const linkedDragRange = canServoGroupLinkedDragRange(config, linkedDrag);
+    const linkedDragOffset = clamp(linkedDrag.offsetDeg, linkedDragRange.min, linkedDragRange.max);
+    const liveStatusLabel =
+      liveStatus === "sending"
+        ? uiText("architecture.canServoGroup.liveSending", "Sending")
+        : liveStatus === "configuring"
+          ? uiText("architecture.canServoGroup.liveConfiguring", "Configuring")
+          : liveStatus === "syncing"
+            ? uiText("architecture.canServoGroup.liveSyncing", "Syncing")
+            : liveStatus === "ready"
+              ? uiText("architecture.canServoGroup.liveReady", "Live")
+              : liveStatus === "error"
+                ? uiText("architecture.canServoGroup.liveError", "Error")
+                : uiText("architecture.canServoGroup.liveOff", "Manual");
     const profileForSlot = (slot: CanServoGroupSlot) => {
       const plugin = pluginInstances.find((instance) => instance.id === config.servos[slot]);
       return plugin ? canServoPluginToProfile(plugin) : null;
@@ -2382,12 +2803,13 @@ export function ThreeLayerWorkspace({
     const updateSlotPosition = (slot: CanServoGroupSlot, value: number) => {
       const profile = profileForSlot(slot);
       const span = profile ? servoLogicalSpan(profile) : 360;
+      clearCanServoGroupLinkedDrag(component.id);
       updateCanServoGroupTestDraft(component, {
         positions: {
           ...testDraft.positions,
           [slot]: clamp(Number.isFinite(value) ? value : 0, 0, span)
         }
-      });
+      }, { live: liveEnabled });
     };
     return (
       <div className="plugin-instance-debug-stack">
@@ -2437,9 +2859,59 @@ export function ThreeLayerWorkspace({
                 step={1}
                 type="number"
                 value={testDraft.speedRaw}
-                onChange={(event) => updateCanServoGroupTestDraft(component, { speedRaw: clamp(Math.round(Number(event.target.value)), 0, 1280) })}
+                onChange={(event) => updateCanServoGroupTestDraft(component, { speedRaw: clamp(Math.round(Number(event.target.value)), 0, 1280) }, { live: liveEnabled })}
               />
             </label>
+          </div>
+
+          <div className="can-servo-live-bar">
+            <label className="can-servo-live-toggle">
+              <input
+                checked={liveEnabled}
+                disabled={Boolean(validation) || status === "saving"}
+                onChange={(event) => setCanServoGroupLiveEnabled(component, event.target.checked)}
+                type="checkbox"
+              />
+              <span>{uiText("architecture.canServoGroup.liveLinked", "Live linked control")}</span>
+            </label>
+            <Metric label={uiText("architecture.canServoGroup.liveStatus", "Live status")} value={liveStatusLabel} tone={liveStatus === "error" ? "danger" : liveStatus === "sending" || liveStatus === "configuring" || liveStatus === "syncing" ? "warning" : liveEnabled ? "online" : "neutral"} />
+            <button className="icon-button" disabled={Boolean(validation) || status === "saving" || !sendAboardBridgeCanServoCommand} onClick={() => void syncCanServoGroupCurrentPositions(component, { configure: true })} type="button">
+              <RotateCw size={18} />
+              <span>{uiText("architecture.canServoGroup.syncCurrent", "Sync current")}</span>
+            </button>
+          </div>
+
+          <div className="can-servo-linked-drag-panel">
+            <div className="mecanum-wheel-feedback-head">
+              <strong>{uiText("architecture.canServoGroup.linkedDrag", "同步拖动")}</strong>
+              <small>{uiText("architecture.canServoGroup.linkedDragTargets", "CAN x4")}</small>
+            </div>
+            <label className="speed-slider-field can-servo-linked-slider">
+              <span>{uiText("architecture.canServoGroup.linkedOffset", "同步偏移")}</span>
+              <input
+                disabled={Boolean(validation) || status === "saving"}
+                min={linkedDragRange.min}
+                max={linkedDragRange.max}
+                step={1}
+                type="range"
+                value={linkedDragOffset}
+                onChange={(event) => updateCanServoGroupLinkedDrag(component, Number(event.target.value))}
+              />
+            </label>
+            <div className="command-grid servo-command-grid">
+              <label>
+                <span>{uiText("architecture.canServoGroup.linkedOffsetDeg", "偏移 deg")}</span>
+                <input
+                  disabled={Boolean(validation) || status === "saving"}
+                  min={linkedDragRange.min}
+                  max={linkedDragRange.max}
+                  step={1}
+                  type="number"
+                  value={formatArmNumber(linkedDragOffset)}
+                  onChange={(event) => updateCanServoGroupLinkedDrag(component, Number(event.target.value))}
+                />
+              </label>
+            </div>
           </div>
 
           <div className="mecanum-wheel-feedback-grid">
@@ -2493,9 +2965,21 @@ export function ThreeLayerWorkspace({
             })}
           </div>
 
+          <div className="can-servo-group-json-preview">
+            <div className="mecanum-wheel-feedback-head">
+              <strong>{uiText("architecture.canServoGroup.aboardJson", "A-board JSON")}</strong>
+              <small>{liveEnabled ? liveStatusLabel : uiText("architecture.canServoGroup.send", "Send group")}</small>
+            </div>
+            <pre>{aboardJsonPreview}</pre>
+          </div>
+
           {validation ? <p className="empty-state">{validation}</p> : null}
 
           <div className="action-grid servo-card-actions">
+            <button className="icon-button" disabled={Boolean(validation) || status === "saving"} onClick={() => void centerCanServoGroup(component)} type="button">
+              <RotateCcw size={18} />
+              <span>{uiText("architecture.canServoGroup.center", "Center all")}</span>
+            </button>
             <button className="icon-button primary" disabled={Boolean(validation) || status === "saving"} onClick={() => void sendCanServoGroupPositions(component)} type="button">
               <Send size={18} />
               <span>{uiText("architecture.canServoGroup.send", "Send group")}</span>
@@ -2525,6 +3009,24 @@ export function ThreeLayerWorkspace({
       return renderMotorPluginDebug(instance);
     }
     return renderPanelForInstance(instance);
+  }
+
+  function renderRoboMasterAPinDraftSelect(instanceId: string, field: MotorPinRole, label: string, value: string, channel: string) {
+    const normalizedValue = normalizeMotorPin(value, field, channel) ?? "";
+    const selectedValue = ROBOMASTER_A_BOARD_GPIO_OPTIONS.some((option) => option.value === normalizedValue) ? normalizedValue : "";
+    return (
+      <label>
+        <span>{label}</span>
+        <select value={selectedValue} onChange={(event) => updatePluginDebugDraft(instanceId, { [field]: event.target.value } as Partial<PluginDebugDraft>)}>
+          <option value="">--</option>
+          {ROBOMASTER_A_BOARD_GPIO_OPTIONS.map((option) => (
+            <option key={`${field}-${option.label}`} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
   }
 
   function renderServoPluginDebug(instance: PluginInstance) {
@@ -2614,6 +3116,7 @@ export function ThreeLayerWorkspace({
               <input type="checkbox" checked={draft.reverse} disabled={servoConfigBusy} onChange={(event) => updatePluginDebugDraft(instance.id, { reverse: event.target.checked })} />
               <span>{t("fields.temporaryReverse")}</span>
             </label>
+            <Metric label={`${t("sections.plugins")} ${t("fields.memberDirection")}`} value={draft.pluginDirection === -1 ? t("fields.reverseRotation") : t("fields.forwardRotation")} tone={draft.pluginDirection === -1 ? "warning" : "neutral"} />
             <Metric label={t("architecture.servoDebug.logicalRange")} value={`0-${formatArmNumber(span)} deg`} />
             <Metric label={t("architecture.servoDebug.physicalLimit")} value={`${draft.minDeg}-${draft.maxDeg} deg`} />
           </div>
@@ -2667,6 +3170,15 @@ export function ThreeLayerWorkspace({
             <label>
               <span>{t("architecture.servoDebug.resetAngle")}</span>
               <input disabled={servoConfigBusy} type="number" min={0} max={span} step={1} value={draft.resetDeg} onChange={(event) => updatePluginDebugDraft(instance.id, { resetDeg: event.target.value })} />
+            </label>
+            <label className="checkbox-field">
+              <input
+                checked={draft.pluginDirection === -1}
+                disabled={servoConfigBusy}
+                type="checkbox"
+                onChange={(event) => updatePluginDebugDraft(instance.id, { pluginDirection: event.target.checked ? -1 : 1 })}
+              />
+              <span>{t("sections.plugins")} {t("fields.reverseRotation")}</span>
             </label>
           </div>
           <div className="action-grid plugin-servo-limit-actions">
@@ -2733,12 +3245,13 @@ export function ThreeLayerWorkspace({
     const draft = pluginDebugDraft(instance);
     const message = pluginDebugMessageById[instance.id];
     const speed = clamp(Math.round(Number(draft.motorSpeedPercent)), -100, 100);
+    const motorChannel = normalizeMotorChannel(motor.channel);
     return (
       <div className="plugin-instance-debug-stack">
         <article className="servo-command-card selected plugin-debug-card">
           <div className="servo-command-card-header">
             <button className="servo-card-select" type="button">
-              <span className="device-id">{normalizeMotorChannel(motor.channel)}</span>
+              <span className="device-id">{motorChannel}</span>
               <span className="device-name">{motor.name}</span>
             </button>
             <span className="device-signal motion muted">TB6618 {t("platform.types.motor")}</span>
@@ -2766,17 +3279,17 @@ export function ThreeLayerWorkspace({
               <span>{t("panels.motorPortMapping")}</span>
             </div>
             <div className="port-config-grid">
-              <label><span>PWM</span><input value={draft.pwmPin} onChange={(event) => updatePluginDebugDraft(instance.id, { pwmPin: event.target.value })} /></label>
-              <label><span>IN1</span><input value={draft.in1Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in1Pin: event.target.value })} /></label>
-              <label><span>IN2</span><input value={draft.in2Pin} onChange={(event) => updatePluginDebugDraft(instance.id, { in2Pin: event.target.value })} /></label>
-              <label><span>EN/STBY</span><input value={draft.enablePin} onChange={(event) => updatePluginDebugDraft(instance.id, { enablePin: event.target.value })} /></label>
-              <label><span>{t("fields.sensorPin")}</span><input value={draft.sensorPin} onChange={(event) => updatePluginDebugDraft(instance.id, { sensorPin: event.target.value })} /></label>
-              <label><span>ENC A</span><input value={draft.encoderAPin} onChange={(event) => updatePluginDebugDraft(instance.id, { encoderAPin: event.target.value })} /></label>
-              <label><span>ENC B</span><input value={draft.encoderBPin} onChange={(event) => updatePluginDebugDraft(instance.id, { encoderBPin: event.target.value })} /></label>
+              {renderRoboMasterAPinDraftSelect(instance.id, "pwmPin", "PWM", draft.pwmPin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "in1Pin", "IN1", draft.in1Pin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "in2Pin", "IN2", draft.in2Pin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "enablePin", "EN/STBY", draft.enablePin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "sensorPin", t("fields.sensorPin"), draft.sensorPin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "encoderAPin", "ENC A", draft.encoderAPin, motorChannel)}
+              {renderRoboMasterAPinDraftSelect(instance.id, "encoderBPin", "ENC B", draft.encoderBPin, motorChannel)}
             </div>
           </div>
           <div className="preview-grid motor-preview-grid">
-            <Metric label={t("fields.targetPort")} value={normalizeMotorChannel(motor.channel)} />
+            <Metric label={t("fields.targetPort")} value={motorChannel} />
             <Metric label={t("metrics.speed")} value={`${speed}%`} tone={speed === 0 ? "neutral" : "warning"} />
             <Metric label={t("fields.stopMode")} value={draft.stopMode === "brake" ? t("stopMode.brake") : t("stopMode.coast")} />
           </div>
@@ -2847,7 +3360,7 @@ export function ThreeLayerWorkspace({
       );
     }
 
-    function updateJointNumber(jointId: string, field: "lengthPx" | "angleDeg" | "neutralDeg" | "speedRaw" | "acc", value: string, live = false) {
+    function updateJointNumber(jointId: string, field: ArmJointNumberField, value: string, live = false) {
       const numericValue = Number(value);
       if (!Number.isFinite(numericValue)) {
         return;
@@ -2856,19 +3369,7 @@ export function ThreeLayerWorkspace({
         jointId,
         (joint) => {
           const servo = servoProfiles.find((item) => item.id === joint.servoId);
-          const span = servo ? servoLogicalSpan(servo) : 360;
-          if (field === "lengthPx") {
-            const lengthPx = clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
-            const shapeSegments = armJointShapeSegments(joint).map((segment, index) => (index === 0 ? { ...segment, lengthPx } : segment));
-            return { ...joint, lengthPx, shapeSegments };
-          }
-          if (field === "speedRaw") {
-            return { ...joint, speedRaw: clamp(Math.round(numericValue), 0, 4095) };
-          }
-          if (field === "acc") {
-            return { ...joint, acc: clamp(Math.round(numericValue), 0, 254) };
-          }
-          return { ...joint, [field]: clamp(numericValue, 0, span) };
+          return updateArmJointNumberValue(joint, field, numericValue, servo);
         },
         live
       );
@@ -3589,7 +4090,13 @@ export function ThreeLayerWorkspace({
                     <ArrowLeft size={16} />
                     <span>{t("architecture.actions.backToPluginLibrary")}</span>
                   </button>
-                  <button className="icon-button danger" onClick={() => void handleDeletePlugin(selectedPlugin.id)} type="button">
+                  <button
+                    className="icon-button danger"
+                    disabled={Boolean(selectedPluginOwnerName) || status === "saving"}
+                    onClick={() => void handleDeletePlugin(selectedPlugin.id)}
+                    title={selectedPluginOwnerName ? t("architecture.library.removeBeforeDelete", { owner: selectedPluginOwnerName }) : t("architecture.actions.deletePluginInstance")}
+                    type="button"
+                  >
                     <Trash2 size={16} />
                     <span>{t("common.delete")}</span>
                   </button>

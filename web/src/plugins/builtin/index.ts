@@ -6,7 +6,6 @@ import { browserGamepadPackage } from "@plugins/builtin/browserGamepad";
 import { cameraGimbalPackage } from "@plugins/builtin/cameraGimbal";
 import { coreCapabilitiesPackage } from "@plugins/builtin/coreCapabilities";
 import { coreTransportsPackage } from "@plugins/builtin/coreTransports";
-import { feetechServoPackage } from "@plugins/builtin/feetechServo";
 import { firmwareUploadPackage } from "@plugins/builtin/firmwareUpload";
 import { raspberryPiPackage } from "@plugins/builtin/raspberryPi";
 import { robotArmPackage } from "@plugins/builtin/robotArm";
@@ -17,7 +16,6 @@ export const BUILTIN_PLUGIN_PACKAGES = [
   coreCapabilitiesPackage,
   coreTransportsPackage,
   asmeCanServoPackage,
-  feetechServoPackage,
   tb6618MotorPackage,
   cameraGimbalPackage,
   secondaryCameraPackage,
@@ -42,7 +40,6 @@ export {
   cameraGimbalPackage,
   coreCapabilitiesPackage,
   coreTransportsPackage,
-  feetechServoPackage,
   firmwareUploadPackage,
   raspberryPiPackage,
   robotArmPackage,

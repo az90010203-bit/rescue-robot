@@ -1,18 +1,27 @@
 # RoboMaster Type A Motor Controller
 
-Bare-metal STM32F427 firmware for the RoboMaster Type A board motor test.
-It controls four WHEELTEC G513XL/TB6618 channels, reads quadrature encoders
-through GPIO software counting, and exchanges newline-delimited JSON over
+Bare-metal STM32F427 firmware for the RoboMaster Type A board motor/CAN
+controller. It exposes eight PWM motor channels (`M1`-`M8`), reads quadrature
+encoders through GPIO software counting, and exchanges semantic commands over
 USART2.
 
-## Fixed Wiring
+## Default PWM Motor Wiring
 
 | Channel | Wheel | PWM | IN1 | IN2 | STBY | Encoder A | Encoder B |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| M1 | A 左前轮 | PA0 / TIM5_CH1 | PB0 | PE12 | PD12 | PE4 | PF0 |
-| M2 | B 左后轮 | PA1 / TIM5_CH2 | PC2 | PE6 | PD12 | PE5 | PF1 |
-| M3 | C 右后轮 | PA2 / TIM5_CH3 | PA4 | PC1 | PD12 | PC0 | PB1 |
-| M4 | D 右前轮 | PA3 / TIM5_CH4 | PA5 | PC5 | PD12 | PC4 | PC3 |
+| M1 | Mecanum FR | PD14 / TIM4_CH3 | PB1 | PC0 | PI0 | PC1 | PA4 |
+| M2 | Mecanum BR | PD13 / TIM4_CH2 | PF0 | PE4 | PI0 | PE12 | PB0 |
+| M3 | Mecanum FL | PD15 / TIM4_CH4 | PI5 | PI6 | PH12 | PI7 | PI2 |
+| M4 | Mecanum BL | PH11 / TIM5_CH2 | PC3 | PC4 | PH12 | PC5 | PA5 |
+| M5 | Left Track | PH10 / TIM5_CH1 | PA0 | PA1 | PH12 | PA2 | PA3 |
+| M6 | Right Track | PD12 / TIM4_CH1 | PF1 | PE5 | PI0 | PE6 | PC2 |
+| M7 | Configurable | motor.config required | motor.config required | motor.config required | optional | optional | optional |
+| M8 | Configurable | motor.config required | motor.config required | motor.config required | optional | optional | optional |
+
+`motor.config` applies the `pins` object at runtime, so saved web-console
+pin mappings are reflected on the MCU before motion commands. PWM pins must be
+real Type A timer outputs: `PD12`-`PD15` on TIM4, or `PA0`-`PA3`,
+`PH10`-`PH12`, `PI0` on TIM5.
 
 UART bridge wiring:
 
@@ -77,10 +86,10 @@ latest-wins motion scheduling. Motion targets (`motor.target`,
 - `sampleMs`
 
 `speedRpm` uses the default 13 PPR x4 estimate unless `motor.config` supplies
-`encoderTicksPerRev`. Closed loop is on by default for the four-channel GPIO
-encoder path. Use `motor.config` or `mecanum.config` only when debugging or
-overriding the fixed robot defaults; do not resend configuration during live
-drive control.
+`encoderTicksPerRev`. Closed loop is on by default for channels with both
+encoder pins configured and disabled for channels without encoder feedback.
+Use `motor.config` or `mecanum.config` only when changing wiring or tuning;
+do not resend configuration during live drive control.
 
 `imu.read` initializes the board IMU on first use, then returns one
 `imu.feedback` sample from the MPU6500/MPU6600 over SPI5 and IST8310 over the

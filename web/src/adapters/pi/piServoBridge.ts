@@ -1,5 +1,5 @@
 import piServoSerialBridgeScript from "../../../local-services/pi-servo-serial-bridge.py?raw";
-import { FEETECH_READ, parseFeetechStatusPacket, parseFeetechStatusPackets, type FeetechStatusPacket } from "@adapters/hardware/protocol";
+import { FEETECH_READ, parseFeetechStatusPacket, parseFeetechStatusPackets, type FeetechStatusPacket, type InboundMessage, type PcCommand } from "@adapters/hardware/protocol";
 import {
   execPiCommand,
   PiConnectionRequest,
@@ -31,6 +31,17 @@ export interface PiServoBridgeHealth {
   droppedRxBytes?: number;
   lastDroppedRxAt?: number | null;
   responseRetries?: number;
+  transportMode?: string;
+  serialProtocolMode?: "auto" | "binary" | "json" | string;
+  serialProtocolActive?: "binary" | "json" | "json-fallback" | string;
+  binaryProtocolReady?: boolean;
+  controllerReady?: boolean;
+  binaryFramesOut?: number;
+  jsonFramesOut?: number;
+  binaryFallbackCount?: number;
+  crcError?: number;
+  cobsError?: number;
+  dropCount?: number;
   liveSkipped?: number;
   liveRateLimited?: number;
   liveLastSentAtByKey?: Record<string, number>;
@@ -104,6 +115,19 @@ export interface PiServoBridgeFrameResult {
   skipped?: boolean;
 }
 
+export interface PiServoBridgeCommandResult {
+  ok: boolean;
+  messages: InboundMessage[];
+  response: InboundMessage | null;
+  rawLines: string[];
+  protocol?: string;
+  reason?: string;
+  responseExpected?: boolean;
+  serialPort?: string;
+  baudRate?: number;
+  skipped?: boolean;
+}
+
 export interface PiServoBridgeStartResult {
   ok: boolean;
   workspaceDir: string;
@@ -151,6 +175,17 @@ export async function checkPiServoBridge(host: string, options: PiServoBridgeReq
   if (typeof value.droppedRxBytes === "number") health.droppedRxBytes = value.droppedRxBytes;
   if (typeof value.lastDroppedRxAt === "number" || value.lastDroppedRxAt === null) health.lastDroppedRxAt = value.lastDroppedRxAt;
   if (typeof value.responseRetries === "number") health.responseRetries = value.responseRetries;
+  if (typeof value.transportMode === "string") health.transportMode = value.transportMode;
+  if (typeof value.serialProtocolMode === "string") health.serialProtocolMode = value.serialProtocolMode;
+  if (typeof value.serialProtocolActive === "string") health.serialProtocolActive = value.serialProtocolActive;
+  if (typeof value.binaryProtocolReady === "boolean") health.binaryProtocolReady = value.binaryProtocolReady;
+  if (typeof value.controllerReady === "boolean") health.controllerReady = value.controllerReady;
+  if (typeof value.binaryFramesOut === "number") health.binaryFramesOut = value.binaryFramesOut;
+  if (typeof value.jsonFramesOut === "number") health.jsonFramesOut = value.jsonFramesOut;
+  if (typeof value.binaryFallbackCount === "number") health.binaryFallbackCount = value.binaryFallbackCount;
+  if (typeof value.crcError === "number") health.crcError = value.crcError;
+  if (typeof value.cobsError === "number") health.cobsError = value.cobsError;
+  if (typeof value.dropCount === "number") health.dropCount = value.dropCount;
   if (typeof value.liveSkipped === "number") health.liveSkipped = value.liveSkipped;
   if (typeof value.liveRateLimited === "number") health.liveRateLimited = value.liveRateLimited;
   if (isNumberRecord(value.liveLastSentAtByKey)) health.liveLastSentAtByKey = value.liveLastSentAtByKey;
@@ -217,6 +252,41 @@ export async function sendPiServoBridgeFrame(host: string, frame: number[], opti
   return result;
 }
 
+export async function sendPiServoBridgeCommand(host: string, command: PcCommand, options: PiServoBridgeRequestOptions = {}): Promise<PiServoBridgeCommandResult> {
+  const timeoutMs = options.timeoutMs ?? Math.max(3000, (options.waitMs ?? 80) + PI_SERVO_BRIDGE_FRAME_TIMEOUT_PADDING_MS);
+  const body: Record<string, unknown> = { command, waitMs: options.waitMs };
+  if (options.policy) body.policy = options.policy;
+  if (options.coalesceKey) body.coalesceKey = options.coalesceKey;
+  if (typeof options.minIntervalMs === "number") body.minIntervalMs = options.minIntervalMs;
+  const value = await requestPiServoBridgeJson<unknown>(
+    host,
+    "/command",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    },
+    { ...options, timeoutMs }
+  );
+  if (!isRecord(value) || !Array.isArray(value.messages)) {
+    throw new PiRemoteError("invalidResponse", "Pi servo serial bridge returned an invalid command response");
+  }
+  const messages = value.messages.filter(isRecord) as InboundMessage[];
+  const result: PiServoBridgeCommandResult = {
+    ok: value.ok !== false,
+    messages,
+    response: isRecord(value.response) ? (value.response as InboundMessage) : null,
+    rawLines: Array.isArray(value.rawLines) ? value.rawLines.filter((line): line is string => typeof line === "string") : []
+  };
+  if (typeof value.protocol === "string") result.protocol = value.protocol;
+  if (typeof value.reason === "string") result.reason = value.reason;
+  if (typeof value.responseExpected === "boolean") result.responseExpected = value.responseExpected;
+  if (typeof value.serialPort === "string") result.serialPort = value.serialPort;
+  if (typeof value.baudRate === "number") result.baudRate = value.baudRate;
+  if (value.skipped === true) result.skipped = true;
+  return result;
+}
+
 function normalizePiServoBridgeHealth(value: Record<string, unknown>): PiServoBridgeHealth {
   const health: PiServoBridgeHealth = {
     ok: value.ok === true,
@@ -231,6 +301,17 @@ function normalizePiServoBridgeHealth(value: Record<string, unknown>): PiServoBr
   if (typeof value.droppedRxBytes === "number") health.droppedRxBytes = value.droppedRxBytes;
   if (typeof value.lastDroppedRxAt === "number" || value.lastDroppedRxAt === null) health.lastDroppedRxAt = value.lastDroppedRxAt;
   if (typeof value.responseRetries === "number") health.responseRetries = value.responseRetries;
+  if (typeof value.transportMode === "string") health.transportMode = value.transportMode;
+  if (typeof value.serialProtocolMode === "string") health.serialProtocolMode = value.serialProtocolMode;
+  if (typeof value.serialProtocolActive === "string") health.serialProtocolActive = value.serialProtocolActive;
+  if (typeof value.binaryProtocolReady === "boolean") health.binaryProtocolReady = value.binaryProtocolReady;
+  if (typeof value.controllerReady === "boolean") health.controllerReady = value.controllerReady;
+  if (typeof value.binaryFramesOut === "number") health.binaryFramesOut = value.binaryFramesOut;
+  if (typeof value.jsonFramesOut === "number") health.jsonFramesOut = value.jsonFramesOut;
+  if (typeof value.binaryFallbackCount === "number") health.binaryFallbackCount = value.binaryFallbackCount;
+  if (typeof value.crcError === "number") health.crcError = value.crcError;
+  if (typeof value.cobsError === "number") health.cobsError = value.cobsError;
+  if (typeof value.dropCount === "number") health.dropCount = value.dropCount;
   if (typeof value.liveSkipped === "number") health.liveSkipped = value.liveSkipped;
   if (typeof value.liveRateLimited === "number") health.liveRateLimited = value.liveRateLimited;
   if (isNumberRecord(value.liveLastSentAtByKey)) health.liveLastSentAtByKey = value.liveLastSentAtByKey;
@@ -326,6 +407,7 @@ export function buildPiServoBridgeServiceCommand(options: PiServoBridgeServiceCo
     `WorkingDirectory=${workspaceDir}`,
     `Environment=PI_SERVO_SERIAL_PORT=${PI_SERVO_BRIDGE_SERIAL_PORT}`,
     `Environment=PI_SERVO_BAUD=${PI_SERVO_BRIDGE_BAUD_RATE}`,
+    "Environment=PI_SERVO_SERIAL_PROTOCOL=auto",
     `Environment=PI_SERVO_BRIDGE_HOST=${PI_SERVO_BRIDGE_HOST}`,
     `Environment=PI_SERVO_BRIDGE_PORT=${PI_SERVO_BRIDGE_PORT}`,
     `ExecStart=/usr/bin/python3 ${remotePath}`,

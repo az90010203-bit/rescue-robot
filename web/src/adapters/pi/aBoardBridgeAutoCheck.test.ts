@@ -7,7 +7,6 @@ const baseState = {
   alreadyCheckedHost: "",
   host: "raspberrypi.local",
   manualDisconnect: false,
-  motorTestBoard: "robomaster-a" as const,
   status: "idle" as const
 };
 
@@ -21,8 +20,7 @@ describe("A board bridge auto-check", () => {
       shouldAutoCheckAboardBridge({
         ...baseState,
         activeSection: "console",
-        activeTest: "servo",
-        motorTestBoard: "arduino"
+        activeTest: "servo"
       })
     ).toBe(true);
   });
@@ -31,14 +29,12 @@ describe("A board bridge auto-check", () => {
     expect(
       shouldAutoCheckAboardBridge({
         ...baseState,
-        activeTest: "canServo",
-        motorTestBoard: "arduino"
+        activeTest: "canServo"
       })
     ).toBe(true);
   });
 
-  it("does not check for Arduino motor tests or after manual disconnect", () => {
-    expect(shouldAutoCheckAboardBridge({ ...baseState, motorTestBoard: "arduino" })).toBe(false);
+  it("does not check after manual disconnect", () => {
     expect(shouldAutoCheckAboardBridge({ ...baseState, manualDisconnect: true })).toBe(false);
   });
 

@@ -302,54 +302,27 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
     updateServoWheelMaxSpeed,
     updateServoWheelSlider,
     wheelTurnProgress,
-    canCompileFirmware,
-    canUploadFirmware,
-    checkFirmwareHelper,
-    compileArduinoFirmware,
     connectionMode,
-    downloadArduinoFirmware,
     enabledMotorLinkageGroups,
-    firmwareBoard,
-    firmwareBusy,
-    firmwareError,
-    firmwareHelperHealth,
-    firmwareHelperLabel,
-    firmwareHelperTone,
-    firmwareHexLabel,
-    firmwareLogs,
-    firmwarePorts,
-    firmwareStatus,
-    firmwareStatusTone,
     formatDirectionLabel,
-    lastMotorError,
-    lastMotorErrorLabel,
     motorConfigError,
-    motorDebugHandshakeLabel,
-    motorDebugHandshakeTone,
     motorDirection,
     motorDuty,
     motorPreviewCommand,
     motorSpeed,
     numericMotorSpeed,
     readMotor,
-    refreshFirmwarePorts,
     saveMotorMapping,
-    selectedFirmwarePort,
     selectedMotor,
     selectedServo,
     sendMotorConfig,
     sendMotorLinkageGroup,
     sendMotorSet,
-    setFirmwareBoard,
-    setFirmwareJob,
-    setFirmwareStatus,
-    setSelectedFirmwarePort,
     stopMotor,
     stopMotorLinkageGroup,
     updateMotorLinkageMaster,
     updateSelectedMotorMapping,
     updateSingleMotorSpeed,
-    uploadCompiledArduinoFirmware,
     selectedArmFeedback,
     metricNumber,
     architecturePluginInstances,
@@ -417,7 +390,6 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         {activeSection === "console" ? (
           <Suspense fallback={<div className="empty-state">{t("loading.console")}</div>}>
             <div className="console-diagnostic-layout">
-              <BootSelfCheckHud runtime={bootSelfCheck} t={t} />
               <ConsolePage
                 aBoardBridgeBusy={aBoardBridgeBusy}
                 aBoardBridgeConnected={aBoardBridgeConnected}
@@ -640,6 +612,7 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
         )}
         </WorkspaceErrorBoundary>
       </div>
+      <BootSelfCheckHud runtime={bootSelfCheck} t={t} />
     </main>
   );
 }

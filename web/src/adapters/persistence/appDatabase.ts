@@ -516,8 +516,8 @@ function normalizeServoDraftSnapshot(value: unknown): { id: string; name: string
 function normalizeMotorDraftSnapshot(value: unknown): { channel: string; name: string } {
   const draft = isObject(value) ? value : {};
   return {
-    channel: normalizeString(draft.channel, "M7"),
-    name: normalizeString(draft.name, "Motor 7")
+    channel: normalizeString(draft.channel, "M9"),
+    name: normalizeString(draft.name, "Motor 9")
   };
 }
 

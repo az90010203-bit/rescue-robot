@@ -8,15 +8,15 @@ import {
 } from "@domains/drive/mecanumComponent";
 
 describe("mecanum drive component config", () => {
-  it("defaults WHEELTEC G513XL wheels to M1/M2/M3/M4 positions", () => {
+  it("defaults RoboMaster Type A mecanum wheels to the current M1-M4 positions", () => {
     const config = createDefaultMecanumDriveConfig(motors);
 
     expect(config).toMatchObject({
       wheels: {
-        frontLeft: "m1",
-        frontRight: "m4",
-        rearLeft: "m2",
-        rearRight: "m3"
+        frontLeft: "m3",
+        frontRight: "m1",
+        rearLeft: "m4",
+        rearRight: "m2"
       },
       closedLoop: true,
       maxRpm: 6000,
@@ -37,10 +37,10 @@ describe("mecanum drive component config", () => {
     };
 
     expect(mecanumDriveTargets(config, motors, { forward: 1, strafe: 0, turn: 0 }, 50, "brake")).toEqual([
-      { channel: "M1", speedPercent: 50, stopMode: "brake", closedLoop: true },
-      { channel: "M4", speedPercent: -50, stopMode: "brake", closedLoop: true },
-      { channel: "M2", speedPercent: 50, stopMode: "brake", closedLoop: true },
-      { channel: "M3", speedPercent: 50, stopMode: "brake", closedLoop: true }
+      { channel: "M3", speedPercent: 50, stopMode: "brake", closedLoop: true },
+      { channel: "M1", speedPercent: -50, stopMode: "brake", closedLoop: true },
+      { channel: "M4", speedPercent: 50, stopMode: "brake", closedLoop: true },
+      { channel: "M2", speedPercent: 50, stopMode: "brake", closedLoop: true }
     ]);
   });
 
@@ -48,13 +48,13 @@ describe("mecanum drive component config", () => {
     const config = createDefaultMecanumDriveConfig(motors);
 
     expect(mecanumDriveMotorConfigMappings(config, motors)[0]).toMatchObject({
-      channel: "M1",
-      pwmPin: "PA0",
-      in1Pin: "PB0",
-      in2Pin: "PE12",
-      enablePin: "PD12",
-      encoderAPin: "PE4",
-      encoderBPin: "PF0",
+      channel: "M3",
+      pwmPin: "PD15",
+      in1Pin: "PI5",
+      in2Pin: "PI6",
+      enablePin: "PH12",
+      encoderAPin: "PI7",
+      encoderBPin: "PI2",
       closedLoop: true,
       maxRpm: 6000,
       encoderTicksPerRev: 52
@@ -74,10 +74,10 @@ function component(config: Record<string, unknown>): ComponentDefinition {
 }
 
 const motors: PluginInstance[] = [
-  motor("m1", "M1", { pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", encoderAPin: "PE4", encoderBPin: "PF0" }),
-  motor("m2", "M2", { pwmPin: "PA1", in1Pin: "PC2", in2Pin: "PE6", encoderAPin: "PE5", encoderBPin: "PF1" }),
-  motor("m3", "M3", { pwmPin: "PA2", in1Pin: "PA4", in2Pin: "PC1", encoderAPin: "PC0", encoderBPin: "PB1" }),
-  motor("m4", "M4", { pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", encoderAPin: "PC4", encoderBPin: "PC3" })
+  motor("m1", "M1", { pwmPin: "PD14", in1Pin: "PB1", in2Pin: "PC0", enablePin: "PI0", encoderAPin: "PC1", encoderBPin: "PA4" }),
+  motor("m2", "M2", { pwmPin: "PD13", in1Pin: "PF0", in2Pin: "PE4", enablePin: "PI0", encoderAPin: "PE12", encoderBPin: "PB0" }),
+  motor("m3", "M3", { pwmPin: "PD15", in1Pin: "PI5", in2Pin: "PI6", enablePin: "PH12", encoderAPin: "PI7", encoderBPin: "PI2" }),
+  motor("m4", "M4", { pwmPin: "PH11", in1Pin: "PC3", in2Pin: "PC4", enablePin: "PH12", encoderAPin: "PC5", encoderBPin: "PA5" })
 ];
 
 function motor(id: string, channel: string, config: Record<string, string>): PluginInstance {
@@ -91,7 +91,7 @@ function motor(id: string, channel: string, config: Record<string, string>): Plu
     driverId: "driver.tb6618-motor",
     transportId: "transport.controller-json",
     capabilities: [{ id: "motor", features: ["pwm_control", "encoder_feedback"] }],
-    config: { channel, enablePin: "PD12", ...config },
+    config: { channel, ...config },
     tags: []
   };
 }

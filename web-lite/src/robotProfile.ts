@@ -1,0 +1,63 @@
+import type { PiDiscoveryCandidate } from "./runtime/piDiscoveryLite";
+import { DEFAULT_PRIORITY_SETTINGS } from "./runtime/priority";
+import type { AsmgMdServoProfile } from "@adapters/hardware/asmgMdCanServo";
+import type { MotorProfile, ServoProfile } from "@adapters/hardware/protocol";
+
+export const A_BOARD_BRIDGE_PORT = 17353;
+export const PI_SERVO_BRIDGE_PORT = 17354;
+export const CAMERA_PORTS = {
+  main: 8080,
+  secondary: 8081
+} as const;
+
+export interface PwmServoProfile {
+  id: string;
+  name: string;
+  silk: string;
+  pin: string;
+  frequencyHz: number;
+  minPulseUs: number;
+  centerPulseUs: number;
+  maxPulseUs: number;
+}
+
+export const ROBOT_PROFILE = {
+  name: "Rescue Robot Lite",
+  defaultPiHost: "rescue-pi.local",
+  piCandidates: [
+    { host: "rescue-pi.local", label: "USB hostname", source: "usb-gadget-hostname" },
+    { host: "raspberrypi.local", label: "mDNS hostname", source: "mdns" },
+    { host: "10.12.194.1", label: "USB gadget fallback", source: "usb-gadget-fallback" },
+    { host: "10.43.0.1", label: "Manual USB fallback", source: "manual-usb-fallback" }
+  ] satisfies PiDiscoveryCandidate[],
+  priorities: DEFAULT_PRIORITY_SETTINGS,
+  can: {
+    bus: "CAN1",
+    bitrateKbps: 250 as const,
+    servos: [
+      { id: 1, name: "CAN J1", minDeg: 10, maxDeg: 110, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
+      { id: 2, name: "CAN J2", minDeg: 20, maxDeg: 120, direction: -1, bitrateKbps: 250, canBus: "CAN1" },
+      { id: 3, name: "CAN J3", minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
+      { id: 4, name: "CAN J4", minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" }
+    ] satisfies AsmgMdServoProfile[]
+  },
+  feetech: {
+    busBaudRate: 1000000,
+    bridgeBaudRate: 115200,
+    servos: [
+      { id: 22, name: "ID22", minDeg: 0, maxDeg: 360, direction: 1 }
+    ] satisfies ServoProfile[]
+  },
+  pwmServos: [
+    { id: "pwm-pan", name: "PWM Pan", silk: "S", pin: "PA0", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },
+    { id: "pwm-tilt", name: "PWM Tilt", silk: "T", pin: "PA1", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },
+    { id: "pwm-aux-1", name: "PWM Aux 1", silk: "U", pin: "PA2", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },
+    { id: "pwm-aux-2", name: "PWM Aux 2", silk: "V", pin: "PA3", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 }
+  ] satisfies PwmServoProfile[],
+  motors: [
+    { channel: "M1", name: "Mecanum FR", pwmPin: "PD14", in1Pin: "PB1", in2Pin: "PC0", enablePin: "PI0", encoderAPin: "PC1", encoderBPin: "PA4" },
+    { channel: "M2", name: "Mecanum BR", pwmPin: "PD13", in1Pin: "PF0", in2Pin: "PE4", enablePin: "PI0", encoderAPin: "PE12", encoderBPin: "PB0" },
+    { channel: "M3", name: "Mecanum FL", pwmPin: "PD15", in1Pin: "PI5", in2Pin: "PI6", enablePin: "PH12", encoderAPin: "PI7", encoderBPin: "PI2" },
+    { channel: "M4", name: "Mecanum BL", pwmPin: "PH11", in1Pin: "PC3", in2Pin: "PC4", enablePin: "PH12", encoderAPin: "PC5", encoderBPin: "PA5" }
+  ] satisfies MotorProfile[]
+};

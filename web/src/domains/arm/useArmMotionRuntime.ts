@@ -37,6 +37,14 @@ interface UseArmMotionRuntimeOptions {
     logFrame: boolean;
     setupMode?: boolean;
   }) => Promise<any>;
+  writeServoGroupPositionUnlocked: (options: {
+    coalesceKey?: string;
+    live?: boolean;
+    logFrame: boolean;
+    setupMode?: boolean;
+    targets: Array<{ servo: ServoProfile; physicalAngleDeg: number; speedRaw: number; acc: number | undefined }>;
+    waitMs: number;
+  }) => Promise<any>;
 }
 
 const ARM_LIVE_SPEED_RAW_LIMIT = 450;
@@ -59,7 +67,7 @@ export function useArmMotionRuntime({
   servos,
   setServoMotionStatus,
   sleepMs,
-  writeServoPositionUnlocked
+  writeServoGroupPositionUnlocked
 }: UseArmMotionRuntimeOptions) {
   function armMotionServoProfiles(extraServos: ServoProfile[] = []) {
     const byId = new Map<number, ServoProfile>();
@@ -122,19 +130,23 @@ export function useArmMotionRuntime({
     const ids = targets.map((target) => target.servoId);
     if (!servoSmoothingEnabled || live) {
       cancelServoMotionForArm("idle");
-      await enqueueServoSerialTask(async () => {
-        for (const target of targets) {
-          await writeServoPositionUnlocked({
+      const sent = await enqueueServoSerialTask(() =>
+        writeServoGroupPositionUnlocked({
+          coalesceKey: "arm:position",
+          live,
+          logFrame: !live,
+          targets: targets.map((target) => ({
             servo: target.servo,
             physicalAngleDeg: target.physicalAngleDeg,
             speedRaw: live ? armLiveSpeedRaw(target.speedRaw) : target.speedRaw,
-            acc: live ? armLiveAcc(target.acc) : target.acc,
-            waitMs: live ? 12 : 80,
-            logFrame: !live,
-            live
-          });
-        }
-      });
+            acc: live ? armLiveAcc(target.acc) : target.acc
+          })),
+          waitMs: live ? 12 : 80
+        })
+      );
+      if (!sent) {
+        return false;
+      }
       for (const target of targets) {
         beginServoSafetyMonitor({
           servo: target.servo,
@@ -182,19 +194,26 @@ export function useArmMotionRuntime({
           return false;
         }
         const progress = smoothStepQuintic(samplesToSend[index].progress);
-        await enqueueServoSerialTask(async () => {
-          for (const target of motionTargets) {
-            await writeServoPositionUnlocked({
+        const sent = await enqueueServoSerialTask(() =>
+          writeServoGroupPositionUnlocked({
+            coalesceKey: "arm:position",
+            live,
+            logFrame: false,
+            targets: motionTargets.map((target) => ({
               servo: target.servo,
               physicalAngleDeg: target.start + target.delta * progress,
               speedRaw: target.speedRaw,
-              acc: target.acc,
-              waitMs: live ? 12 : 30,
-              logFrame: false,
-              live
-            });
+              acc: target.acc
+            })),
+            waitMs: live ? 12 : 30
+          })
+        );
+        if (!sent || !isServoMotionCurrent(key, generation)) {
+          if (!sent) {
+            cancelServoMotionForArm("idle");
           }
-        });
+          return false;
+        }
         if (index < samplesToSend.length - 1) {
           await sleepMs(motionConfig.tickMs);
         }

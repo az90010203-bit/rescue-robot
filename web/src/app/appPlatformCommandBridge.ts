@@ -1,14 +1,14 @@
 import type { ArmTeachTrack } from "@domains/arm/armTeach";
-import { buildAsmgMdCanConfigCommand, buildAsmgMdGroupMoveCommand } from "@adapters/hardware/asmgMdCanServo";
-import { buildMecanumTargetCommand, clamp, type MotorStopMode, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
+import { buildMecanumTargetCommand, type MotorStopMode, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
 import type { ArmConfig, CameraConfig, CameraVideoSource } from "@adapters/persistence/storage";
 import { armConfigFromCommandPayload, servoProfilesFromCommandPayload } from "@domains/arm/armCommandPayload";
 import { cameraSourceForDevice } from "@domains/camera/cameraSources";
-import { canServoGroupTargets, normalizeCanServoGroupConfig, validateCanServoGroupComponentConfig, type CanServoGroupPositionMap } from "@domains/can-servo/canServoGroupComponent";
 import { normalizeMecanumDriveConfig } from "@domains/drive/mecanumComponent";
 import type { PlatformCommand, PlatformCommandResult, PlatformCommandStatus } from "@platform/commands";
 import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 import type { ArmTeachStatus, PiRemoteForm } from "@app/appModel";
+import type { AboardBridgeCommandResult } from "@adapters/pi/piAboardBridge";
+import { clampNumber } from "@shared/normalize";
 
 interface AppPlatformCommandBridgeOptions {
   activeCameraSource: CameraVideoSource;
@@ -41,8 +41,9 @@ interface AppPlatformCommandBridgeOptions {
   selectedArmTeachTrack: ArmTeachTrack | null;
   selectedFirmwarePort: string;
   sendArmPoseForConfig: (config: ArmConfig, live?: boolean, extraServos?: ServoProfile[]) => Promise<unknown>;
+  sendAboardCommand: (command: PcCommand, options?: { log?: boolean; timeoutMs?: number; exclusive?: boolean }) => Promise<AboardBridgeCommandResult | null>;
   sendCameraGimbalMove: (panAngleDeg: number, tiltAngleDeg: number) => Promise<void>;
-  sendMotorCommandBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<unknown>;
+  sendAboardMotionBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<unknown>;
   servos: ServoProfile[];
   setSelectedFirmwarePort: (port: string) => void;
   setupRaspberryPiWorkspace: () => Promise<void>;
@@ -267,7 +268,7 @@ async function sendMecanumDriveVelocity(command: PlatformCommand, options: AppPl
     encoderTicksPerRev: config.encoderTicksPerRev,
     stopMode
   };
-  const sent = await options.sendMotorCommandBatch([buildMecanumTargetCommand(options.nextSeq(), target)], { log: true });
+  const sent = await options.sendAboardMotionBatch([buildMecanumTargetCommand(options.nextSeq(), target)], { log: true });
   return { sent: Boolean(sent), response: { componentId: component.id, target } };
 }
 
@@ -278,7 +279,7 @@ async function stopMecanumDrive(command: PlatformCommand, options: AppPlatformCo
   }
   const stopMode = command.payload.stopMode === "brake" || command.payload.stopMode === "coast" ? command.payload.stopMode : options.stopMode;
   const commandToSend: PcCommand = { type: "mecanum.stop", seq: options.nextSeq(), stopMode };
-  const sent = await options.sendMotorCommandBatch([commandToSend], { log: true });
+  const sent = await options.sendAboardMotionBatch([commandToSend], { log: true });
   return { sent: Boolean(sent), response: { componentId: component.id, stopMode } };
 }
 
@@ -292,32 +293,34 @@ async function sendCanServoGroupPositions(command: PlatformCommand, options: App
   if (!component) {
     return { sent: false, message: "CAN servo group component was not found" };
   }
-  const config = normalizeCanServoGroupConfig(command.payload.config ?? component.config, options.pluginInstances);
-  const validation = validateCanServoGroupComponentConfig({ ...component, kind: "can-servo-group", pluginInstanceIds: Object.values(config.servos).filter(Boolean), config }, options.pluginInstances);
-  if (validation) {
-    return { sent: false, message: validation };
+  const commands = canServoGroupPcCommandsFromPayload(command.payload.pcCommands);
+  if (!commands) {
+    return { sent: false, message: "CAN servo group command requires compiled pcCommands" };
   }
-  const targets = canServoGroupTargets(config, options.pluginInstances, payloadPositions(command.payload.positions), numberInRange(command.payload.speedRaw, 0, 4095, 300));
-  if (targets.length === 0) {
-    return { sent: false, message: "CAN servo group has no valid targets" };
+  const log = command.payload.log !== false;
+  const live = command.payload.live === true;
+  const responses: AboardBridgeCommandResult[] = [];
+  for (const pcCommand of commands) {
+    const isLiveGroupMove = live && pcCommand.type === "can_servo.group_move";
+    const response = await options.sendAboardCommand(pcCommand, {
+      log,
+      ...(isLiveGroupMove ? { exclusive: false, timeoutMs: 220 } : {})
+    });
+    if (!response || !aboardCanServoCommandSent(pcCommand, response, { live })) {
+      return {
+        sent: false,
+        response: { componentId: component.id, pcCommands: commands, responses },
+        message: response?.error ?? "CAN servo group command was not accepted by the A board bridge"
+      };
+    }
+    responses.push(response);
   }
-  const first = targets[0];
-  const commands: PcCommand[] = [
-    buildAsmgMdCanConfigCommand(options.nextSeq(), first.bitrateKbps),
-    buildAsmgMdGroupMoveCommand(
-      options.nextSeq(),
-      targets.map((target) => ({ id: target.id, position: target.position })),
-      first.speed
-    )
-  ];
-  const sent = await options.sendMotorCommandBatch(commands, { log: true });
   return {
-    sent: Boolean(sent),
+    sent: true,
     response: {
       componentId: component.id,
-      canBus: first.canBus,
-      bitrateKbps: first.bitrateKbps,
-      targets
+      pcCommands: commands,
+      responses
     }
   };
 }
@@ -327,11 +330,65 @@ function canServoGroupComponentForCommand(command: PlatformCommand, components: 
   return components.find((component) => component.id === componentId && component.kind === "can-servo-group") ?? null;
 }
 
-function payloadPositions(value: unknown): CanServoGroupPositionMap {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
+function canServoGroupPcCommandsFromPayload(value: unknown): PcCommand[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
   }
-  return value as CanServoGroupPositionMap;
+  const commands: PcCommand[] = [];
+  let hasGroupMove = false;
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return null;
+    }
+    const command = item as Record<string, unknown>;
+    const type = command.type;
+    if ((type !== "can_servo.config" && type !== "can_servo.group_move") || !Number.isInteger(command.seq)) {
+      return null;
+    }
+    if (type === "can_servo.group_move") {
+      hasGroupMove = true;
+      if (!Array.isArray(command.targets) || command.targets.length === 0 || !Number.isInteger(command.speed)) {
+        return null;
+      }
+      for (const target of command.targets) {
+        if (!target || typeof target !== "object" || Array.isArray(target)) {
+          return null;
+        }
+        const itemTarget = target as Record<string, unknown>;
+        if (!Number.isInteger(itemTarget.id) || !Number.isInteger(itemTarget.position)) {
+          return null;
+        }
+      }
+    }
+    commands.push(command as PcCommand);
+  }
+  return hasGroupMove ? commands : null;
+}
+
+function aboardCanServoCommandSent(command: PcCommand, result: AboardBridgeCommandResult, options: { live?: boolean } = {}): boolean {
+  if (result.messages.some((message) => message.type === "error")) {
+    return false;
+  }
+  if (options.live && command.type === "can_servo.group_move") {
+    if (result.accepted === true) {
+      return true;
+    }
+    if (isReplacedLiveMotionResponse(result)) {
+      return true;
+    }
+  }
+  if (result.busy) {
+    return false;
+  }
+  return result.ok || result.messages.some((message) => message.seq === command.seq);
+}
+
+function isReplacedLiveMotionResponse(result: AboardBridgeCommandResult): boolean {
+  return result.dropped === true && result.messages.some((message) => (
+    message.type === "scheduler.feedback" &&
+    typeof message.message === "string" &&
+    message.message.includes("replaced by newer motion target")
+  ));
 }
 
 function aiVisionSourceForCommand(cameraConfig: CameraConfig, activeSource: CameraVideoSource, command: PlatformCommand): CameraVideoSource {
@@ -342,5 +399,5 @@ function aiVisionSourceForCommand(cameraConfig: CameraConfig, activeSource: Came
 }
 
 function numberInRange(value: unknown, min: number, max: number, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? clamp(value, min, max) : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? clampNumber(value, min, max) : fallback;
 }

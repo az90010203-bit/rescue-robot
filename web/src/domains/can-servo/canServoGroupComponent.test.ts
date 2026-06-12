@@ -3,8 +3,10 @@ import { asmgMdDegreesToPositionRaw } from "@adapters/hardware/asmgMdCanServo";
 import {
   CAN_SERVO_GROUP_DEFAULT_SPEED_RAW,
   CAN_SERVO_GROUP_SLOTS,
+  canServoGroupCenterPositions,
   canServoGroupPluginIds,
   canServoGroupTargets,
+  compileCanServoGroupPositionCommands,
   createDefaultCanServoGroupConfig,
   normalizeCanServoGroupConfig,
   validateCanServoGroupComponentConfig
@@ -86,5 +88,72 @@ describe("CAN servo group component", () => {
     const targets = canServoGroupTargets(createDefaultCanServoGroupConfig(plugins), plugins, {}, Number.NaN);
 
     expect(targets.every((target) => target.speed === CAN_SERVO_GROUP_DEFAULT_SPEED_RAW)).toBe(true);
+  });
+
+  it("centers each slot at its plugin logical midpoint", () => {
+    expect(canServoGroupCenterPositions(createDefaultCanServoGroupConfig(plugins), plugins)).toEqual({
+      servo1: 50,
+      servo2: 50,
+      servo3: 180,
+      servo4: 180
+    });
+  });
+
+  it("compiles four logical targets into one A-board group move JSON command", () => {
+    let seq = 20;
+    const config = createDefaultCanServoGroupConfig(plugins);
+    const compiled = compileCanServoGroupPositionCommands(config, plugins, {
+      servo1: 50,
+      servo2: 30,
+      servo3: 90,
+      servo4: 180
+    }, 300, {
+      configure: true,
+      nextSeq: () => seq++
+    });
+
+    expect(compiled.commands).toEqual([
+      { type: "can_servo.config", seq: 20, bitrateKbps: 250 },
+      {
+        type: "can_servo.group_move",
+        seq: 21,
+        targets: [
+          { id: 1, position: asmgMdDegreesToPositionRaw(60) },
+          { id: 2, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 3, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 4, position: asmgMdDegreesToPositionRaw(180) }
+        ],
+        speed: 300
+      }
+    ]);
+    expect(compiled.targets).toHaveLength(4);
+  });
+
+  it("compiles live drags as one group move without reconfiguring CAN", () => {
+    let seq = 30;
+    const config = createDefaultCanServoGroupConfig(plugins);
+    const compiled = compileCanServoGroupPositionCommands(config, plugins, {
+      servo1: 50,
+      servo2: 30,
+      servo3: 90,
+      servo4: 180
+    }, 300, {
+      configure: false,
+      nextSeq: () => seq++
+    });
+
+    expect(compiled.commands).toEqual([
+      {
+        type: "can_servo.group_move",
+        seq: 30,
+        targets: [
+          { id: 1, position: asmgMdDegreesToPositionRaw(60) },
+          { id: 2, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 3, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 4, position: asmgMdDegreesToPositionRaw(180) }
+        ],
+        speed: 300
+      }
+    ]);
   });
 });

@@ -21,6 +21,7 @@ test("Pi image installer preserves bridge ports and UART assignments", () => {
   assert.match(script, /A_BOARD_BRIDGE_PORT=17353/);
   assert.match(script, /PI_SERVO_SERIAL_PORT=\/dev\/serial0/);
   assert.match(script, /PI_SERVO_BAUD=115200/);
+  assert.match(script, /PI_SERVO_SERIAL_PROTOCOL=auto/);
   assert.match(script, /PI_SERVO_BRIDGE_PORT=17354/);
 });
 

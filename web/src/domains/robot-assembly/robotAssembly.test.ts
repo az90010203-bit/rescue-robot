@@ -3,12 +3,15 @@ import type { ComponentDefinition, PluginInstance, RobotDefinition } from "@plat
 import {
   ROBOT_ASSEMBLY_HARDWARE_TEMPLATES,
   addSourceToAssembly,
+  compileRobotServoPresetAction,
   createActionButtonPreview,
   createAssemblyEdge,
   createDefaultActionButton,
+  createDefaultServoPresetActionButton,
   createDefaultRobotAssembly,
   deleteAssemblyEdge,
   inferRobotAssemblyVisualKind,
+  isRobotServoPresetAction,
   isTrackedBaseComponent,
   motionToneForNode,
   motionToneForPlugin,
@@ -128,6 +131,68 @@ describe("robot assembly model", () => {
     expect(createDefaultActionButton(plugins).steps.length).toBeGreaterThan(0);
   });
 
+  it("normalizes and compiles servo preset actions into one synchronized servo.move", () => {
+    let seq = 20;
+    const buttons = normalizeRobotActionButtons(
+      [{
+        id: "btn-preset",
+        name: "Ready",
+        triggerKey: "KeyG",
+        steps: [{
+          kind: "servo.pose",
+          label: "Pose",
+          speedRaw: 500,
+          acc: 18,
+          targets: [
+            { id: "t1", pluginInstanceId: servoPlugin.id, angleDeg: 120, enabled: true },
+            { id: "bad", pluginInstanceId: "missing", angleDeg: 30, enabled: true }
+          ]
+        }]
+      }],
+      plugins
+    );
+    const compiled = compileRobotServoPresetAction(buttons[0], plugins, { nextSeq: () => seq++ });
+
+    expect(buttons[0]).toMatchObject({ triggerKey: "KeyG" });
+    expect(isRobotServoPresetAction(buttons[0])).toBe(true);
+    expect(compiled.blocked).toBe(false);
+    expect(compiled.pcCommands).toEqual([{
+      type: "servo.move",
+      seq: 20,
+      sync: true,
+      targets: [{ id: 7, name: "Arm Servo", angleDeg: 120, speedRaw: 500, acc: 18 }]
+    }]);
+    expect(createDefaultServoPresetActionButton(plugins).steps[0]).toMatchObject({ kind: "servo.pose" });
+  });
+
+  it("compiles CAN servo preset targets into config plus a single group_move", () => {
+    let seq = 40;
+    const canPlugins = [canServoOne, canServoTwo];
+    const [button] = normalizeRobotActionButtons(
+      [{
+        id: "btn-can",
+        name: "CAN Pose",
+        steps: [{
+          kind: "servo.pose",
+          label: "CAN pose",
+          speedRaw: 300,
+          targets: [
+            { id: "c1", pluginInstanceId: canServoOne.id, angleDeg: 30, enabled: true },
+            { id: "c2", pluginInstanceId: canServoTwo.id, angleDeg: 60, enabled: true }
+          ]
+        }]
+      }],
+      canPlugins
+    );
+    const compiled = compileRobotServoPresetAction(button, canPlugins, { nextSeq: () => seq++ });
+
+    expect(compiled.blocked).toBe(false);
+    expect(compiled.pcCommands[0]).toEqual({ type: "can_servo.config", seq: 40, bitrateKbps: 250 });
+    expect(compiled.pcCommands[1]).toMatchObject({ type: "can_servo.group_move", seq: 41, speed: 300 });
+    expect((compiled.pcCommands[1].targets as unknown[])).toHaveLength(2);
+    expect(compiled.pcCommands.some((command) => command.type === "can_servo.move")).toBe(false);
+  });
+
   it("adds and removes optional plugin view nodes without duplicating sources", () => {
     const assembly = createDefaultRobotAssembly(context);
     const withMotorNode = addSourceToAssembly(assembly, { sourceType: "plugin", sourceId: leftMotor.id }, { x: 320, y: 220 }, context);
@@ -202,6 +267,24 @@ const servoPlugin: PluginInstance = {
   capabilities: [{ id: "servo", features: ["position_control"] }],
   config: { servoId: 7 },
   tags: []
+};
+
+const canServoOne: PluginInstance = {
+  ...servoPlugin,
+  id: "can-servo-1",
+  name: "CAN Servo 1",
+  brand: "ASMG",
+  model: "ASMG-MD",
+  driverId: "driver.asme-can-servo",
+  transportId: "transport.a-board-can",
+  config: { servoId: 1, minDeg: 0, maxDeg: 180, direction: -1, bitrateKbps: 250, canBus: "CAN1" }
+};
+
+const canServoTwo: PluginInstance = {
+  ...canServoOne,
+  id: "can-servo-2",
+  name: "CAN Servo 2",
+  config: { servoId: 2, minDeg: 0, maxDeg: 180, direction: 1, bitrateKbps: 250, canBus: "CAN1" }
 };
 
 const plugins = [leftMotor, rightMotor, cameraPlugin, servoPlugin];

@@ -1,7 +1,6 @@
 import type { FormEvent } from "react";
 import { createPlatformCommand } from "@platform/commands";
-import { TB6618_MOTOR_DEBUGGER_INO_FILENAME, buildTb6618MotorDebuggerIno } from "@adapters/firmware/arduinoFirmware";
-import { normalizeMotorChannel, type MotorProfile } from "@adapters/hardware/protocol";
+import { normalizeMotorChannel, normalizeMotorPin, type MotorProfile } from "@adapters/hardware/protocol";
 import { validateMotorDraft, validateMotorMapping } from "@adapters/persistence/storage";
 import type { MotorFeedbackMap, MotorMappingField } from "@app/appModel";
 import { nextMotorDraft } from "@app/appModel";
@@ -85,21 +84,11 @@ export function useMotorLibrary({
       return false;
     }
 
+    const normalizedMotor = normalizeMotorProfilePins(selectedMotor);
+    setMotors((current) => current.map((motor) => (motor.channel === selectedMotor.channel ? normalizedMotor : motor)));
     setMotorConfigError(null);
     addSystemLog("logs.motorMappingSaved");
     return true;
-  }
-
-  function downloadArduinoFirmware() {
-    const blob = new Blob([buildTb6618MotorDebuggerIno(motors)], { type: "text/x-arduino;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = TB6618_MOTOR_DEBUGGER_INO_FILENAME;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
   }
 
   async function sendMotorConfig() {
@@ -116,15 +105,17 @@ export function useMotorLibrary({
     }
 
     try {
+      const normalizedMotor = normalizeMotorProfilePins(selectedMotor);
+      setMotors((current) => current.map((motor) => (motor.channel === selectedMotor.channel ? normalizedMotor : motor)));
       const result = await dispatchPlatformCommand(
-        createPlatformCommand("motor.configure", `motor:${selectedMotor.channel}`, {
-          pwmPin: selectedMotor.pwmPin ?? "",
-          in1Pin: selectedMotor.in1Pin ?? "",
-          in2Pin: selectedMotor.in2Pin ?? "",
-          enablePin: selectedMotor.enablePin,
-          sensorPin: selectedMotor.sensorPin,
-          encoderAPin: selectedMotor.encoderAPin,
-          encoderBPin: selectedMotor.encoderBPin
+        createPlatformCommand("motor.configure", `motor:${normalizedMotor.channel}`, {
+          pwmPin: normalizedMotor.pwmPin ?? "",
+          in1Pin: normalizedMotor.in1Pin ?? "",
+          in2Pin: normalizedMotor.in2Pin ?? "",
+          enablePin: normalizedMotor.enablePin,
+          sensorPin: normalizedMotor.sensorPin,
+          encoderAPin: normalizedMotor.encoderAPin,
+          encoderBPin: normalizedMotor.encoderBPin
         })
       );
       if (result.status === "sent") {
@@ -139,10 +130,24 @@ export function useMotorLibrary({
 
   return {
     addMotor,
-    downloadArduinoFirmware,
     removeMotor,
     saveMotorMapping,
     sendMotorConfig,
     updateSelectedMotorMapping
+  };
+}
+
+function normalizeMotorProfilePins(motor: MotorProfile): MotorProfile {
+  const channel = normalizeMotorChannel(motor.channel);
+  return {
+    ...motor,
+    channel,
+    pwmPin: normalizeMotorPin(motor.pwmPin, "pwmPin", channel),
+    in1Pin: normalizeMotorPin(motor.in1Pin, "in1Pin", channel),
+    in2Pin: normalizeMotorPin(motor.in2Pin, "in2Pin", channel),
+    enablePin: normalizeMotorPin(motor.enablePin, "enablePin", channel),
+    sensorPin: normalizeMotorPin(motor.sensorPin, "sensorPin", channel),
+    encoderAPin: normalizeMotorPin(motor.encoderAPin, "encoderAPin", channel),
+    encoderBPin: normalizeMotorPin(motor.encoderBPin, "encoderBPin", channel)
   };
 }

@@ -1,17 +1,16 @@
-import { Activity, Cpu, Download, RotateCcw, RotateCw, Save, Send, Settings, Square, Upload, Usb } from "lucide-react";
+import { Activity, RotateCcw, Save, Send, Settings, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
 import type { TFunction } from "i18next";
-import type { FirmwareUploadStatus, MotorFeedbackMap, MotorMappingField, MotorTestBoard } from "@app/appModel";
-import type { MotorDirection, MotorProfile, MotorStopMode } from "@adapters/hardware/protocol";
-import type { MotorLinkageGroup, ValidationErrorKey } from "@adapters/persistence/storage";
+import type { MotorFeedbackMap, MotorMappingField } from "@app/appModel";
 import {
-  FIRMWARE_BOARD_OPTIONS,
-  type FirmwareBoardId,
-  type FirmwareCompileResult,
-  type FirmwareHelperHealth,
-  type FirmwarePort
-} from "@adapters/firmware/firmwareUpload";
+  ROBOMASTER_A_BOARD_GPIO_OPTIONS,
+  normalizeMotorPin,
+  type MotorDirection,
+  type MotorPinRole,
+  type MotorProfile,
+  type MotorStopMode
+} from "@adapters/hardware/protocol";
+import type { MotorLinkageGroup, ValidationErrorKey } from "@adapters/persistence/storage";
 import { Metric } from "@shared/ui/AppChrome";
 import { MotorLinkageRunCard } from "@domains/motor/MotorLinkageCards";
 
@@ -24,57 +23,27 @@ interface MotorCommandPanelProps {
   aBoardBridgeError: string | null;
   aBoardBridgeLabel: string;
   aBoardBridgeTone: "neutral" | "online" | "warning" | "danger";
-  canCompileFirmware: boolean;
-  canUploadFirmware: boolean;
-  checkFirmwareHelper: (log?: boolean) => Promise<unknown>;
-  compileArduinoFirmware: () => Promise<void>;
-  connected: boolean;
-  debugEnabled: boolean;
-  downloadArduinoFirmware: () => void;
   enabledMotorLinkageGroups: MotorLinkageGroup[];
-  firmwareBoard: FirmwareBoardId;
-  firmwareBusy: boolean;
-  firmwareError: string | null;
-  firmwareHelperHealth: FirmwareHelperHealth | null;
-  firmwareHelperLabel: string;
-  firmwareHelperTone: "neutral" | "online" | "warning" | "danger";
-  firmwareHexLabel: string;
-  firmwareLogs: string;
-  firmwarePorts: FirmwarePort[];
-  firmwareStatus: FirmwareUploadStatus;
-  firmwareStatusTone: "neutral" | "online" | "warning" | "danger";
   formatDirectionLabel: (direction: MotorDirection | string) => string;
   formatLinkageMemberDirection: (reverse: boolean) => string;
-  lastMotorError: unknown;
-  lastMotorErrorLabel: string;
   motorConfigError: ValidationErrorKey | null;
   motorControllerReady: boolean;
-  motorDebugHandshakeLabel: string;
-  motorDebugHandshakeTone: "neutral" | "online" | "warning" | "danger";
   motorDirection: MotorDirection;
   motorDuty: number;
   motorFeedback: MotorFeedbackMap;
   motorPreviewCommand: string;
   motorSpeed: string;
-  motorTestBoard: MotorTestBoard;
   motors: MotorProfile[];
   numericMotorSpeed: number;
   readMotor: (options?: { log?: boolean }) => Promise<void>;
-  refreshFirmwarePorts: () => Promise<void>;
   saveMotorMapping: () => void;
   selectedChannel: string;
-  selectedFirmwarePort: string;
   selectedMotor: MotorProfile | undefined;
   sendMotorConfig: () => Promise<void>;
   sendMotorLinkageGroup: (group: MotorLinkageGroup) => void;
   sendMotorSet: () => Promise<void>;
-  setFirmwareBoard: Dispatch<SetStateAction<FirmwareBoardId>>;
-  setFirmwareJob: Dispatch<SetStateAction<FirmwareCompileResult | null>>;
-  setFirmwareStatus: Dispatch<SetStateAction<FirmwareUploadStatus>>;
-  setMotorTestBoard: Dispatch<SetStateAction<MotorTestBoard>>;
   setSelectedChannel: (channel: string) => void;
-  setSelectedFirmwarePort: Dispatch<SetStateAction<string>>;
-  setStopMode: Dispatch<SetStateAction<MotorStopMode>>;
+  setStopMode: (mode: MotorStopMode) => void;
   stopAllMotors: () => void;
   stopMode: MotorStopMode;
   stopMotor: () => Promise<void>;
@@ -83,7 +52,6 @@ interface MotorCommandPanelProps {
   updateMotorLinkageMaster: (groupId: string, value: string, live?: boolean) => void;
   updateSelectedMotorMapping: (field: MotorMappingField, value: string) => void;
   updateSingleMotorSpeed: (value: string, live?: boolean) => void;
-  uploadCompiledArduinoFirmware: () => Promise<void>;
 }
 
 export function MotorCommandPanel({
@@ -92,56 +60,26 @@ export function MotorCommandPanel({
   aBoardBridgeError,
   aBoardBridgeLabel,
   aBoardBridgeTone,
-  canCompileFirmware,
-  canUploadFirmware,
-  checkFirmwareHelper,
-  compileArduinoFirmware,
-  connected,
-  debugEnabled,
-  downloadArduinoFirmware,
   enabledMotorLinkageGroups,
-  firmwareBoard,
-  firmwareBusy,
-  firmwareError,
-  firmwareHelperHealth,
-  firmwareHelperLabel,
-  firmwareHelperTone,
-  firmwareHexLabel,
-  firmwareLogs,
-  firmwarePorts,
-  firmwareStatus,
-  firmwareStatusTone,
   formatDirectionLabel,
   formatLinkageMemberDirection,
-  lastMotorError,
-  lastMotorErrorLabel,
   motorConfigError,
   motorControllerReady,
-  motorDebugHandshakeLabel,
-  motorDebugHandshakeTone,
   motorDirection,
   motorDuty,
   motorFeedback,
   motorPreviewCommand,
   motorSpeed,
-  motorTestBoard,
   motors,
   numericMotorSpeed,
   readMotor,
-  refreshFirmwarePorts,
   saveMotorMapping,
   selectedChannel,
-  selectedFirmwarePort,
   selectedMotor,
   sendMotorConfig,
   sendMotorLinkageGroup,
   sendMotorSet,
-  setFirmwareBoard,
-  setFirmwareJob,
-  setFirmwareStatus,
-  setMotorTestBoard,
   setSelectedChannel,
-  setSelectedFirmwarePort,
   setStopMode,
   stopAllMotors,
   stopMode,
@@ -150,10 +88,8 @@ export function MotorCommandPanel({
   t,
   updateMotorLinkageMaster,
   updateSelectedMotorMapping,
-  updateSingleMotorSpeed,
-  uploadCompiledArduinoFirmware
+  updateSingleMotorSpeed
 }: MotorCommandPanelProps) {
-  const isRoboMasterA = motorTestBoard === "robomaster-a";
   const motorActionsDisabled = !motorControllerReady || !selectedMotor;
   const selectedMotorFeedback = selectedMotor ? motorFeedback[selectedMotor.channel] : undefined;
   const selectedMotorPinSummary = useMemo(() => formatMotorPinSummary(selectedMotor), [selectedMotor]);
@@ -162,7 +98,7 @@ export function MotorCommandPanel({
   const [encoderObservation, setEncoderObservation] = useState<EncoderObservation>(() => createEncoderObservation(""));
   const encoderReadInFlightRef = useRef(false);
   const encoderPollPausedUntilRef = useRef(0);
-  const encoderCanRead = isRoboMasterA && aBoardBridgeConnected && motorControllerReady && Boolean(selectedMotor);
+  const encoderCanRead = aBoardBridgeConnected && motorControllerReady && Boolean(selectedMotor);
   const encoderDiagnostic = useMemo(
     () => describeEncoderFeedback(selectedMotorFeedback, encoderObservation, t),
     [encoderObservation, selectedMotorFeedback, t]
@@ -176,15 +112,15 @@ export function MotorCommandPanel({
   useEffect(() => {
     setLastEncoderFeedbackAt(null);
     setEncoderObservation(createEncoderObservation(selectedMotor?.channel ?? ""));
-  }, [isRoboMasterA, selectedMotor?.channel]);
+  }, [selectedMotor?.channel]);
 
   useEffect(() => {
-    if (!isRoboMasterA || !selectedMotor || !selectedMotorFeedback) {
+    if (!selectedMotor || !selectedMotorFeedback) {
       return;
     }
     setLastEncoderFeedbackAt(Date.now());
     setEncoderObservation((current) => updateEncoderObservation(current, selectedMotor.channel, selectedMotorFeedback));
-  }, [isRoboMasterA, selectedMotor, selectedMotorFeedback]);
+  }, [selectedMotor, selectedMotorFeedback]);
 
   const readEncoderFeedback = useCallback(async (options: { log?: boolean } = {}) => {
     if (!encoderCanRead || encoderReadInFlightRef.current) {
@@ -244,13 +180,6 @@ export function MotorCommandPanel({
       )}
       <div className="command-grid motor-command-grid">
         <label>
-          <span>{t("fields.motorTestBoard")}</span>
-          <select value={motorTestBoard} onChange={(event) => setMotorTestBoard(event.target.value as MotorTestBoard)}>
-            <option value="arduino">{t("motorTestBoard.arduino")}</option>
-            <option value="robomaster-a">{t("motorTestBoard.robomasterA")}</option>
-          </select>
-        </label>
-        <label>
           <span>{t("fields.targetPort")}</span>
           <select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value)}>
             <option value="">{t("placeholders.selectMotor")}</option>
@@ -274,52 +203,43 @@ export function MotorCommandPanel({
         </label>
       </div>
 
-      {!isRoboMasterA ? (
+      <>
         <div className="preview-grid motor-debug-status-grid">
-          <Metric label={t("metrics.serial")} value={connected ? t("status.online") : t("status.offline")} tone={connected ? "online" : "danger"} />
-          <Metric label={t("metrics.uiDebug")} value={debugEnabled ? t("status.debug") : t("status.standby")} tone={debugEnabled ? "warning" : "neutral"} />
-          <Metric label={t("metrics.arduinoDebug")} value={motorDebugHandshakeLabel} tone={motorDebugHandshakeTone} />
-          <Metric label={t("metrics.lastError")} value={lastMotorErrorLabel} tone={lastMotorError ? "danger" : "neutral"} />
+          <Metric label={t("metrics.aBoardBridge")} value={aBoardBridgeLabel} tone={aBoardBridgeTone} />
+          <Metric className="frame-preview" code label={t("metrics.aBoardBridgeDetail")} value={aBoardBridgeDetail || "--"} />
+          <Metric className="frame-preview" code label={t("metrics.aBoardPins")} value={selectedMotorPinSummary} />
         </div>
-      ) : (
-        <>
-          <div className="preview-grid motor-debug-status-grid">
-            <Metric label={t("metrics.aBoardBridge")} value={aBoardBridgeLabel} tone={aBoardBridgeTone} />
-            <Metric className="frame-preview" code label={t("metrics.aBoardBridgeDetail")} value={aBoardBridgeDetail || "--"} />
-            <Metric className="frame-preview" code label={t("metrics.aBoardPins")} value={selectedMotorPinSummary} />
+        {aBoardBridgeError && <p className="form-error">{aBoardBridgeError}</p>}
+        <div className="encoder-diagnostic-panel">
+          <div className="port-config-title">
+            <Activity size={17} />
+            <span>{t("panels.encoderDiagnostics")}</span>
           </div>
-          {aBoardBridgeError && <p className="form-error">{aBoardBridgeError}</p>}
-          <div className="encoder-diagnostic-panel">
-            <div className="port-config-title">
-              <Activity size={17} />
-              <span>{t("panels.encoderDiagnostics")}</span>
-            </div>
-            <div className="preview-grid encoder-diagnostic-grid">
-              <Metric label={t("metrics.ticks")} value={selectedMotorFeedback?.encoderTicks} />
-              <Metric label={t("metrics.rpm")} value={selectedMotorFeedback?.speedRpm} />
-              <Metric label={t("metrics.pulseHz")} value={selectedMotorFeedback?.pulseHz} />
-              <Metric label={t("metrics.encoderDelta")} value={selectedMotorFeedback?.encoderDelta} />
-              <Metric label={t("metrics.encoderDirection")} value={selectedMotorFeedback?.encoderDirection ? formatDirectionLabel(selectedMotorFeedback.encoderDirection) : undefined} />
-              <Metric label={t("metrics.encoderA")} value={formatEncoderLevel(selectedMotorFeedback?.encoderA)} />
-              <Metric label={t("metrics.encoderB")} value={formatEncoderLevel(selectedMotorFeedback?.encoderB)} />
-              <Metric label={t("metrics.sampleMs")} value={selectedMotorFeedback?.sampleMs} suffix={selectedMotorFeedback?.sampleMs === undefined ? "" : " ms"} />
-              <Metric label={t("metrics.lastFeedback")} value={lastEncoderFeedbackLabel} />
-              <Metric className="frame-preview encoder-diagnostic-wide" code label={t("metrics.rawFeedback")} value={encoderRawFeedback} />
-            </div>
-            <div className="action-grid port-config-actions encoder-diagnostic-actions">
-              <button className="icon-button" disabled={!encoderCanRead || encoderReadInFlightRef.current} onClick={() => void readEncoderFeedback()} type="button">
-                <Activity size={18} />
-                <span>{t("actions.readEncoder")}</span>
-              </button>
-              <label className="checkbox-field encoder-auto-refresh">
-                <input checked={encoderAutoRefresh} disabled={!isRoboMasterA} onChange={(event) => setEncoderAutoRefresh(event.target.checked)} type="checkbox" />
-                <span>{t("fields.autoRefreshEncoder")}</span>
-              </label>
-            </div>
-            <p className={`encoder-diagnostic-note ${encoderDiagnostic.tone}`}>{encoderDiagnostic.text}</p>
+          <div className="preview-grid encoder-diagnostic-grid">
+            <Metric label={t("metrics.ticks")} value={selectedMotorFeedback?.encoderTicks} />
+            <Metric label={t("metrics.rpm")} value={selectedMotorFeedback?.speedRpm} />
+            <Metric label={t("metrics.pulseHz")} value={selectedMotorFeedback?.pulseHz} />
+            <Metric label={t("metrics.encoderDelta")} value={selectedMotorFeedback?.encoderDelta} />
+            <Metric label={t("metrics.encoderDirection")} value={selectedMotorFeedback?.encoderDirection ? formatDirectionLabel(selectedMotorFeedback.encoderDirection) : undefined} />
+            <Metric label={t("metrics.encoderA")} value={formatEncoderLevel(selectedMotorFeedback?.encoderA)} />
+            <Metric label={t("metrics.encoderB")} value={formatEncoderLevel(selectedMotorFeedback?.encoderB)} />
+            <Metric label={t("metrics.sampleMs")} value={selectedMotorFeedback?.sampleMs} suffix={selectedMotorFeedback?.sampleMs === undefined ? "" : " ms"} />
+            <Metric label={t("metrics.lastFeedback")} value={lastEncoderFeedbackLabel} />
+            <Metric className="frame-preview encoder-diagnostic-wide" code label={t("metrics.rawFeedback")} value={encoderRawFeedback} />
           </div>
-        </>
-      )}
+          <div className="action-grid port-config-actions encoder-diagnostic-actions">
+            <button className="icon-button" disabled={!encoderCanRead || encoderReadInFlightRef.current} onClick={() => void readEncoderFeedback()} type="button">
+              <Activity size={18} />
+              <span>{t("actions.readEncoder")}</span>
+            </button>
+            <label className="checkbox-field encoder-auto-refresh">
+              <input checked={encoderAutoRefresh} onChange={(event) => setEncoderAutoRefresh(event.target.checked)} type="checkbox" />
+              <span>{t("fields.autoRefreshEncoder")}</span>
+            </label>
+          </div>
+          <p className={`encoder-diagnostic-note ${encoderDiagnostic.tone}`}>{encoderDiagnostic.text}</p>
+        </div>
+      </>
 
       <div className="port-config-panel">
         <div className="port-config-title">
@@ -327,13 +247,13 @@ export function MotorCommandPanel({
           <span>{t("panels.motorPortMapping")}</span>
         </div>
         <div className="port-config-grid">
-          <MotorMappingInput field="pwmPin" label={t("fields.pwmPin")} placeholder={t("placeholders.pwmPin")} selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="in1Pin" label={t("fields.in1Pin")} placeholder={t("placeholders.in1Pin")} selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="in2Pin" label={t("fields.in2Pin")} placeholder={t("placeholders.in2Pin")} selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="enablePin" label={t("fields.enablePin")} placeholder={t("placeholders.optionalPin")} selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="sensorPin" label={t("fields.sensorPin")} placeholder={t("placeholders.optionalPin")} selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="encoderAPin" label={t("fields.encoderAPin")} placeholder="PA0" selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
-          <MotorMappingInput field="encoderBPin" label={t("fields.encoderBPin")} placeholder="PA1" selectedMotor={selectedMotor} updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="pwmPin" label={t("fields.pwmPin")} placeholder={t("placeholders.pwmPin")} selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="in1Pin" label={t("fields.in1Pin")} placeholder={t("placeholders.in1Pin")} selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="in2Pin" label={t("fields.in2Pin")} placeholder={t("placeholders.in2Pin")} selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="enablePin" label={t("fields.enablePin")} placeholder={t("placeholders.optionalPin")} selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="sensorPin" label={t("fields.sensorPin")} placeholder={t("placeholders.optionalPin")} selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="encoderAPin" label={t("fields.encoderAPin")} placeholder="PA0" selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
+          <MotorMappingInput field="encoderBPin" label={t("fields.encoderBPin")} placeholder="PA1" selectedMotor={selectedMotor} useRoboMasterAPins updateSelectedMotorMapping={updateSelectedMotorMapping} />
         </div>
         {motorConfigError && <p className="form-error">{t(motorConfigError)}</p>}
         <div className="action-grid port-config-actions">
@@ -345,79 +265,7 @@ export function MotorCommandPanel({
             <Send size={18} />
             <span>{t("actions.sendPortMapping")}</span>
           </button>
-          {!isRoboMasterA && (
-            <button className="icon-button" onClick={downloadArduinoFirmware} type="button">
-              <Download size={18} />
-              <span>{t("actions.downloadArduinoFirmware")}</span>
-            </button>
-          )}
         </div>
-        {!isRoboMasterA && <div className="firmware-upload-panel">
-          <div className="port-config-title">
-            <Cpu size={17} />
-            <span>{t("panels.firmwareUpload")}</span>
-          </div>
-          <div className="firmware-upload-grid">
-            <label>
-              <span>{t("fields.board")}</span>
-              <select
-                disabled={firmwareBusy}
-                value={firmwareBoard}
-                onChange={(event) => {
-                  setFirmwareBoard(event.target.value as FirmwareBoardId);
-                  setFirmwareJob(null);
-                  setFirmwareStatus("idle");
-                }}
-              >
-                {FIRMWARE_BOARD_OPTIONS.map((board) => (
-                  <option key={board.id} value={board.id}>
-                    {board.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{t("fields.serialPort")}</span>
-              <select disabled={firmwareBusy || firmwarePorts.length === 0} value={selectedFirmwarePort} onChange={(event) => setSelectedFirmwarePort(event.target.value)}>
-                {firmwarePorts.length === 0 ? (
-                  <option value="">{t("empty.noFirmwarePorts")}</option>
-                ) : (
-                  firmwarePorts.map((port) => (
-                    <option key={port.path} value={port.path}>
-                      {port.path} {port.description ? `- ${port.description}` : ""}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-          </div>
-          <div className="preview-grid firmware-status-grid">
-            <Metric label={t("metrics.firmwareHelper")} value={firmwareHelperLabel} tone={firmwareHelperTone} />
-            <Metric label={t("metrics.firmware")} value={t(`firmware.status.${firmwareStatus}`)} tone={firmwareStatusTone} />
-            <Metric label={t("metrics.hexSize")} value={firmwareHexLabel} />
-            <Metric code label={t("metrics.serialPort")} value={selectedFirmwarePort || "--"} />
-          </div>
-          <div className="action-grid port-config-actions">
-            <button className="icon-button" disabled={firmwareBusy} onClick={() => checkFirmwareHelper()} type="button">
-              <RotateCw size={18} />
-              <span>{t("actions.checkFirmwareHelper")}</span>
-            </button>
-            <button className="icon-button" disabled={firmwareBusy || firmwareHelperHealth?.pioAvailable !== true} onClick={refreshFirmwarePorts} type="button">
-              <Usb size={18} />
-              <span>{t("actions.refreshFirmwarePorts")}</span>
-            </button>
-            <button className="icon-button primary" disabled={!canCompileFirmware} onClick={compileArduinoFirmware} type="button">
-              <Cpu size={18} />
-              <span>{t("actions.compileFirmware")}</span>
-            </button>
-            <button className="icon-button" disabled={!canUploadFirmware} onClick={uploadCompiledArduinoFirmware} type="button">
-              <Upload size={18} />
-              <span>{t("actions.uploadFirmware")}</span>
-            </button>
-          </div>
-          {firmwareError && <p className="form-error">{firmwareError}</p>}
-          {firmwareLogs && <pre className="firmware-log">{firmwareLogs}</pre>}
-        </div>}
       </div>
 
       <label className="speed-slider-field">
@@ -457,7 +305,7 @@ export function MotorCommandPanel({
           <RotateCcw size={18} />
           <span>{t("actions.stopAll")}</span>
         </button>
-        <button className="icon-button" disabled={motorActionsDisabled} onClick={() => void (isRoboMasterA ? readEncoderFeedback() : readMotor())} type="button">
+        <button className="icon-button" disabled={motorActionsDisabled} onClick={() => void readEncoderFeedback()} type="button">
           <Activity size={18} />
           <span>{t("actions.readFeedback")}</span>
         </button>
@@ -558,10 +406,28 @@ interface MotorMappingInputProps {
   label: string;
   placeholder: string;
   selectedMotor: MotorProfile | undefined;
+  useRoboMasterAPins: boolean;
   updateSelectedMotorMapping: (field: MotorMappingField, value: string) => void;
 }
 
-function MotorMappingInput({ field, label, placeholder, selectedMotor, updateSelectedMotorMapping }: MotorMappingInputProps) {
+function MotorMappingInput({ field, label, placeholder, selectedMotor, useRoboMasterAPins, updateSelectedMotorMapping }: MotorMappingInputProps) {
+  if (useRoboMasterAPins) {
+    const normalizedValue = normalizeMotorPin(selectedMotor?.[field], field as MotorPinRole, selectedMotor?.channel) ?? "";
+    const selectedValue = ROBOMASTER_A_BOARD_GPIO_OPTIONS.some((option) => option.value === normalizedValue) ? normalizedValue : "";
+    return (
+      <label>
+        <span>{label}</span>
+        <select disabled={!selectedMotor} value={selectedValue} onChange={(event) => updateSelectedMotorMapping(field, event.target.value)}>
+          <option value="">--</option>
+          {ROBOMASTER_A_BOARD_GPIO_OPTIONS.map((option) => (
+            <option key={`${field}-${option.label}`} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
   return (
     <label>
       <span>{label}</span>

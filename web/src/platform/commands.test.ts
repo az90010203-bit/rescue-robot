@@ -15,7 +15,15 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 0.4, strafe: 0.2, turn: -0.1, speedLimitPercent: 70, stopMode: "brake" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.stop", "mecanum-drive:base", { stopMode: "brake" }))).toBeNull();
-    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90, servo2: 45 }, speedRaw: 300 }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      pcCommands: [{ type: "can_servo.group_move", seq: 1, targets: [{ id: 1, position: 8192 }], speed: 300 }]
+    }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("servo-preset.run", "servo-preset:ready", {
+      pcCommands: [
+        { type: "servo.move", seq: 2, sync: true, targets: [{ id: 7, angleDeg: 120, speedRaw: 500, acc: 20 }] },
+        { type: "can_servo.group_move", seq: 3, targets: [{ id: 1, position: 8192 }], speed: 300 }
+      ]
+    }))).toBeNull();
   });
 
   it("rejects unknown targets and missing payload", () => {
@@ -36,7 +44,20 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 10, targetRpm: 0 }))).toBe("motor.set_speed targetRpm must be an integer from 1 to 30000");
     expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", encoderTicksPerRev: -1 }))).toBe("motor.configure encoderTicksPerRev must be an integer from 1 to 100000");
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 2, strafe: 0, turn: 0 }))).toBe("mecanum-drive.set_velocity forward must be from -1 to 1");
-    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 400 } }))).toBe("can-servo-group.set_positions servo1 must be from 0 to 360");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90 } }))).toBe("can-servo-group.set_positions requires pcCommands");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      pcCommands: [{ type: "can_servo.move", seq: 1, id: 1, position: 8192, speed: 300 }]
+    }))).toBe("can-servo-group.set_positions pcCommands must be CAN servo commands");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      pcCommands: [{ type: "can_servo.config", seq: 1, bitrateKbps: 250 }]
+    }))).toBe("can-servo-group.set_positions requires a group_move pcCommand");
+    expect(validatePlatformCommand(createPlatformCommand("servo-preset.run", "servo-preset:ready"))).toBe("servo-preset.run requires pcCommands");
+    expect(validatePlatformCommand(createPlatformCommand("servo-preset.run", "servo-preset:ready", {
+      pcCommands: [{ type: "can_servo.move", seq: 1, id: 1, position: 8192, speed: 300 }]
+    }))).toBe("servo-preset.run pcCommands must be servo.move or CAN group commands");
+    expect(validatePlatformCommand(createPlatformCommand("servo-preset.run", "servo-preset:ready", {
+      pcCommands: [{ type: "can_servo.config", seq: 1, bitrateKbps: 250 }]
+    }))).toBe("servo-preset.run requires a motion pcCommand");
   });
 
   it("resolves target capability from device id", () => {
@@ -60,9 +81,17 @@ describe("platform commands", () => {
       deviceId: "mecanum-drive:base",
       capability: "mecanum-drive"
     });
-    expect(resolvePlatformCommandTarget(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90 } }))).toEqual({
+    expect(resolvePlatformCommandTarget(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      pcCommands: [{ type: "can_servo.group_move", seq: 1, targets: [{ id: 1, position: 8192 }], speed: 300 }]
+    }))).toEqual({
       deviceId: "can-servo-group:claw",
       capability: "can-servo-group"
+    });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("servo-preset.run", "servo-preset:ready", {
+      pcCommands: [{ type: "servo.move", seq: 1, sync: true, targets: [{ id: 7, angleDeg: 90, speedRaw: 300 }] }]
+    }))).toEqual({
+      deviceId: "servo-preset:ready",
+      capability: "servo"
     });
   });
 
@@ -83,7 +112,7 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("firmware.upload", "firmware:local"))).toBe("firmware.upload requires port");
     expect(validatePlatformCommand(createPlatformCommand("ai-vision.analyze", "ai-vision:local", { sourceId: "main" }))).toBe("ai-vision.analyze requires streamUrl");
     expect(validatePlatformCommand(createPlatformCommand("ai-vision.samples.capture", "ai-vision:local", { sourceId: "main", streamUrl: "http://127.0.0.1:8080/stream", label: "" }))).toBe("ai-vision.samples.capture label must be a non-empty string");
-    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw"))).toBe("can-servo-group.set_positions requires positions");
+    expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw"))).toBe("can-servo-group.set_positions requires pcCommands");
   });
 
   it("generates stable command event names", () => {

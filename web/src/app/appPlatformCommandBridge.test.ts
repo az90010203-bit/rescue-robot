@@ -5,6 +5,8 @@ import { createPlatformCommand, type PlatformCommand, type PlatformCommandResult
 
 function createOptions(overrides: Record<string, unknown> = {}) {
   const sentBatches: unknown[][] = [];
+  const sentCanCommands: unknown[] = [];
+  const sentCanOptions: unknown[] = [];
   let seq = 10;
   return {
     options: {
@@ -56,8 +58,13 @@ function createOptions(overrides: Record<string, unknown> = {}) {
       selectedArmTeachTrack: null,
       selectedFirmwarePort: "",
       sendArmPoseForConfig: vi.fn(),
+      sendAboardCommand: vi.fn(async (command: { seq?: number }, options?: unknown) => {
+        sentCanCommands.push(command);
+        sentCanOptions.push(options);
+        return { ok: true, messages: [{ type: "ack", seq: command.seq ?? 0 }] };
+      }),
       sendCameraGimbalMove: vi.fn(),
-      sendMotorCommandBatch: vi.fn(async (commands: unknown[]) => {
+      sendAboardMotionBatch: vi.fn(async (commands: unknown[]) => {
         sentBatches.push(commands);
         return true;
       }),
@@ -77,6 +84,8 @@ function createOptions(overrides: Record<string, unknown> = {}) {
       ...overrides,
     },
     sentBatches,
+    sentCanCommands,
+    sentCanOptions,
   };
 }
 
@@ -119,39 +128,12 @@ describe("app platform A-board semantic bridge", () => {
     expect(sentBatches).toEqual([[{ type: "mecanum.stop", seq: 10, stopMode: "brake" }]]);
   });
 
-  it("sends CAN servo group targets through plugin limits and direction", async () => {
-    const plugins = [
-      canServo("can-a", 1, { minDeg: 10, maxDeg: 110 }),
-      canServo("can-b", 2, { minDeg: 20, maxDeg: 120, direction: -1 }),
-      canServo("can-c", 3),
-      canServo("can-d", 4),
-    ];
-    const { options, sentBatches } = createOptions({
-      components: [
-        {
-          id: "claw",
-          kind: "can-servo-group",
-          name: "Claw",
-          config: {
-            servos: { servo1: "can-a", servo2: "can-b", servo3: "can-c", servo4: "can-d" },
-          },
-        },
-      ],
-      pluginInstances: plugins,
-    });
-    const dispatch = createAppPlatformCommandDispatcher(options as never);
-
-    const result = await dispatch(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
-      positions: { servo1: 50, servo2: 30, servo3: 90, servo4: 180 },
-      speedRaw: 300,
-    }));
-
-    expect(result.status).toBe("sent");
-    expect(sentBatches).toEqual([[
-      { type: "can_servo.config", seq: 10, bitrateKbps: 250 },
+  it("sends precompiled CAN servo group JSON without rebuilding it", async () => {
+    const pcCommands = [
+      { type: "can_servo.config", seq: 30, bitrateKbps: 250 },
       {
         type: "can_servo.group_move",
-        seq: 11,
+        seq: 31,
         targets: [
           { id: 1, position: asmgMdDegreesToPositionRaw(60) },
           { id: 2, position: asmgMdDegreesToPositionRaw(90) },
@@ -160,22 +142,125 @@ describe("app platform A-board semantic bridge", () => {
         ],
         speed: 300,
       },
-    ]]);
+    ];
+    const { options, sentBatches, sentCanCommands } = createOptions({
+      components: [
+        {
+          id: "claw",
+          kind: "can-servo-group",
+          name: "Claw",
+          config: {},
+        },
+      ],
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      pcCommands,
+    }));
+
+    expect(result.status).toBe("sent");
+    expect(sentCanCommands).toEqual(pcCommands);
+    expect(sentBatches).toEqual([]);
+  });
+
+  it("sends live CAN servo group moves through the non-exclusive latest-wins path", async () => {
+    const pcCommands = [
+      {
+        type: "can_servo.group_move",
+        seq: 41,
+        targets: [
+          { id: 1, position: asmgMdDegreesToPositionRaw(60) },
+          { id: 2, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 3, position: asmgMdDegreesToPositionRaw(120) },
+          { id: 4, position: asmgMdDegreesToPositionRaw(180) },
+        ],
+        speed: 300,
+      },
+    ];
+    const { options, sentCanCommands, sentCanOptions } = createOptions({
+      components: [
+        {
+          id: "claw",
+          kind: "can-servo-group",
+          name: "Claw",
+          config: {},
+        },
+      ],
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      live: true,
+      log: false,
+      pcCommands,
+    }));
+
+    expect(result.status).toBe("sent");
+    expect(sentCanCommands).toEqual(pcCommands);
+    expect(sentCanOptions).toEqual([{ log: false, exclusive: false, timeoutMs: 220 }]);
+  });
+
+  it("keeps live CAN servo group moves ready when the A-board accepted the latest target", async () => {
+    const pcCommands = [
+      {
+        type: "can_servo.group_move",
+        seq: 51,
+        targets: [
+          { id: 1, position: asmgMdDegreesToPositionRaw(60) },
+          { id: 2, position: asmgMdDegreesToPositionRaw(90) },
+          { id: 3, position: asmgMdDegreesToPositionRaw(120) },
+          { id: 4, position: asmgMdDegreesToPositionRaw(180) },
+        ],
+        speed: 300,
+      },
+    ];
+    const { options } = createOptions({
+      components: [
+        {
+          id: "claw",
+          kind: "can-servo-group",
+          name: "Claw",
+          config: {},
+        },
+      ],
+      sendAboardCommand: vi.fn(async (command: { seq?: number }) => ({
+        accepted: true,
+        ok: false,
+        messages: [{ type: "scheduler.feedback", seq: command.seq ?? 0, command: "can_servo.group_move", accepted: true }],
+      })),
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      live: true,
+      log: false,
+      pcCommands,
+    }));
+
+    expect(result.status).toBe("sent");
+  });
+
+  it("rejects CAN servo group commands that were not compiled by the component", async () => {
+    const { options, sentBatches, sentCanCommands } = createOptions({
+      components: [
+        {
+          id: "claw",
+          kind: "can-servo-group",
+          name: "Claw",
+          config: {},
+        },
+      ],
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
+      positions: { servo1: 50, servo2: 30, servo3: 90, servo4: 180 },
+    }));
+
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe("CAN servo group command requires compiled pcCommands");
+    expect(sentCanCommands).toEqual([]);
+    expect(sentBatches).toEqual([]);
   });
 });
-
-function canServo(id: string, servoId: number, config: Record<string, unknown> = {}) {
-  return {
-    id,
-    name: id,
-    type: "servo",
-    catalogItemId: "catalog.asme.asme-se-can-servo",
-    brand: "ASME",
-    model: "ASME-SE",
-    driverId: "driver.asme-can-servo",
-    transportId: "transport.a-board-can1",
-    capabilities: [{ id: "servo", features: ["can1"] }],
-    config: { servoId, bitrateKbps: 250, canBus: "CAN1", minDeg: 0, maxDeg: 360, direction: 1, ...config },
-    tags: [],
-  };
-}

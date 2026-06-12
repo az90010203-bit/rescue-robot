@@ -9,7 +9,6 @@ export {
   cameraGimbalPackage,
   coreCapabilitiesPackage,
   coreTransportsPackage,
-  feetechServoPackage,
   firmwareUploadPackage,
   raspberryPiPackage,
   robotArmPackage,

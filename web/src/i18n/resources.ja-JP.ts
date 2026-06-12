@@ -366,7 +366,6 @@ export const jaJPResource = {
       "applyPreset": "プリセット適用",
       "savePortMapping": "ポート設定を保存",
       "sendPortMapping": "ポート設定を送信",
-      "downloadArduinoFirmware": "Arduinoコードをダウンロード",
       "checkAboardBridge": "Aボードブリッジ確認",
       "startAboardBridge": "Aボードブリッジを更新/修復",
       "disconnectAboardBridge": "ブリッジ切断",
@@ -542,7 +541,6 @@ export const jaJPResource = {
         "firmware_upload": "ファームウェア書込"
       },
       "drivers": {
-        "feetech_servo": "Feetech サーボ",
         "tb6618_motor": "TB6618 モーター",
         "camera_gimbal": "カメラジンバル",
         "robot_arm_composite": "ロボットアーム複合",
@@ -753,11 +751,13 @@ export const jaJPResource = {
         "kind": {
           "custom": "通常コンポーネント",
           "robotArm": "ロボットアーム",
-          "mecanumDrive": "メカナムホイール"
+          "mecanumDrive": "メカナムホイール",
+          "canServoGroup": "CAN サーボグループ"
         },
         "noAvailablePluginInstances": "利用可能なプラグインインスタンスはありません",
         "createRobotArm": "ロボットアーム作成",
         "createMecanumDrive": "メカナム作成",
+        "createCanServoGroup": "CAN サーボグループ作成",
         "createComponent": "コンポーネント作成",
         "count": "{{count}} コンポーネント",
         "panelTitle": "コンポーネントパネル",
@@ -796,6 +796,32 @@ export const jaJPResource = {
         "targetRpm": "目標",
         "reverse": "反転",
         "save": "メカナム底盤を保存"
+      },
+      "canServoGroup": {
+        "incomplete": "未完了",
+        "ready": "準備完了",
+        "referencesPluginConfig": "プラグインのリミットと反転を使用",
+        "speedRaw": "連動速度 raw",
+        "liveLinked": "ライブ連動ドラッグ",
+        "liveStatus": "ライブ状態",
+        "liveConfiguring": "設定中",
+        "liveSyncing": "同期中",
+        "liveSending": "送信中",
+        "liveReady": "ライブ",
+        "liveError": "エラー",
+        "liveOff": "手動",
+        "logicalAngle": "論理角",
+        "physicalAngle": "物理角",
+        "rawPosition": "Raw",
+        "aboardJson": "AボードJSON",
+        "center": "一括センター",
+        "send": "グループ送信",
+        "syncCurrent": "現在位置を同期",
+        "linkedDrag": "同期ドラッグ",
+        "linkedDragTargets": "CAN x4",
+        "linkedOffset": "同期オフセット",
+        "linkedOffsetDeg": "オフセット deg",
+        "save": "CAN サーボグループを保存"
       },
       "robots": {
         "steps": {
@@ -947,7 +973,6 @@ export const jaJPResource = {
       "gamepadPreset": "ゲームパッドプリセット",
       "deadzone": "デッドゾーン",
       "invertAxis": "反転",
-      "motorTestBoard": "制御ボード",
       "autoRefreshEncoder": "エンコーダ自動更新",
       "pwmPin": "PWM 出力",
       "in1Pin": "IN1",
@@ -1154,7 +1179,6 @@ export const jaJPResource = {
       "mode": "モード",
       "activeDirection": "現在方向",
       "uiDebug": "UI デバッグ",
-      "arduinoDebug": "Arduino デバッグ",
       "lastError": "最新エラー",
       "firmwareHelper": "ヘルパー",
       "firmware": "ファームウェア",
@@ -1241,10 +1265,6 @@ export const jaJPResource = {
       "reverse": "逆方向",
       "stopped": "停止"
     },
-    "motorTestBoard": {
-      "arduino": "Arduino",
-      "robomasterA": "RoboMaster A"
-    },
     "encoderDiagnostics": {
       "noFeedback": "エンコーダフィードバックはまだありません。読取を実行するか、Aボードブリッジを確認してください。",
       "oldFirmware": "フィードバックはありますが、A/B診断フィールドがありません。最新のAボードファームウェアを書き込んでください。",
@@ -1275,11 +1295,7 @@ export const jaJPResource = {
       "motorMappingInvalid": "モーターポート設定が無効です",
       "motorMappingSaved": "モーターポート設定を保存しました",
       "motorConfigSent": "モーターポート設定を送信しました",
-      "motorDebugRequired": "先にコントローラーのシリアルを接続してください",
-      "motorDebugAutoRecover": "Arduino がモーターデバッグモードではありません。再ハンドシェイクしてリトライします",
-      "motorDebugRetryFailed": "Arduino デバッグのハンドシェイク後もモーターコマンドに失敗しました。ファームウェアまたはシリアル接続を確認してください",
-      "motorDirectionDeadtime": "{{channel}} 方向切替の保護停止",
-      "motorCommandTimeout": "{{command}} の Arduino 確認を受信できません",
+      "aBoardBridgeRequired": "先に A ボードブリッジへ接続してください",
       "firmwareHelperReady": "ローカル書き込みヘルパーは準備完了です",
       "firmwareHelperMissing": "ローカル書き込みヘルパーが PlatformIO を見つけられません",
       "firmwareHelperUnavailable": "ローカル書き込みヘルパーが起動していません",
@@ -1623,7 +1639,6 @@ export const jaJPResource = {
         "scanning": "スキャン中",
         "scanningLocalCameras": "ローカルカメラをスキャン中",
         "scanningSerialPorts": "シリアルポートをスキャン中",
-        "scanningFeetechServoBus": "Feetech サーボバスをスキャン中",
         "scanningAboardCan": "A ボード CAN をスキャン中",
         "scanningAboardMotorChannels": "A ボードモーターチャンネルをスキャン中",
         "addingPlugins": "プラグイン追加中",
@@ -1780,6 +1795,7 @@ export const jaJPResource = {
           "flow": "フロー"
         },
         "blocks": {
+          "actionPreset": "プリセット動作を実行",
           "start": "プログラム開始",
           "motorSet": "モーター設定",
           "motorStop": "モーター停止",

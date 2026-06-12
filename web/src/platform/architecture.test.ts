@@ -19,11 +19,11 @@ import {
   reorderPanelLayoutItems,
   validateComponentDefinition,
   validatePhysicalInstanceAssignments,
-  validatePluginInstance
+  validatePluginInstance,
+  type PluginInstance
 } from "@platform/architecture";
 import { BUILTIN_PLUGIN_PACKAGES, BUILTIN_UI_PANELS } from "@platform/builtinPlugins";
 
-const servoCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.feetech.sts3215")!;
 const asmeServoCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.asme.asme-se-can-servo")!;
 const motorCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.toshiba.tb6618-motor")!;
 const wheeltecMg540Catalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.wheeltec.mg540")!;
@@ -31,9 +31,25 @@ const gamepadCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "
 const localCameraCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.browser.local-camera")!;
 const aiVisionCatalog = BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.local.ai-vision")!;
 
+function legacyFeetechPlugin(id: string, name: string, servoId: number): PluginInstance {
+  return {
+    id,
+    name,
+    type: "servo",
+    catalogItemId: null,
+    brand: "Feetech",
+    model: "Legacy STS/SCS",
+    driverId: "driver.feetech-servo",
+    transportId: "transport.web-serial",
+    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
+    config: { servoId, minDeg: 0, maxDeg: 360, direction: 1 },
+    tags: ["servo", "legacy", "feetech"]
+  };
+}
+
 describe("three-layer architecture model", () => {
   it("filters catalog items by type, brand, and query", () => {
-    expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "servo", brand: "Feetech", query: "3215" })).toEqual([servoCatalog]);
+    expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "servo", brand: "Feetech", query: "3215" })).toEqual([]);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "servo", brand: "ASME", model: "ASME-SE" })).toEqual([asmeServoCatalog]);
     expect(filterDeviceCatalogItems(BUILTIN_DEVICE_CATALOG_ITEMS, { type: "motor", query: "h-bridge" })[0].id).toBe(motorCatalog.id);
     expect(deviceCatalogModels(BUILTIN_DEVICE_CATALOG_ITEMS, "motor", "WHEELTEC")).toEqual(["G513XL", "MG540"]);
@@ -44,19 +60,13 @@ describe("three-layer architecture model", () => {
 
   it("derives and filters selectable driver library files from built-in packages", () => {
     const drivers = driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES);
-    const feetech = drivers.find((item) => item.driverId === "driver.feetech-servo");
     const asme = drivers.find((item) => item.driverId === "driver.asme-can-servo");
     const tb6618 = drivers.find((item) => item.driverId === "driver.tb6618-motor");
     const gamepad = drivers.find((item) => item.driverId === "driver.browser-gamepad");
     const browserCamera = drivers.find((item) => item.driverId === "driver.browser-camera");
     const aiVision = drivers.find((item) => item.driverId === "driver.ai-vision-helper");
 
-    expect(feetech).toMatchObject({
-      packageId: "builtin.feetech-servo",
-      type: "servo",
-      sourceFile: "plugins/builtin/feetechServo.ts",
-      transportIds: ["transport.web-serial"]
-    });
+    expect(drivers.some((item) => item.driverId === "driver.feetech-servo")).toBe(false);
     expect(asme).toMatchObject({
       packageId: "builtin.asme-can-servo",
       type: "servo",
@@ -67,14 +77,11 @@ describe("three-layer architecture model", () => {
     expect(gamepad).toMatchObject({ type: "gamepad", sourceFile: "plugins/builtin/browserGamepad.ts", transportIds: ["transport.browser-gamepad-api"] });
     expect(browserCamera).toMatchObject({ type: "camera", sourceFile: "plugins/builtin/browserCamera.ts", transportIds: ["transport.browser-media"] });
     expect(aiVision).toMatchObject({ type: "ai-vision", sourceFile: "plugins/builtin/aiVision.ts", transportIds: ["transport.local-helper"] });
-    expect(filterDriverLibraryItems(drivers, { type: "servo", query: "feetechServo.ts" }).map((item) => item.driverId)).toEqual(["driver.feetech-servo"]);
+    expect(filterDriverLibraryItems(drivers, { type: "servo", query: "feetechServo.ts" }).map((item) => item.driverId)).toEqual([]);
   });
 
   it("scopes model templates to the selected driver library", () => {
-    expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.feetech-servo").map((item) => item.id)).toEqual([
-      "catalog.feetech.sts3215",
-      "catalog.feetech.scservo"
-    ]);
+    expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.feetech-servo")).toEqual([]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.asme-can-servo").map((item) => item.id)).toEqual(["catalog.asme.asme-se-can-servo"]);
     expect(catalogItemsForDriver(BUILTIN_DEVICE_CATALOG_ITEMS, "driver.tb6618-motor").map((item) => item.id)).toEqual(["catalog.toshiba.tb6618-motor", "catalog.wheeltec.g513xl", "catalog.wheeltec.mg540"]);
     expect(BUILTIN_DEVICE_CATALOG_ITEMS.find((item) => item.id === "catalog.wheeltec.g513xl")?.defaultConfig).toMatchObject({
@@ -95,12 +102,12 @@ describe("three-layer architecture model", () => {
     const drivers = driverLibraryItemsFromPackages(BUILTIN_PLUGIN_PACKAGES);
     const libraries = deviceCodeLibraryItemsFromCatalog(BUILTIN_DEVICE_CATALOG_ITEMS, drivers);
 
-    expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "Feetech" }).map((item) => item.model)).toEqual(["STS3215", "STS/SCS Generic"]);
+    expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "Feetech" })).toEqual([]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "ASME", model: "ASME-SE" }).map((item) => item.driverId)).toEqual(["driver.asme-can-servo"]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "motor", brand: "Toshiba" }).map((item) => item.sourceFile)).toEqual(["plugins/builtin/tb6618Motor.ts"]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "motor", brand: "WHEELTEC" }).map((item) => item.model)).toEqual(["G513XL", "MG540"]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "motor", brand: "WHEELTEC", model: "MG540" }).map((item) => item.catalogItemId)).toEqual([wheeltecMg540Catalog.id]);
-    expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "Feetech", query: "3215" }).map((item) => item.catalogItemId)).toEqual(["catalog.feetech.sts3215"]);
+    expect(filterDeviceCodeLibraryItems(libraries, { type: "servo", brand: "Feetech", query: "3215" })).toEqual([]);
     expect(filterDeviceCodeLibraryItems(libraries, { type: "ai-vision", brand: "Local", query: "aiVision.ts" }).map((item) => item.catalogItemId)).toEqual([aiVisionCatalog.id]);
   });
 
@@ -108,41 +115,43 @@ describe("three-layer architecture model", () => {
     const servo = createPluginInstanceFromCatalog({
       id: "servo-a",
       name: "Base joint",
-      catalogItem: servoCatalog,
+      catalogItem: asmeServoCatalog,
       config: { servoId: "22", direction: "-1" }
     });
     const duplicate = createPluginInstanceFromCatalog({
       id: "servo-b",
       name: "Elbow joint",
-      catalogItem: servoCatalog,
+      catalogItem: asmeServoCatalog,
       config: { servoId: 22 }
     });
     const canServo = createPluginInstanceFromCatalog({
       id: "can-servo",
       name: "CAN joint",
       catalogItem: asmeServoCatalog,
-      config: { servoId: 22, direction: "-1", minDeg: "15", maxDeg: "180" }
+      config: { servoId: 23, direction: "-1", minDeg: "15", maxDeg: "180" }
     });
 
     expect(servo.config).toMatchObject({ servoId: 22, direction: -1 });
-    expect(canServo.config).toMatchObject({ servoId: 22, direction: -1, minDeg: 15, maxDeg: 180, bitrateKbps: 250, canBus: "CAN1" });
+    expect(canServo.config).toMatchObject({ servoId: 23, direction: -1, minDeg: 15, maxDeg: 180, bitrateKbps: 250, canBus: "CAN1" });
     expect(validatePluginInstance(servo)).toBeNull();
     expect(validatePluginInstance(duplicate, [servo])).toBe("duplicate servo ID: 22");
     expect(validatePluginInstance(canServo, [servo])).toBeNull();
   });
 
   it("bridges plugin instances into platform devices and legacy profiles", () => {
-    const servo = createPluginInstanceFromCatalog({ id: "servo-a", name: "Base", catalogItem: servoCatalog, config: { servoId: 7 } });
-    const motor = createPluginInstanceFromCatalog({ id: "motor-a", name: "Left Track", catalogItem: motorCatalog, config: { channel: "m2", pwmPin: "D5" } });
+    const servo = legacyFeetechPlugin("servo-a", "Base", 7);
+    const motor = createPluginInstanceFromCatalog({ id: "motor-a", name: "Left Track", catalogItem: motorCatalog, config: { channel: "m2", pwmPin: "S" } });
+    const typeAMotor = createPluginInstanceFromCatalog({ id: "motor-type-a", name: "A Wheel", catalogItem: motorCatalog, config: { channel: "M1", pwmPin: "S", in1Pin: "L2", in2Pin: "K2" } });
 
     expect(createDeviceDescriptorFromPluginInstance(servo)).toMatchObject({ id: "servo:7", driverId: "driver.feetech-servo" });
     const canServo = createPluginInstanceFromCatalog({ id: "can-servo", name: "CAN", catalogItem: asmeServoCatalog, config: { servoId: 7 } });
     expect(pluginInstancesToServoProfiles([servo, canServo])).toEqual([expect.objectContaining({ id: 7, name: "Base" })]);
-    expect(pluginInstancesToMotorProfiles([motor])[0]).toMatchObject({ channel: "M2", name: "Left Track", pwmPin: "D5" });
+    expect(pluginInstancesToMotorProfiles([motor])[0]).toMatchObject({ channel: "M2", name: "Left Track", pwmPin: "PA0" });
+    expect(pluginInstancesToMotorProfiles([typeAMotor])[0]).toMatchObject({ channel: "M1", name: "A Wheel", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12" });
   });
 
   it("tracks physical plugin assignment availability", () => {
-    const servo = createPluginInstanceFromCatalog({ id: "servo-a", name: "Base", catalogItem: servoCatalog, config: { servoId: 7 } });
+    const servo = legacyFeetechPlugin("servo-a", "Base", 7);
     const motor = createPluginInstanceFromCatalog({ id: "motor-a", name: "Left", catalogItem: motorCatalog, config: { channel: "M1" } });
     const components = [{ id: "drive", kind: "custom" as const, name: "Drive", pluginInstanceIds: ["motor-a"], tags: [], config: {} }];
     const robots = [{ id: "robot", kind: "robot" as const, name: "Robot", componentIds: [], pluginInstanceIds: ["servo-a"], tags: [], config: {} }];
@@ -212,13 +221,13 @@ describe("three-layer architecture model", () => {
   });
 
   it("generates and reorders panel layout from plugin capabilities", () => {
-    const servo = createPluginInstanceFromCatalog({ id: "servo-a", name: "Base", catalogItem: servoCatalog, config: { servoId: 7 } });
+    const servo = legacyFeetechPlugin("servo-a", "Base", 7);
     const motor = createPluginInstanceFromCatalog({ id: "motor-a", name: "Left", catalogItem: motorCatalog, config: { channel: "M1" } });
     const targets = panelTargetsForPluginInstances([servo, motor], BUILTIN_UI_PANELS);
     const layout = defaultPanelLayoutItems("component:drive", targets);
     const reordered = reorderPanelLayoutItems(layout, layout[1].id, layout[0].id);
 
-    expect(layout.map((item) => item.panelId)).toEqual(["servo-control", "motor-control"]);
+    expect(layout.map((item) => item.panelId)).toEqual(["servo-panel", "motor-control"]);
     expect(reordered.map((item) => item.targetId)).toEqual(["motor:M1", "servo:7"]);
     expect(mergePanelLayoutItems("component:drive", reordered, targets).map((item) => item.order)).toEqual([0, 1]);
   });

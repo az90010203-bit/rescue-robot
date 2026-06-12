@@ -366,7 +366,6 @@ export const zhCNResource = {
       "applyPreset": "应用预设",
       "savePortMapping": "保存端口设置",
       "sendPortMapping": "发送端口配置",
-      "downloadArduinoFirmware": "下载 Arduino 代码",
       "checkAboardBridge": "检查 A 板桥",
       "startAboardBridge": "升级/修复 A 板桥",
       "disconnectAboardBridge": "断开桥",
@@ -542,7 +541,6 @@ export const zhCNResource = {
         "firmware_upload": "固件上传"
       },
       "drivers": {
-        "feetech_servo": "飞特舵机",
         "tb6618_motor": "TB6618 电机",
         "camera_gimbal": "摄像头云台",
         "robot_arm_composite": "机械臂组合驱动",
@@ -753,11 +751,13 @@ export const zhCNResource = {
         "kind": {
           "custom": "普通组件",
           "robotArm": "机械臂",
-          "mecanumDrive": "麦克纳姆轮"
+          "mecanumDrive": "麦克纳姆轮",
+          "canServoGroup": "CAN 舵机组"
         },
         "noAvailablePluginInstances": "没有可用插件实例",
         "createRobotArm": "生成机械臂",
         "createMecanumDrive": "生成麦克纳姆轮",
+        "createCanServoGroup": "生成 CAN 舵机组",
         "createComponent": "生成组件",
         "count": "{{count}} 个组件",
         "panelTitle": "组件面板",
@@ -796,6 +796,32 @@ export const zhCNResource = {
         "targetRpm": "目标",
         "reverse": "反向",
         "save": "保存麦轮底盘"
+      },
+      "canServoGroup": {
+        "incomplete": "未完成",
+        "ready": "就绪",
+        "referencesPluginConfig": "使用插件里的限位和反转",
+        "speedRaw": "联动速度 raw",
+        "liveLinked": "实时联动拖动",
+        "liveStatus": "实时状态",
+        "liveConfiguring": "配置中",
+        "liveSyncing": "同步中",
+        "liveSending": "发送中",
+        "liveReady": "实时",
+        "liveError": "错误",
+        "liveOff": "手动",
+        "logicalAngle": "逻辑角度",
+        "physicalAngle": "物理角",
+        "rawPosition": "Raw",
+        "aboardJson": "A 板 JSON",
+        "center": "一键回中",
+        "send": "发送舵机组",
+        "syncCurrent": "同步当前位置",
+        "linkedDrag": "同步拖动",
+        "linkedDragTargets": "CAN x4",
+        "linkedOffset": "同步偏移",
+        "linkedOffsetDeg": "偏移 deg",
+        "save": "保存 CAN 舵机组"
       },
       "robots": {
         "steps": {
@@ -947,7 +973,6 @@ export const zhCNResource = {
       "gamepadPreset": "手柄预设",
       "deadzone": "死区",
       "invertAxis": "反向",
-      "motorTestBoard": "控制板",
       "autoRefreshEncoder": "自动刷新编码器",
       "pwmPin": "PWM 输出",
       "in1Pin": "IN1",
@@ -1154,7 +1179,6 @@ export const zhCNResource = {
       "mode": "模式",
       "activeDirection": "当前方向",
       "uiDebug": "UI 调试",
-      "arduinoDebug": "Arduino 调试",
       "lastError": "最近错误",
       "firmwareHelper": "刷写助手",
       "firmware": "固件",
@@ -1241,10 +1265,6 @@ export const zhCNResource = {
       "reverse": "反向",
       "stopped": "停止"
     },
-    "motorTestBoard": {
-      "arduino": "Arduino",
-      "robomasterA": "RoboMaster A"
-    },
     "encoderDiagnostics": {
       "noFeedback": "还没有编码器反馈。点击读取编码器，或先确认 A 板桥在线。",
       "oldFirmware": "已经有反馈，但缺少 A/B 诊断字段。请烧录最新 A 板固件。",
@@ -1275,11 +1295,7 @@ export const zhCNResource = {
       "motorMappingInvalid": "电机端口映射无效",
       "motorMappingSaved": "电机端口设置已保存",
       "motorConfigSent": "电机端口配置已发送",
-      "motorDebugRequired": "请先连接控制器串口",
-      "motorDebugAutoRecover": "Arduino 未进入电机调试模式，正在重新握手并重试",
-      "motorDebugRetryFailed": "Arduino 调试握手后仍无法执行电机命令，请检查固件或重新连接串口",
-      "motorDirectionDeadtime": "{{channel}} 方向切换保护停顿",
-      "motorCommandTimeout": "{{command}} 未收到 Arduino 确认",
+      "aBoardBridgeRequired": "请先连接 A 板桥",
       "firmwareHelperReady": "本机刷写助手已就绪",
       "firmwareHelperMissing": "本机刷写助手未找到 PlatformIO",
       "firmwareHelperUnavailable": "本机刷写助手未启动",
@@ -1623,7 +1639,6 @@ export const zhCNResource = {
         "scanning": "扫描中",
         "scanningLocalCameras": "扫描本地摄像头",
         "scanningSerialPorts": "扫描串口",
-        "scanningFeetechServoBus": "扫描飞特舵机总线",
         "scanningAboardCan": "扫描 A 板 CAN",
         "scanningAboardMotorChannels": "扫描 A 板电机通道",
         "addingPlugins": "添加插件",
@@ -1780,6 +1795,7 @@ export const zhCNResource = {
           "flow": "流程"
         },
         "blocks": {
+          "actionPreset": "运行预设动作",
           "start": "程序开始",
           "motorSet": "设置电机",
           "motorStop": "停止电机",

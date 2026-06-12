@@ -1,27 +1,12 @@
 import { InboundMessage, normalizeMotorChannel } from "@adapters/hardware/protocol";
 import { ArmConfig, CameraConfig, MAIN_CAMERA_SOURCE_ID, SECONDARY_CAMERA_SOURCE_ID } from "@adapters/persistence/storage";
 import { DeviceStateSnapshot } from "@platform/types";
+import { gamepadSnapshotValues, type PlatformGamepadSnapshotInput } from "@platform/gamepadState";
 
 export type ServoFeedbackMap = Record<number, InboundMessage & { type: "servo.feedback" }>;
 export type MotorFeedbackMap = Record<string, InboundMessage & { type: "motor.feedback" }>;
 
-export interface PlatformGamepadStateInput {
-  index: number;
-  id: string;
-  axes: number;
-  buttons: number;
-  mapping: string;
-  axesValues?: number[];
-  pressedButtons?: number[];
-  input?: {
-    forward?: number;
-    strafe?: number;
-    turn?: number;
-    cameraPan?: number;
-    cameraTilt?: number;
-    stop?: boolean;
-  };
-}
+export type PlatformGamepadStateInput = PlatformGamepadSnapshotInput;
 
 export interface PlatformStateInput {
   servoFeedback: ServoFeedbackMap;
@@ -129,22 +114,7 @@ export function createPlatformStateSnapshot(input: PlatformStateInput): Record<s
     "gamepad:active": {
       deviceId: "gamepad:active",
       status: input.activeGamepad ? "online" : "offline",
-      values: {
-        connected: Boolean(input.activeGamepad),
-        index: input.activeGamepad?.index ?? null,
-        id: input.activeGamepad?.id ?? null,
-        mapping: input.activeGamepad?.mapping ?? null,
-        axes: input.activeGamepad?.axes ?? null,
-        buttons: input.activeGamepad?.buttons ?? null,
-        axesValues: input.activeGamepad?.axesValues?.join(" ") ?? null,
-        pressedButtons: input.activeGamepad?.pressedButtons?.join(", ") ?? null,
-        forward: input.activeGamepad?.input?.forward ?? null,
-        strafe: input.activeGamepad?.input?.strafe ?? null,
-        turn: input.activeGamepad?.input?.turn ?? null,
-        cameraPan: input.activeGamepad?.input?.cameraPan ?? null,
-        cameraTilt: input.activeGamepad?.input?.cameraTilt ?? null,
-        stop: input.activeGamepad?.input?.stop ?? null
-      },
+      values: gamepadSnapshotValues(input.activeGamepad),
       updatedAt
     },
     "ai-vision:local": {

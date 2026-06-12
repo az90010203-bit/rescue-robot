@@ -94,6 +94,7 @@ User=$service_user
 WorkingDirectory=$bridge_dir
 Environment=PI_SERVO_SERIAL_PORT=/dev/serial0
 Environment=PI_SERVO_BAUD=115200
+Environment=PI_SERVO_SERIAL_PROTOCOL=auto
 Environment=PI_SERVO_BRIDGE_HOST=0.0.0.0
 Environment=PI_SERVO_BRIDGE_PORT=17354
 ExecStart=/usr/bin/python3 $pi_servo_target

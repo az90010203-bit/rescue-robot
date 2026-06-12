@@ -16,11 +16,11 @@ describe("plugin manager state", () => {
   });
 
   it("blocks packages with missing dependencies", () => {
-    const state = createPluginManagerState(BUILTIN_PLUGIN_PACKAGES, ["builtin.feetech-servo"]);
-    const feetech = state.find((item) => item.id === "builtin.feetech-servo");
+    const state = createPluginManagerState(BUILTIN_PLUGIN_PACKAGES, ["builtin.asme-can-servo"]);
+    const asme = state.find((item) => item.id === "builtin.asme-can-servo");
 
-    expect(feetech?.status).toBe("enabled");
-    expect(feetech?.missingRequires).toEqual(["capability.servo", "transport.web-serial"]);
+    expect(asme?.status).toBe("enabled");
+    expect(asme?.missingRequires).toEqual(["capability.servo", "transport.a-board-can1"]);
     expect(state.find((item) => item.id === "builtin.tb6618-motor")?.status).toBe("blocked");
   });
 

@@ -19,8 +19,8 @@ interface UseSingleMotorRuntimeOptions {
   motorSpeed: string;
   pendingSingleMotorMoveRef: { current: PendingSingleMotorMove | null };
   selectedMotor: { channel: string } | undefined;
-  sendMotorCommand: (command: PcCommand, options?: { log?: boolean; retryCount?: number }) => Promise<boolean>;
-  sendMotorCommandBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<boolean>;
+  sendAboardCommand: (command: PcCommand, options?: { log?: boolean }) => Promise<unknown>;
+  sendAboardMotionBatch: (commands: PcCommand[], options?: { log?: boolean; shouldRun?: () => boolean }) => Promise<boolean>;
   setMotorSpeed: (value: string) => void;
   singleMotorGenerationRef: { current: number };
   singleMotorLiveSendingRef: { current: boolean };
@@ -41,8 +41,8 @@ export function useSingleMotorRuntime({
   nextSeq,
   pendingSingleMotorMoveRef,
   selectedMotor,
-  sendMotorCommand,
-  sendMotorCommandBatch,
+  sendAboardCommand,
+  sendAboardMotionBatch,
   setMotorSpeed,
   singleMotorGenerationRef,
   singleMotorLiveSendingRef,
@@ -97,7 +97,7 @@ export function useSingleMotorRuntime({
 
     singleMotorLiveSendingRef.current = true;
     try {
-      await sendMotorCommandBatch(
+      await sendAboardMotionBatch(
         [buildMotorSetCommand(nextSeq(), { channel: pending.channel, speedPercent: pending.speedPercent, stopMode: pending.stopMode })],
         {
           log: false,
@@ -151,7 +151,7 @@ export function useSingleMotorRuntime({
       setMotorSpeed("0");
       return;
     }
-    await sendMotorCommand(buildMotorStopCommand(nextSeq(), { all: true, stopMode }), { log: !quiet });
+    await sendAboardCommand(buildMotorStopCommand(nextSeq(), { all: true, stopMode }), { log: !quiet });
     setMotorSpeed("0");
   }
 
@@ -160,7 +160,7 @@ export function useSingleMotorRuntime({
       return;
     }
     if (options.log === false) {
-      await sendMotorCommand({ type: "motor.read", seq: nextSeq(), channel: selectedMotor.channel }, { log: false });
+      await sendAboardCommand({ type: "motor.read", seq: nextSeq(), channel: selectedMotor.channel }, { log: false });
       return;
     }
     await dispatchPlatformCommand(createPlatformCommand("motor.read_feedback", `motor:${selectedMotor.channel}`));

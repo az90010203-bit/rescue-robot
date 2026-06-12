@@ -3,13 +3,21 @@
 ## 1. 系统链路
 
 ```text
-Browser WebSerial UI
-  -> Feetech STS/SCS serial bus packet over USB serial
-  -> USB/TTL half-duplex bus adapter
+Web UI
+  -> Pi servo HTTP bridge :17354 /command
+  -> COBS + CRC16 UART command frame on /dev/serial0 @ 115200
+  -> ESP32 Feetech direct controller
+  -> Native Feetech STS/SCS packets on Serial1 @ 1000000
   -> Servo
 ```
 
-第一版目标是舵机调试，不包含步态生成器。舵机测试模块现在默认 PC 直连飞特总线，已验证 `COM6 @ 1000000` 可直接控制 `ID22`。
+Current app runtime note 2026-06-12: React-side servo control now uses the Pi
+servo bridge semantic `POST /command` endpoint as the default and only
+verified realtime path. Browser WebSerial Feetech direct-bus access is legacy
+manual diagnosis only, and `POST /frame` is retained as a guarded diagnostic
+endpoint for old clients rather than a normal client fallback.
+
+浏览器 WebSerial -> USB/TTL 半双工适配器 -> Feetech STS/SCS 总线仍保留为直连调试路径，已验证 `COM6 @ 1000000` 可直接控制 `ID22`。现场默认链路走树莓派 `pi-servo-serial-bridge.service` 和 ESP32 直控固件。
 
 ## 2. PC -> 舵机直连协议
 
@@ -242,9 +250,10 @@ Runtime path:
 
 ```text
 Web UI
-  -> Pi servo HTTP bridge http://<pi-host>:17354
-  -> /dev/serial0 @ 115200 baud
-  -> Bus Servo Driver HAT(A) in ESP32 transparent transmission mode
+  -> Pi servo HTTP bridge http://<pi-host>:17354 /command
+  -> COBS + CRC16 UART command frame on /dev/serial0 @ 115200
+  -> ESP32 Feetech direct controller
+  -> Native Feetech STS/SCS packets on Serial1 @ 1000000
   -> Feetech STS/SCS servo bus
 ```
 
@@ -255,26 +264,66 @@ image initializer `pi-image/install-rescue-pi.sh` installs it under
 SSH recovery path that re-uploads the same script and service through
 `pi-helper`.
 
-The Waveshare HAT must be running its ESP32 transparent transmission firmware
-for raw Feetech frames to pass between the Pi UART and the servo bus. If
-`GET /health` is `ok: true` but `POST /frame` returns no bytes for servo pings,
-check the HAT mode/firmware first, then servo power, servo ID, bus connector
-orientation, and shared ground.
+The ESP32 on the servo controller now owns the Feetech TTL bus directly. The Pi
+bridge sends semantic servo commands to that ESP32 over COBS-framed UART
+messages; the ESP32 then emits native Feetech packets on `Serial1 @ 1000000`
+using RX `18`, TX `19`, and `SERVO_DIR_PIN=-1`. If `GET /health` is `ok: true`
+but `POST /command` returns timeouts for servo pings, check `controllerReady`,
+`binaryProtocolReady`, `crcError`, `cobsError`, servo power, servo ID, bus
+connector orientation, and shared ground.
 
 Bridge endpoints:
 
 - `GET /health` returns `{ ok, service, version, serialPort, baudRate,
-  queueDepth, inFlight }`. `ok: false` with service metadata means the bridge
-  daemon is reachable but `/dev/serial0` is not available yet.
-- `POST /frame` accepts `{ frame: number[], waitMs?: number }`, writes the raw
-  Feetech binary frame to `/dev/serial0`, then returns received bytes and a
-  parsed status packet when available.
+  queueDepth, inFlight, transportMode, serialProtocolMode,
+  serialProtocolActive, binaryProtocolReady, controllerReady, crcError,
+  cobsError, binaryFallbackCount }`. `ok: false` with service metadata means
+  the bridge daemon is reachable but `/dev/serial0` is not available yet.
+- `POST /command` accepts `{ command: PcCommand, waitMs?: number,
+  policy?: "latest", coalesceKey?: string, minIntervalMs?: number }`. Normal
+  operation uses binary COBS frames; `PI_SERVO_SERIAL_PROTOCOL=auto` probes
+  `system.protocol` and falls back to newline JSON for bring-up or old firmware.
+- `POST /frame` is retained only as a legacy diagnostic guard. Normal servo and
+  arm control should not depend on raw Feetech frame forwarding.
+
+Pi -> ESP32 binary command body before COBS:
+
+```text
+version:u8
+seq:u16le
+targetId:u8
+opcode:u8
+flags:u8
+payload...
+crc16:u16le  # CRC16-CCITT-FALSE over all previous body bytes
+```
+
+The encoded UART packet is `0x00 + COBS(body) + 0x00`. `flags` currently uses
+`0x01` for latest-wins live commands and `0x02` when the bridge expects a JSON
+terminal response.
+
+Targets and opcodes:
+
+- `targetId 0x05`: single Feetech servo.
+- `targetId 0x06`: Feetech group/sync move.
+- `0x40 servo.ping`: `id:u8`.
+- `0x41 servo.read`: `id:u8`.
+- `0x42 servo.torque`: `id:u8, enabled:u8`.
+- `0x43 servo.mode`: `id:u8, mode:u8` where `0=position`, `1=wheel`.
+- `0x44 servo.move`: `id:u8, positionRaw:u16le, speedRaw:u16le, acc:u8`.
+- `0x45 servo.speed`: `id:u8, speedRaw:i16le, acc:u8, setupWheelMode:u8`.
+- `0x46 servo.set_id`: `oldId:u8, newId:u8`; firmware performs ping, EEPROM
+  unlock, ID write, lock, and new-ID ping.
+- `0x47 servo.group_move`: `count:u8`, repeated
+  `id:u8, positionRaw:u16le`, then `speedRaw:u16le, acc:u8`.
 
 Important chain split:
 
 - Servo HAT: Pi pins `6/8/10`, `/dev/serial0`, HTTP port `17354`, Pi UART
-  baud `115200` for the Waveshare ESP32 transparent firmware. Browser
-  WebSerial direct Feetech adapters still use `1000000`.
+  baud `115200` for the ESP32 COBS command UART. The ESP32 Feetech bus remains
+  `Serial1 @ 1000000`. Legacy manual Browser WebSerial Feetech diagnostics
+  still use `1000000`, but the current app runtime does not use that direct
+  bus path.
 - RoboMaster Type A: Pi pins `30/32/33`, `/dev/ttyAMA5`, HTTP port `17353`,
   baud `115200`.
 - ASMG-MD CAN servos are not on the Feetech HAT bridge. PC/Web sends

@@ -1,14 +1,15 @@
-import { Activity, AlertTriangle, Boxes, Cable, CircleDot, Cpu, Eye, EyeOff, GitBranch, Link2, MousePointer2, PanelLeftClose, PanelLeftOpen, Play, PlugZap, Plus, Power, Radio, Save, Square, Trash2, Unplug, Zap } from "lucide-react";
+import { Activity, AlertTriangle, Boxes, Cable, CircleDot, Code2, Cpu, Eye, EyeOff, GitBranch, Keyboard, Link2, MousePointer2, PanelLeftClose, PanelLeftOpen, Play, PlugZap, Plus, Power, Radio, Save, Square, Trash2, Unplug, X, Zap } from "lucide-react";
 import type { DragEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MotorTarget } from "@adapters/hardware/protocol";
-import type { PlatformCommand, PlatformCommandResult, PlatformCommandType } from "@platform/commands";
+import { createPlatformCommand, type PlatformCommand, type PlatformCommandResult, type PlatformCommandType } from "@platform/commands";
 import type {
   ComponentDefinition,
   PluginInstance,
   PluginUsage,
   RobotActionButton,
+  RobotActionButtonServoTarget,
   RobotActionButtonStep,
   RobotAssemblyConfig,
   RobotAssemblyEdge,
@@ -32,12 +33,14 @@ import {
   ROBOT_ASSEMBLY_CANVAS_WIDTH,
   ROBOT_ASSEMBLY_HARDWARE_TEMPLATES,
   addSourceToAssembly,
+  compileRobotServoPresetAction,
   createActionButtonPreview,
   createAssemblyEdge,
-  createDefaultActionButton,
+  createDefaultServoPresetActionButton,
   deleteAssemblyEdge,
   edgeDisplayLabel,
   flattenActionSteps,
+  isRobotServoPresetAction,
   motionToneForNode,
   motionToneForPlugin,
   motorSpeedForPlugin,
@@ -46,7 +49,10 @@ import {
   normalizeRobotActionButtons,
   normalizeRobotAssemblyConfig,
   removeSourceFromAssembly,
+  robotActionTriggerKeyLabel,
   robotEffectivePluginIds,
+  robotServoPresetSpanForPlugin,
+  robotServoPresetTargetCount,
   sourceLabel,
   sourceNodeId,
   toggleHarnessHidden,
@@ -261,6 +267,7 @@ export function RobotAssemblyWorkspace({
   const debugPlugin = selectedPlugin ?? (debugPluginId ? pluginById.get(debugPluginId) ?? null : null);
   const previewAction = previewActionId ? actionButtons.find((button) => button.id === previewActionId) ?? null : null;
   const preview = previewAction ? createActionButtonPreview(previewAction, pluginInstances, warnings) : null;
+  const actionHotkeyConflicts = useMemo(() => duplicateActionTriggerIds(actionButtons), [actionButtons]);
 
   useEffect(() => {
     assemblyRef.current = assembly;
@@ -293,6 +300,22 @@ export function RobotAssemblyWorkspace({
       window.clearTimeout(saveTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    function handleActionHotkey(event: KeyboardEvent) {
+      if (event.repeat || runState === "running" || isEditableKeyboardTarget(event.target)) {
+        return;
+      }
+      const button = actionButtons.find((item) => item.triggerKey === event.code && !actionHotkeyConflicts.has(item.id));
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      button.confirmRequired ? setPreviewActionId(button.id) : void runActionButton(button);
+    }
+    window.addEventListener("keydown", handleActionHotkey);
+    return () => window.removeEventListener("keydown", handleActionHotkey);
+  }, [actionButtons, actionHotkeyConflicts, runState]);
 
   useEffect(() => {
     function handleSafetyAbort() {
@@ -395,6 +418,10 @@ export function RobotAssemblyWorkspace({
   function commitActionButtons(next: RobotActionButton[]) {
     setActionButtons(next);
     void saveActionButtonsNow(next);
+  }
+
+  function updateActionButton(buttonId: string, updater: (button: RobotActionButton) => RobotActionButton) {
+    commitActionButtons(actionButtons.map((item) => item.id === buttonId ? updater(item) : item));
   }
 
   function canvasPoint(clientX: number, clientY: number) {
@@ -542,7 +569,7 @@ export function RobotAssemblyWorkspace({
   }
 
   function addActionButton() {
-    const nextButton = createDefaultActionButton(pluginInstances);
+    const nextButton = createDefaultServoPresetActionButton(pluginInstances.filter((plugin) => effectivePluginIds.has(plugin.id)));
     const next = [...actionButtons, nextButton];
     setSelected({ type: "action", id: nextButton.id });
     commitActionButtons(next);
@@ -554,7 +581,13 @@ export function RobotAssemblyWorkspace({
       setRunLog([robotText("runLog.blockedByErrors"), ...blockingWarnings.map((item) => warningMessageForDisplay(item))]);
       return;
     }
-    if (!onRunPluginCommand) {
+    const isPresetAction = isRobotServoPresetAction(button);
+    if (isPresetAction && !dispatchPlatformCommand) {
+      setRunState("error");
+      setRunLog([robotText("runLog.noExecutor")]);
+      return;
+    }
+    if (!isPresetAction && !onRunPluginCommand) {
       setRunState("error");
       setRunLog([robotText("runLog.noExecutor")]);
       return;
@@ -568,8 +601,24 @@ export function RobotAssemblyWorkspace({
       setRunLog((current) => [...current, robotText("runLog.timeout", { timeout: button.timeoutMs })]);
     }, button.timeoutMs);
     try {
-      for (const step of button.steps) {
-        await runActionStep(step);
+      if (isPresetAction) {
+        const compiled = compileRobotServoPresetAction(button, pluginInstances, { nextSeq: createActionRunSeqGenerator() });
+        if (compiled.blocked) {
+          throw new Error(compiled.issues.filter((issue) => issue.severity === "error").map((issue) => issue.message).join("\n") || robotText("runLog.actionFailed"));
+        }
+        const result = await dispatchPlatformCommand!(createPlatformCommand("servo-preset.run", `servo-preset:${button.id}`, {
+          actionId: button.id,
+          label: button.name,
+          pcCommands: compiled.pcCommands
+        }));
+        if (result.status !== "sent") {
+          throw new Error(result.message ?? robotText("runLog.actionFailed"));
+        }
+        setRunLog((current) => [...current, ...compiled.previewLines]);
+      } else {
+        for (const step of button.steps) {
+          await runActionStep(step);
+        }
       }
       if (!abortRef.current) {
         setRunState("done");
@@ -1075,23 +1124,132 @@ export function RobotAssemblyWorkspace({
   }
 
   function renderActionInspector(button: RobotActionButton) {
-    const nextName = (value: string) => actionButtons.map((item) => item.id === button.id ? { ...item, name: value } : item);
-    const nextTimeout = (value: number) => actionButtons.map((item) => item.id === button.id ? { ...item, timeoutMs: value } : item);
+    const poseStep = button.steps.find((step) => step.kind === "servo.pose") ?? null;
+    const presetCompile = poseStep ? compileRobotServoPresetAction(button, pluginInstances) : null;
+    const hotkeyConflict = actionHotkeyConflicts.has(button.id);
     return (
       <div className="robot-assembly-inspector-stack">
         <div className="robot-assembly-selection-summary">
           <strong>{button.name}</strong>
-          <small>{robotText("executableSteps", { count: flattenActionSteps(button.steps).length, timeout: button.timeoutMs })}</small>
+          <small>{poseStep ? `${robotServoPresetTargetCount(button)} targets / ${button.timeoutMs} ms` : robotText("executableSteps", { count: flattenActionSteps(button.steps).length, timeout: button.timeoutMs })}</small>
         </div>
-        <label><span>{robotText("fields.name")}</span><input value={button.name} onChange={(event) => commitActionButtons(nextName(event.target.value))} /></label>
-        <label><span>{robotText("fields.timeoutMs")}</span><input value={button.timeoutMs} onChange={(event) => commitActionButtons(nextTimeout(Number(event.target.value)))} /></label>
-        <label className="robot-assembly-check-row"><input checked={button.confirmRequired} onChange={(event) => commitActionButtons(actionButtons.map((item) => item.id === button.id ? { ...item, confirmRequired: event.target.checked } : item))} type="checkbox" /><span>{robotText("previewBeforeRun")}</span></label>
-        {button.steps.map((step) => <ActionStepView key={step.id} step={step} pluginById={pluginById} />)}
+        <label><span>{robotText("fields.name")}</span><input value={button.name} onChange={(event) => updateActionButton(button.id, (item) => ({ ...item, name: event.target.value }))} /></label>
+        <label><span>{robotText("fields.timeoutMs")}</span><input type="number" min={1000} max={60000} value={button.timeoutMs} onChange={(event) => updateActionButton(button.id, (item) => ({ ...item, timeoutMs: Number(event.target.value) }))} /></label>
+        <label className="robot-assembly-check-row"><input checked={button.confirmRequired} onChange={(event) => updateActionButton(button.id, (item) => ({ ...item, confirmRequired: event.target.checked }))} type="checkbox" /><span>{robotText("previewBeforeRun")}</span></label>
+        {poseStep ? renderServoPresetEditor(button, poseStep, presetCompile, hotkeyConflict) : button.steps.map((step) => <ActionStepView key={step.id} step={step} pluginById={pluginById} />)}
         <button className="icon-button danger" onClick={() => { commitActionButtons(actionButtons.filter((item) => item.id !== button.id)); setSelected(null); }} type="button">
           <Trash2 size={16} />
           <span>{robotText("deleteButton")}</span>
         </button>
       </div>
+    );
+  }
+
+  function renderServoPresetEditor(button: RobotActionButton, step: RobotActionButtonStep, compiled: ReturnType<typeof compileRobotServoPresetAction> | null, hotkeyConflict: boolean) {
+    const servoOptions = pluginInstances.filter((plugin) => effectivePluginIds.has(plugin.id) && plugin.type === "servo");
+    const targets = step.targets ?? [];
+    const updatePoseStep = (updater: (step: RobotActionButtonStep) => RobotActionButtonStep) => {
+      updateActionButton(button.id, (item) => ({
+        ...item,
+        steps: item.steps.map((candidate) => candidate.id === step.id ? updater(candidate) : candidate)
+      }));
+    };
+    const updateTarget = (targetId: string, updater: (target: RobotActionButtonServoTarget) => RobotActionButtonServoTarget) => {
+      updatePoseStep((current) => ({
+        ...current,
+        targets: (current.targets ?? []).map((target) => target.id === targetId ? updater(target) : target)
+      }));
+    };
+    const addTarget = () => {
+      const plugin = servoOptions.find((item) => !targets.some((target) => target.pluginInstanceId === item.id)) ?? servoOptions[0];
+      if (!plugin) {
+        return;
+      }
+      updatePoseStep((current) => ({
+        ...current,
+        targets: [
+          ...(current.targets ?? []),
+          {
+            id: `target:${Date.now()}`,
+            pluginInstanceId: plugin.id,
+            angleDeg: Math.round(robotServoPresetSpanForPlugin(plugin) / 2),
+            enabled: true
+          }
+        ]
+      }));
+    };
+    const assignTriggerKey = (code: string) => {
+      if (!code || code === "Tab" || code.startsWith("Shift") || code.startsWith("Control") || code.startsWith("Alt") || code.startsWith("Meta")) {
+        return;
+      }
+      const duplicate = actionButtons.some((item) => item.id !== button.id && item.triggerKey === code);
+      if (duplicate) {
+        setError(`${robotActionTriggerKeyLabel(code)} 已被其它动作占用`);
+        return;
+      }
+      setError("");
+      updateActionButton(button.id, (item) => ({ ...item, triggerKey: code }));
+    };
+
+    return (
+      <>
+        <div className="robot-servo-preset-grid">
+          <label><span>速度</span><input type="number" min={0} max={4095} value={step.speedRaw ?? 300} onChange={(event) => updatePoseStep((current) => ({ ...current, speedRaw: Number(event.target.value) }))} /></label>
+          <label><span>加速度</span><input type="number" min={0} max={254} value={step.acc ?? 30} onChange={(event) => updatePoseStep((current) => ({ ...current, acc: Number(event.target.value) }))} /></label>
+        </div>
+        <label>
+          <span><Keyboard size={14} />触发键</span>
+          <input
+            readOnly
+            className={hotkeyConflict ? "robot-servo-preset-hotkey conflict" : "robot-servo-preset-hotkey"}
+            onKeyDown={(event) => {
+              event.preventDefault();
+              if (event.code === "Escape" || event.code === "Backspace" || event.code === "Delete") {
+                updateActionButton(button.id, (item) => ({ ...item, triggerKey: undefined }));
+                return;
+              }
+              assignTriggerKey(event.code);
+            }}
+            placeholder="点击后按键"
+            value={robotActionTriggerKeyLabel(button.triggerKey)}
+          />
+        </label>
+        {hotkeyConflict ? <p className="robot-assembly-warning error">快捷键重复，已禁止键盘触发。</p> : null}
+        <div className="robot-servo-preset-targets">
+          <div className="robot-assembly-panel-head">
+            <span>舵机目标</span>
+            <button className="icon-button" disabled={servoOptions.length === 0} onClick={addTarget} type="button"><Plus size={15} /><span>添加</span></button>
+          </div>
+          {servoOptions.length === 0 ? <small className="robot-assembly-muted">当前机器人没有可用舵机插件。</small> : null}
+          {targets.map((target) => {
+            const plugin = pluginById.get(target.pluginInstanceId) ?? servoOptions[0] ?? null;
+            const maxAngle = Math.max(1, Math.round(robotServoPresetSpanForPlugin(plugin)));
+            return (
+              <div className="robot-servo-preset-target" key={target.id}>
+                <label className="robot-assembly-check-row"><input checked={target.enabled !== false} onChange={(event) => updateTarget(target.id, (item) => ({ ...item, enabled: event.target.checked }))} type="checkbox" /><span>启用</span></label>
+                <select value={target.pluginInstanceId} onChange={(event) => {
+                  const nextPlugin = pluginById.get(event.target.value);
+                  updateTarget(target.id, (item) => ({
+                    ...item,
+                    pluginInstanceId: event.target.value,
+                    angleDeg: Math.min(item.angleDeg, Math.round(robotServoPresetSpanForPlugin(nextPlugin)))
+                  }));
+                }}>
+                  {servoOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+                <input type="range" min={0} max={maxAngle} step={1} value={target.angleDeg} onChange={(event) => updateTarget(target.id, (item) => ({ ...item, angleDeg: Number(event.target.value) }))} />
+                <input type="number" min={0} max={maxAngle} value={target.angleDeg} onChange={(event) => updateTarget(target.id, (item) => ({ ...item, angleDeg: Number(event.target.value) }))} />
+                <button className="icon-only" onClick={() => updatePoseStep((current) => ({ ...current, targets: (current.targets ?? []).filter((item) => item.id !== target.id) }))} title="删除目标" type="button"><X size={14} /></button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="robot-servo-preset-json-preview">
+          <div className="robot-assembly-panel-head"><span><Code2 size={15} />下发 JSON</span><small>{compiled?.pcCommands.length ?? 0}</small></div>
+          {compiled?.issues.map((issue) => <p className={`robot-assembly-warning ${issue.severity}`} key={`${issue.targetId ?? button.id}:${issue.message}`}>{issue.message}</p>)}
+          <pre>{JSON.stringify(compiled?.pcCommands ?? [], null, 2)}</pre>
+        </div>
+      </>
     );
   }
 
@@ -1134,14 +1292,18 @@ export function RobotAssemblyWorkspace({
           <button className="icon-button" onClick={addActionButton} type="button"><Plus size={16} /><span>{robotText("newAction")}</span></button>
         </div>
         <div className="robot-assembly-action-grid">
-          {actionButtons.map((button) => (
-            <div className={selected?.type === "action" && selected.id === button.id ? "robot-action-button selected" : "robot-action-button"} key={button.id} onClick={() => setSelected({ type: "action", id: button.id })} role="button" tabIndex={0}>
-              <span className="robot-action-button-light" style={{ background: button.color }} />
-              <strong>{button.name}</strong>
-              <small>{robotText("steps", { count: flattenActionSteps(button.steps).length })}</small>
-              <button className="icon-only" onClick={(event) => { event.stopPropagation(); button.confirmRequired ? setPreviewActionId(button.id) : void runActionButton(button); }} title={robotText("runAction")} type="button"><Play size={15} /></button>
-            </div>
-          ))}
+          {actionButtons.map((button) => {
+            const isPreset = isRobotServoPresetAction(button);
+            const triggerLabel = robotActionTriggerKeyLabel(button.triggerKey);
+            return (
+              <div className={selected?.type === "action" && selected.id === button.id ? "robot-action-button selected" : "robot-action-button"} key={button.id} onClick={() => setSelected({ type: "action", id: button.id })} role="button" tabIndex={0}>
+                <span className="robot-action-button-light" style={{ background: button.color }} />
+                <strong>{button.name}</strong>
+                <small>{isPreset ? `${robotServoPresetTargetCount(button)} targets` : robotText("steps", { count: flattenActionSteps(button.steps).length })}{triggerLabel ? ` / ${triggerLabel}` : ""}</small>
+                <button className="icon-only" onClick={(event) => { event.stopPropagation(); button.confirmRequired ? setPreviewActionId(button.id) : void runActionButton(button); }} title={robotText("runAction")} type="button"><Play size={15} /></button>
+              </div>
+            );
+          })}
           {actionButtons.length === 0 ? <div className="robot-assembly-muted">{robotText("noActionButtons")}</div> : null}
         </div>
         <div className={`robot-assembly-run-log state-${runState}`}>
@@ -1175,6 +1337,32 @@ export function RobotAssemblyWorkspace({
 
 function compactLongIds(value: string) {
   return value.replace(UUID_PATTERN, (id) => `${id.slice(0, 8)}...`);
+}
+
+function createActionRunSeqGenerator(): () => number {
+  let seq = Math.floor(Date.now() % 1_000_000);
+  return () => seq++;
+}
+
+function duplicateActionTriggerIds(buttons: RobotActionButton[]): Set<string> {
+  const byKey = new Map<string, string[]>();
+  for (const button of buttons) {
+    if (!button.triggerKey) {
+      continue;
+    }
+    const list = byKey.get(button.triggerKey) ?? [];
+    list.push(button.id);
+    byKey.set(button.triggerKey, list);
+  }
+  return new Set(Array.from(byKey.values()).filter((ids) => ids.length > 1).flat());
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
 }
 
 function ActionStepView({ pluginById, step }: { pluginById: Map<string, PluginInstance>; step: RobotActionButtonStep }) {

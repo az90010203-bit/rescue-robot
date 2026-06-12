@@ -1,7 +1,8 @@
 import type { MotorPortMapping, MotorStopMode, MotorTarget } from "@adapters/hardware/protocol";
-import { clamp, normalizeMotorChannel } from "@adapters/hardware/protocol";
-import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
+import { normalizeMotorChannel } from "@adapters/hardware/protocol";
+import type { ComponentDefinition, PluginInstance } from "@platform/architectureTypes";
 import { DEFAULT_DRIVE_CHANNELS, type DriveChannelConfig, type DriveDirectionConfig, type DriveInputState, mixMecanumDrive } from "@domains/drive/drive";
+import { roundedIntegerInRange } from "@shared/normalize";
 
 export const MECANUM_DRIVE_COMPONENT_KIND = "mecanum-drive";
 export const MECANUM_DEFAULT_MAX_RPM = 6000;
@@ -17,10 +18,10 @@ export const MECANUM_WHEEL_POSITIONS: MecanumWheelPosition[] = [
 ];
 
 export const MECANUM_DEFAULT_CHANNELS: Record<MecanumWheelPosition, string> = {
-  frontLeft: "M1",
-  frontRight: "M4",
-  rearLeft: "M2",
-  rearRight: "M3"
+  frontLeft: "M3",
+  frontRight: "M1",
+  rearLeft: "M4",
+  rearRight: "M2"
 };
 
 export interface MecanumDriveComponentConfig extends Record<string, unknown> {
@@ -194,8 +195,7 @@ function channelForWheel(
 }
 
 function integerInRange(value: unknown, min: number, max: number, fallback: number): number {
-  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : fallback;
-  return Number.isFinite(number) ? Math.round(clamp(number, min, max)) : fallback;
+  return roundedIntegerInRange(value, min, max, fallback);
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

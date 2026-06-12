@@ -1,9 +1,13 @@
-import type { MotorTarget } from "@adapters/hardware/protocol";
-import { clamp, normalizeMotorChannel } from "@adapters/hardware/protocol";
+import { ASMG_MD_DEFAULT_BITRATE_KBPS, ASMG_MD_SPEED_MAX, asmgMdLogicalAngleToPositionRaw, buildAsmgMdCanConfigCommand, buildAsmgMdGroupMoveCommand } from "@adapters/hardware/asmgMdCanServo";
+import type { AsmgMdServoProfile } from "@adapters/hardware/asmgMdCanServo";
+import { buildServoMoveCommand, clamp, normalizeMotorChannel, servoLogicalSpan } from "@adapters/hardware/protocol";
+import type { MotorTarget, PcCommand, ServoTarget } from "@adapters/hardware/protocol";
+import { canServoPluginToProfile } from "@domains/can-servo/canServoGroupComponent";
 import {
   type ComponentDefinition,
   type PluginInstance,
   type RobotActionButton,
+  type RobotActionButtonServoTarget,
   type RobotActionButtonStep,
   type RobotAssemblyConfig,
   type RobotAssemblyEdge,
@@ -23,6 +27,7 @@ import {
   pluginInstancesToMotorProfiles,
   pluginInstancesToServoProfiles
 } from "@platform/architecture";
+import { finiteNumber, integerInRange, nonEmptyString, optionalString } from "@shared/normalize";
 export type { RobotAssemblyWarning } from "@platform/architecture";
 
 export const ROBOT_ASSEMBLY_VERSION = 2;
@@ -83,6 +88,36 @@ export interface ActionButtonPreview {
   warnings: RobotAssemblyWarning[];
 }
 
+export type RobotServoPresetCompileSeverity = "warning" | "error";
+
+export interface RobotServoPresetCompileIssue {
+  severity: RobotServoPresetCompileSeverity;
+  message: string;
+  targetId?: string;
+}
+
+export interface RobotServoPresetCompileResult {
+  pcCommands: PcCommand[];
+  previewLines: string[];
+  issues: RobotServoPresetCompileIssue[];
+  blocked: boolean;
+  targetCount: number;
+}
+
+interface ServoPresetTargetDraft {
+  target: RobotActionButtonServoTarget;
+  plugin: PluginInstance | null;
+}
+
+interface CanPresetGroup {
+  canBus: string;
+  bitrateKbps: AsmgMdServoProfile["bitrateKbps"];
+  targets: Array<{ id: number; position: number; name: string; logicalAngleDeg: number }>;
+}
+
+export const ROBOT_SERVO_PRESET_DEFAULT_SPEED_RAW = 300;
+export const ROBOT_SERVO_PRESET_DEFAULT_ACC = 30;
+
 export const ROBOT_ASSEMBLY_HARDWARE_TEMPLATES: HardwareTemplate[] = [
   {
     id: "hardware.esp32-json-controller",
@@ -108,21 +143,23 @@ export const ROBOT_ASSEMBLY_HARDWARE_TEMPLATES: HardwareTemplate[] = [
     id: "hardware.robomaster-a",
     kind: "robomaster-a",
     name: "RoboMaster Type A",
-    subtitle: "STM32 / UART5 / 4x G513XL PWM",
+    subtitle: "STM32 / UART5 / 8x PWM",
     visualKind: "hardware-board",
     w: 268,
-    h: 224,
+    h: 300,
     ports: [
       port("PD5_TX", "PD5 USART2_TX", "uart-tx", "out", "left", 0, 42),
       port("PD6_RX", "PD6 USART2_RX", "uart-rx", "in", "left", 0, 76),
       port("CAN1", "CAN1", "can", "bidirectional", "left", 0, 112),
-      port("PGND", "PGND", "ground", "power", "bottom", 56, 224, "0V", true),
-      port("M1_A", "A M1 PA0/PB0/PE12", "pwm", "out", "right", 268, 36),
-      port("M2_B", "B M2 PA1/PC2/PE6", "pwm", "out", "right", 268, 68),
-      port("M3_C", "C M3 PA2/PA4/PC1", "pwm", "out", "right", 268, 100),
-      port("M4_D", "D M4 PA3/PA5/PC5", "pwm", "out", "right", 268, 132),
-      port("PD12_STBY", "PD12 STBY", "gpio", "out", "right", 268, 164),
-      port("ENCODERS", "ENC PE4/PF0 PE5/PF1 PC0/PB1 PC4/PC3", "signal", "in", "right", 268, 196)
+      port("PGND", "PGND", "ground", "power", "bottom", 56, 300, "0V", true),
+      port("M1", "M1 PD14/PB1/PC0", "pwm", "out", "right", 268, 36),
+      port("M2", "M2 PD13/PF0/PE4", "pwm", "out", "right", 268, 68),
+      port("M3", "M3 PD15/PI5/PI6", "pwm", "out", "right", 268, 100),
+      port("M4", "M4 PH11/PC3/PC4", "pwm", "out", "right", 268, 132),
+      port("M5", "M5 PH10/PA0/PA1", "pwm", "out", "right", 268, 164),
+      port("M6", "M6 PD12/PF1/PE5", "pwm", "out", "right", 268, 196),
+      port("M7", "M7 configurable", "pwm", "out", "right", 268, 228),
+      port("M8", "M8 configurable", "pwm", "out", "right", 268, 260)
     ]
   },
   {
@@ -596,6 +633,32 @@ export function normalizeRobotActionButtons(value: unknown, pluginInstances: Plu
     .filter((button) => button.steps.length > 0);
 }
 
+export function createDefaultServoPresetActionButton(pluginInstances: PluginInstance[]): RobotActionButton {
+  const servoPlugins = pluginInstances.filter((plugin) => plugin.type === "servo").slice(0, 4);
+  const targets = servoPlugins.map((plugin, index) => ({
+    id: `target:${index + 1}`,
+    pluginInstanceId: plugin.id,
+    angleDeg: Math.round(robotServoPresetSpanForPlugin(plugin) / 2),
+    enabled: true
+  }));
+  return {
+    id: `button:${Date.now()}`,
+    name: "Preset Pose",
+    color: "#38bdf8",
+    icon: "spark",
+    confirmRequired: true,
+    timeoutMs: 8000,
+    steps: [{
+      id: "step:servo-pose",
+      kind: "servo.pose",
+      label: "Preset servo pose",
+      speedRaw: ROBOT_SERVO_PRESET_DEFAULT_SPEED_RAW,
+      acc: ROBOT_SERVO_PRESET_DEFAULT_ACC,
+      targets
+    }]
+  };
+}
+
 export function createDefaultActionButton(pluginInstances: PluginInstance[]): RobotActionButton {
   const firstServo = pluginInstances.find((plugin) => plugin.type === "servo");
   const motors = pluginInstances.filter((plugin) => plugin.type === "motor");
@@ -640,6 +703,20 @@ export function createDefaultActionButton(pluginInstances: PluginInstance[]): Ro
 }
 
 export function createActionButtonPreview(button: RobotActionButton, pluginInstances: PluginInstance[], warnings: RobotAssemblyWarning[] = []): ActionButtonPreview {
+  if (isRobotServoPresetAction(button)) {
+    const compiled = compileRobotServoPresetAction(button, pluginInstances);
+    const blocking = [
+      ...warnings.filter((item) => item.severity === "error"),
+      ...compiled.issues
+        .filter((item) => item.severity === "error")
+        .map((item) => warning("error", item.targetId ?? button.id, item.message))
+    ];
+    return {
+      blocked: blocking.length > 0,
+      lines: compiled.previewLines.length > 0 ? compiled.previewLines : [button.name],
+      warnings: blocking
+    };
+  }
   const pluginById = new Map(pluginInstances.map((plugin) => [plugin.id, plugin]));
   const lines = flattenActionSteps(button.steps).map((step) => {
     const plugin = step.pluginInstanceId ? pluginById.get(step.pluginInstanceId) : null;
@@ -667,6 +744,199 @@ export function createActionButtonPreview(button: RobotActionButton, pluginInsta
 
 export function flattenActionSteps(steps: RobotActionButtonStep[]): RobotActionButtonStep[] {
   return steps.flatMap((step) => step.kind === "parallel" ? flattenActionSteps(step.steps ?? []) : [step]);
+}
+
+export function isRobotServoPresetAction(button: RobotActionButton): boolean {
+  return flattenActionSteps(button.steps).some((step) => step.kind === "servo.pose");
+}
+
+export function robotServoPresetTargetCount(button: RobotActionButton): number {
+  return flattenActionSteps(button.steps)
+    .filter((step) => step.kind === "servo.pose")
+    .flatMap((step) => step.targets ?? [])
+    .filter((target) => target.enabled !== false)
+    .length;
+}
+
+export function robotActionTriggerKeyLabel(code: string | undefined): string {
+  if (!code) {
+    return "";
+  }
+  if (/^Key[A-Z]$/.test(code)) {
+    return code.slice(3);
+  }
+  if (/^Digit[0-9]$/.test(code)) {
+    return code.slice(5);
+  }
+  if (/^Numpad[0-9]$/.test(code)) {
+    return `Num ${code.slice(6)}`;
+  }
+  if (code === "Space") {
+    return "Space";
+  }
+  if (code === "Minus") {
+    return "-";
+  }
+  if (code === "Equal") {
+    return "=";
+  }
+  return code.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+export function robotServoPresetSpanForPlugin(plugin: PluginInstance | null | undefined): number {
+  if (!plugin || plugin.type !== "servo") {
+    return 360;
+  }
+  if (plugin.driverId === "driver.asme-can-servo") {
+    const profile = canServoPluginToProfile(plugin);
+    return profile ? servoLogicalSpan(profile) : 360;
+  }
+  const profile = pluginInstancesToServoProfiles([plugin])[0];
+  return profile ? servoLogicalSpan(profile) : 360;
+}
+
+export function compileRobotServoPresetAction(
+  button: RobotActionButton,
+  pluginInstances: PluginInstance[],
+  options: { configureCan?: boolean; nextSeq?: () => number } = {}
+): RobotServoPresetCompileResult {
+  const nextSeq = options.nextSeq ?? defaultPresetSeqGenerator();
+  const configureCan = options.configureCan !== false;
+  const pluginById = new Map(pluginInstances.map((plugin) => [plugin.id, plugin]));
+  const poseSteps = flattenActionSteps(button.steps).filter((step) => step.kind === "servo.pose");
+  const firstPoseStep = poseSteps[0];
+  const speedRaw = clampInteger(firstPoseStep?.speedRaw, 0, 4095, ROBOT_SERVO_PRESET_DEFAULT_SPEED_RAW);
+  const acc = clampInteger(firstPoseStep?.acc, 0, 254, ROBOT_SERVO_PRESET_DEFAULT_ACC);
+  const issues: RobotServoPresetCompileIssue[] = [];
+  const serialTargets: ServoTarget[] = [];
+  const canGroups = new Map<string, CanPresetGroup>();
+  const serialServoIds = new Set<number>();
+  let targetCount = 0;
+
+  if (poseSteps.length === 0) {
+    issues.push({ severity: "error", message: "Preset action requires a servo pose step.", targetId: button.id });
+  }
+
+  for (const draft of servoPresetTargetDrafts(poseSteps, pluginById)) {
+    const { target, plugin } = draft;
+    if (target.enabled === false) {
+      continue;
+    }
+    if (!plugin || plugin.type !== "servo") {
+      issues.push({ severity: "error", message: "Preset target requires a valid servo plugin.", targetId: target.id });
+      continue;
+    }
+    const logicalAngleDeg = Number(target.angleDeg);
+    if (!Number.isFinite(logicalAngleDeg)) {
+      issues.push({ severity: "error", message: `${plugin.name} angle must be finite.`, targetId: target.id });
+      continue;
+    }
+
+    if (plugin.driverId === "driver.asme-can-servo") {
+      const profile = canServoPluginToProfile(plugin);
+      if (!profile) {
+        issues.push({ severity: "error", message: `${plugin.name} has invalid CAN servo config.`, targetId: target.id });
+        continue;
+      }
+      const span = servoLogicalSpan(profile);
+      if (logicalAngleDeg < 0 || logicalAngleDeg > span) {
+        issues.push({ severity: "error", message: `${plugin.name} angle must be 0-${Math.round(span)} deg.`, targetId: target.id });
+        continue;
+      }
+      const canBus = profile.canBus ?? "CAN1";
+      const bitrateKbps = profile.bitrateKbps ?? ASMG_MD_DEFAULT_BITRATE_KBPS;
+      const groupKey = `${canBus}:${bitrateKbps}`;
+      const group = canGroups.get(groupKey) ?? { canBus, bitrateKbps, targets: [] };
+      if (group.targets.some((item) => item.id === profile.id)) {
+        issues.push({ severity: "error", message: `CAN servo ID ${profile.id} is duplicated in this preset.`, targetId: target.id });
+        continue;
+      }
+      group.targets.push({
+        id: profile.id,
+        position: asmgMdLogicalAngleToPositionRaw(profile, logicalAngleDeg),
+        name: plugin.name,
+        logicalAngleDeg
+      });
+      canGroups.set(groupKey, group);
+      targetCount += 1;
+      continue;
+    }
+
+    const profile = pluginInstancesToServoProfiles([plugin])[0];
+    if (!profile) {
+      issues.push({ severity: "error", message: `${plugin.name} has invalid servo config.`, targetId: target.id });
+      continue;
+    }
+    const span = servoLogicalSpan(profile);
+    if (logicalAngleDeg < 0 || logicalAngleDeg > span) {
+      issues.push({ severity: "error", message: `${plugin.name} angle must be 0-${Math.round(span)} deg.`, targetId: target.id });
+      continue;
+    }
+    if (serialServoIds.has(profile.id)) {
+      issues.push({ severity: "error", message: `Servo ID ${profile.id} is duplicated in this preset.`, targetId: target.id });
+      continue;
+    }
+    serialServoIds.add(profile.id);
+    serialTargets.push({
+      id: profile.id,
+      name: profile.name,
+      angleDeg: logicalAngleDeg,
+      speedRaw,
+      acc
+    });
+    targetCount += 1;
+  }
+
+  if (targetCount === 0) {
+    issues.push({ severity: "error", message: "Preset action requires at least one enabled servo target.", targetId: button.id });
+  }
+
+  const pcCommands: PcCommand[] = [];
+  if (issues.every((issue) => issue.severity !== "error")) {
+    if (serialTargets.length > 0) {
+      pcCommands.push(buildServoMoveCommand(nextSeq(), serialTargets, true));
+    }
+    for (const group of canGroups.values()) {
+      if (configureCan) {
+        pcCommands.push(buildAsmgMdCanConfigCommand(nextSeq(), group.bitrateKbps ?? ASMG_MD_DEFAULT_BITRATE_KBPS));
+      }
+      pcCommands.push(buildAsmgMdGroupMoveCommand(
+        nextSeq(),
+        group.targets.map((target) => ({ id: target.id, position: target.position })),
+        clampInteger(speedRaw, 0, ASMG_MD_SPEED_MAX, Math.min(ROBOT_SERVO_PRESET_DEFAULT_SPEED_RAW, ASMG_MD_SPEED_MAX))
+      ));
+    }
+  }
+
+  return {
+    pcCommands,
+    previewLines: [
+      ...serialTargets.map((target) => `${target.name ?? `Servo ${target.id}`} -> ${target.angleDeg} deg`),
+      ...Array.from(canGroups.values()).flatMap((group) => group.targets.map((target) => `${target.name} -> ${target.logicalAngleDeg} deg / raw ${target.position}`)),
+      ...(pcCommands.length > 0 ? [`JSON commands: ${pcCommands.length}`] : [])
+    ],
+    issues,
+    blocked: issues.some((issue) => issue.severity === "error"),
+    targetCount
+  };
+}
+
+function defaultPresetSeqGenerator(): () => number {
+  let seq = 1;
+  return () => seq++;
+}
+
+function servoPresetTargetDrafts(steps: RobotActionButtonStep[], pluginById: Map<string, PluginInstance>): ServoPresetTargetDraft[] {
+  const drafts: ServoPresetTargetDraft[] = [];
+  for (const step of steps) {
+    for (const target of step.targets ?? []) {
+      drafts.push({
+        target,
+        plugin: pluginById.get(target.pluginInstanceId) ?? null
+      });
+    }
+  }
+  return drafts;
 }
 
 function validRobotAssemblySources(context: RobotAssemblyContext): Set<string> {
@@ -969,6 +1239,7 @@ function normalizeActionButton(value: Record<string, unknown>, index: number, va
     name: cleanText(value.name, `Action ${index + 1}`),
     color: cleanText(value.color, DEFAULT_HARNESS_COLORS[index % DEFAULT_HARNESS_COLORS.length]),
     icon: cleanText(value.icon, "spark"),
+    triggerKey: normalizeActionTriggerKey(value.triggerKey),
     confirmRequired: value.confirmRequired !== false,
     timeoutMs: clampInteger(value.timeoutMs, 1000, 60000, 8000),
     steps: normalizeActionSteps(value.steps, validPluginIds)
@@ -994,6 +1265,10 @@ function normalizeActionSteps(value: unknown, validPluginIds: Set<string>): Robo
       step.angleDeg = clamp(numberOrFallback(item.angleDeg, 90), 0, 360);
       step.speedRaw = clampInteger(item.speedRaw, 0, 4095, 600);
       step.acc = clampInteger(item.acc, 0, 254, 30);
+    } else if (kind === "servo.pose") {
+      step.speedRaw = clampInteger(item.speedRaw, 0, 4095, ROBOT_SERVO_PRESET_DEFAULT_SPEED_RAW);
+      step.acc = clampInteger(item.acc, 0, 254, ROBOT_SERVO_PRESET_DEFAULT_ACC);
+      step.targets = normalizeServoPoseTargets(item.targets, validPluginIds);
     } else if (kind === "motor.set") {
       step.speedPercent = clampInteger(item.speedPercent, -100, 100, 0);
     } else if (kind === "motor.stop") {
@@ -1004,11 +1279,37 @@ function normalizeActionSteps(value: unknown, validPluginIds: Set<string>): Robo
       step.steps = normalizeActionSteps(item.steps, validPluginIds);
     }
     return step;
-  }).filter((step) => step.kind === "wait" || step.kind === "parallel" || Boolean(step.pluginInstanceId));
+  }).filter((step) => step.kind === "wait" || step.kind === "parallel" || step.kind === "servo.pose" || Boolean(step.pluginInstanceId));
 }
 
 function normalizeActionStepKind(value: unknown): RobotActionButtonStep["kind"] {
-  return value === "servo.move" || value === "motor.set" || value === "motor.stop" || value === "wait" || value === "parallel" ? value : "wait";
+  return value === "servo.move" || value === "servo.pose" || value === "motor.set" || value === "motor.stop" || value === "wait" || value === "parallel" ? value : "wait";
+}
+
+function normalizeServoPoseTargets(value: unknown, validPluginIds: Set<string>): RobotActionButtonServoTarget[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isObject).map((item, index) => {
+    const pluginInstanceId = optionalText(item.pluginInstanceId) ?? "";
+    if (!pluginInstanceId || !validPluginIds.has(pluginInstanceId)) {
+      return null;
+    }
+    return {
+      id: cleanText(item.id, `target:${index + 1}`),
+      pluginInstanceId,
+      angleDeg: clamp(numberOrFallback(item.angleDeg, 180), 0, 360),
+      enabled: item.enabled !== false
+    };
+  }).filter((target): target is RobotActionButtonServoTarget => target !== null);
+}
+
+function normalizeActionTriggerKey(value: unknown): string | undefined {
+  const key = optionalText(value);
+  if (!key) {
+    return undefined;
+  }
+  return /^[A-Za-z0-9]+$/.test(key) ? key : undefined;
 }
 
 function findPortForConnection(assembly: Pick<RobotAssemblyConfig, "nodes" | "ports" | "edges">, id: string, role: "in" | "out"): RobotAssemblyPort | undefined {
@@ -1153,13 +1454,11 @@ function clampNodeY(value: number, height: number): number {
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
-  const numeric = Number(value);
-  return Number.isInteger(numeric) ? clamp(numeric, min, max) : fallback;
+  return integerInRange(value, min, max, fallback);
 }
 
 function numberOrFallback(value: unknown, fallback: number): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
+  return finiteNumber(value, fallback);
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -1168,11 +1467,11 @@ function numberOrNull(value: unknown): number | null {
 }
 
 function cleanText(value: unknown, fallback: string): string {
-  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+  return nonEmptyString(value, fallback);
 }
 
 function optionalText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return optionalString(value);
 }
 
 function uniqueNodeId(baseId: string, seenNodeIds: Set<string>): string {

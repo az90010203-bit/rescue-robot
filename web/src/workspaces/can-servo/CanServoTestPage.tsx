@@ -815,7 +815,7 @@ export function CanServoTestPage({
                 <input value={maxDeg} onChange={(event) => setMaxDeg(event.target.value)} inputMode="decimal" />
               </label>
               <label>
-                <span>{t("fields.reverseRotation")}</span>
+                <span>{t("sections.plugins")} {t("fields.reverseRotation")}</span>
                 <select value={direction} onChange={(event) => setDirection(Number(event.target.value) === -1 ? -1 : 1)}>
                   <option value={1}>Normal</option>
                   <option value={-1}>Reverse</option>

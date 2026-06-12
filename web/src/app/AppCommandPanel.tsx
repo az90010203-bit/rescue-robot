@@ -32,31 +32,15 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     aBoardBridgeLabel,
     aBoardBridgeTone,
     calculateArmMotionTargets,
-    canCompileFirmware,
-    canUploadFirmware,
     cancelServoMotion,
     capturingKey,
-    checkFirmwareHelper,
-    compileArduinoFirmware,
     connected,
     currentServoSafetyConfig,
     currentServoSmoothConfig,
     debugEnabled,
-    downloadArduinoFirmware,
     enabledMotorLinkageGroups,
     enabledServoLinkageGroups,
     exportArmTeachTrack,
-    firmwareBoard,
-    firmwareBusy,
-    firmwareError,
-    firmwareHelperHealth,
-    firmwareHelperLabel,
-    firmwareHelperTone,
-    firmwareHexLabel,
-    firmwareLogs,
-    firmwarePorts,
-    firmwareStatus,
-    firmwareStatusTone,
     formatDirectionLabel,
     formatLinkageMemberDirection,
     formatWheelSliderDirectionLabel,
@@ -65,16 +49,11 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     handleLiveDragToggle,
     handleServoModeChange,
     handleWheelSliderChange,
-    lastMotorError,
-    lastMotorErrorLabel,
     linkageWheelDirectionByGroup,
     mappingDraft,
     motorConfigError,
-    motorDebugHandshakeLabel,
-    motorDebugHandshakeTone,
     motorDirection,
     motorDuty,
-    motorTestBoard,
     motorControllerReady,
     motorFeedback,
     motorPreviewCommand,
@@ -93,7 +72,6 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     playArmTeachTrack,
     readMotor,
     readServo,
-    refreshFirmwarePorts,
     removeSelectedArmTeachTrack,
     renderArmCanvas,
     runArmTuningProbe,
@@ -102,7 +80,6 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     selectedArmJoint,
     selectedArmTeachTrack,
     selectedChannel,
-    selectedFirmwarePort,
     selectedId,
     selectedMotor,
     sendArmPose,
@@ -129,13 +106,8 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     setArmTeachDraftName,
     setArmTeachDraftNotes,
     setCapturingKey,
-    setFirmwareBoard,
-    setFirmwareJob,
-    setFirmwareStatus,
-    setMotorTestBoard,
     setSelectedArmTeachTrackId,
     setSelectedChannel,
-    setSelectedFirmwarePort,
     setSelectedId,
     setServoSafetyEnabled,
     setServoSafetyPreset,
@@ -164,7 +136,6 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
     updateServoWheelMaxSpeed,
     updateServoWheelSlider,
     updateSingleMotorSpeed,
-    uploadCompiledArduinoFirmware,
     wheelTurnProgress
   } = ctx;
 
@@ -303,61 +274,31 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                 />
               ) : (
                 <MotorCommandPanel
-                  canCompileFirmware={canCompileFirmware}
-                  canUploadFirmware={canUploadFirmware}
                   aBoardBridgeConnected={aBoardBridgeConnected}
                   aBoardBridgeDetail={aBoardBridgeDetail}
                   aBoardBridgeError={aBoardBridgeError}
                   aBoardBridgeLabel={aBoardBridgeLabel}
                   aBoardBridgeTone={aBoardBridgeTone}
-                  checkFirmwareHelper={checkFirmwareHelper}
-                  compileArduinoFirmware={compileArduinoFirmware}
-                  connected={connected}
-                  debugEnabled={debugEnabled}
-                  downloadArduinoFirmware={downloadArduinoFirmware}
                   enabledMotorLinkageGroups={enabledMotorLinkageGroups}
-                  firmwareBoard={firmwareBoard}
-                  firmwareBusy={firmwareBusy}
-                  firmwareError={firmwareError}
-                  firmwareHelperHealth={firmwareHelperHealth}
-                  firmwareHelperLabel={firmwareHelperLabel}
-                  firmwareHelperTone={firmwareHelperTone}
-                  firmwareHexLabel={firmwareHexLabel}
-                  firmwareLogs={firmwareLogs}
-                  firmwarePorts={firmwarePorts}
-                  firmwareStatus={firmwareStatus}
-                  firmwareStatusTone={firmwareStatusTone}
                   formatDirectionLabel={formatDirectionLabel}
                   formatLinkageMemberDirection={formatLinkageMemberDirection}
-                  lastMotorError={lastMotorError}
-                  lastMotorErrorLabel={lastMotorErrorLabel}
                   motorConfigError={motorConfigError}
-                  motorDebugHandshakeLabel={motorDebugHandshakeLabel}
-                  motorDebugHandshakeTone={motorDebugHandshakeTone}
                   motorDirection={motorDirection}
                   motorDuty={motorDuty}
                   motorControllerReady={motorControllerReady}
                   motorFeedback={motorFeedback}
                   motorPreviewCommand={motorPreviewCommand}
                   motorSpeed={motorSpeed}
-                  motorTestBoard={motorTestBoard}
                   motors={motors}
                   numericMotorSpeed={numericMotorSpeed}
                   readMotor={readMotor}
-                  refreshFirmwarePorts={refreshFirmwarePorts}
                   saveMotorMapping={saveMotorMapping}
                   selectedChannel={selectedChannel}
-                  selectedFirmwarePort={selectedFirmwarePort}
                   selectedMotor={selectedMotor}
                   sendMotorConfig={sendMotorConfig}
                   sendMotorLinkageGroup={sendMotorLinkageGroup}
                   sendMotorSet={sendMotorSet}
-                  setFirmwareBoard={setFirmwareBoard}
-                  setFirmwareJob={setFirmwareJob}
-                  setFirmwareStatus={setFirmwareStatus}
-                  setMotorTestBoard={setMotorTestBoard}
                   setSelectedChannel={setSelectedChannel}
-                  setSelectedFirmwarePort={setSelectedFirmwarePort}
                   setStopMode={setStopMode}
                   stopAllMotors={stopAllMotors}
                   stopMode={stopMode}
@@ -367,7 +308,6 @@ export function AppCommandPanel({ ctx }: AppCommandPanelProps) {
                   updateMotorLinkageMaster={updateMotorLinkageMaster}
                   updateSelectedMotorMapping={updateSelectedMotorMapping}
                   updateSingleMotorSpeed={updateSingleMotorSpeed}
-                  uploadCompiledArduinoFirmware={uploadCompiledArduinoFirmware}
                 />
               )}
             </section>

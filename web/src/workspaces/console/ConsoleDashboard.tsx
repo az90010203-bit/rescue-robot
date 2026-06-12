@@ -100,8 +100,8 @@ type LayoutStatus = "error" | "loading" | "offline" | "saved" | "saving";
 type LayoutPointerMode = "drag" | "resize";
 
 const DASHBOARD_GRID_COLS = 12;
-const DASHBOARD_GRID_ROW_HEIGHT = 82;
-const DASHBOARD_GRID_MARGIN = [14, 14] as const;
+const DASHBOARD_GRID_ROW_HEIGHT = 72;
+const DASHBOARD_GRID_MARGIN = [10, 10] as const;
 const DASHBOARD_GRID_PADDING = [0, 0] as const;
 
 export function ConsoleDashboard({

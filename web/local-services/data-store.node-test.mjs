@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DEFAULT_PROJECT_NAME, createDataStore } from "./data-store.mjs";
+import { BUILTIN_DEVICE_CATALOG_ITEMS } from "./data-store-helpers.mjs";
 
 const cleanupPaths = [];
 
@@ -11,6 +12,14 @@ test.afterEach(async () => {
   while (cleanupPaths.length > 0) {
     await rm(cleanupPaths.pop(), { recursive: true, force: true });
   }
+});
+
+test("loads the shared default device catalog json", async () => {
+  const json = JSON.parse(await readFile(new URL("../src/platform/defaultCatalog.json", import.meta.url), "utf8"));
+
+  assert.deepEqual(BUILTIN_DEVICE_CATALOG_ITEMS, json);
+  assert.equal(BUILTIN_DEVICE_CATALOG_ITEMS.some((item) => item.id === "catalog.asme.asme-se-can-servo"), true);
+  assert.equal(BUILTIN_DEVICE_CATALOG_ITEMS.some((item) => item.driverId === "driver.feetech-servo"), false);
 });
 
 test("initializes the schema with a current default project", async () => {
@@ -106,9 +115,8 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   const store = await openTempStore();
   const project = store.getCurrentProject();
 
-  const catalog = store.listDeviceCatalog({ type: "servo", query: "3215" });
-  assert.equal(catalog.length, 1);
-  assert.equal(catalog[0].brand, "Feetech");
+  const feetechCatalog = store.listDeviceCatalog({ type: "servo", brand: "Feetech" });
+  assert.equal(feetechCatalog.length, 0);
   const asmeCatalog = store.listDeviceCatalog({ type: "servo", brand: "ASME", model: "ASME-SE" });
   assert.equal(asmeCatalog.length, 1);
   assert.equal(asmeCatalog[0].id, "catalog.asme.asme-se-can-servo");
@@ -126,6 +134,12 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
     encoderAPin: "PE4",
     encoderBPin: "PF0"
   });
+  assert.equal(wheeltecCatalog[0].configSchema.find((field) => field.id === "pwmPin")?.kind, "select");
+  assert.deepEqual(wheeltecCatalog[0].configSchema.find((field) => field.id === "pwmPin")?.options.slice(0, 3), [
+    { label: "--", value: "" },
+    { label: "A", value: "PI0" },
+    { label: "B", value: "PH12" }
+  ]);
   const localCameraCatalog = store.listDeviceCatalog({ type: "camera", brand: "Browser", query: "local" });
   assert.equal(localCameraCatalog.length, 1);
   assert.equal(localCameraCatalog[0].id, "catalog.browser.local-camera");
@@ -153,11 +167,7 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   });
   assert.equal(custom.userDefined, true);
 
-  const servo = store.createPluginInstance(project.id, {
-    name: "Base",
-    catalogItemId: catalog[0].id,
-    config: { servoId: 7 }
-  });
+  const servo = store.createPluginInstance(project.id, legacyFeetechPluginPayload("Base", 7));
   const canServo = store.createPluginInstance(project.id, {
     name: "CAN Servo",
     catalogItemId: "catalog.asme.asme-se-can-servo",
@@ -184,7 +194,7 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   const motor = store.createPluginInstance(project.id, {
     name: "Left Track",
     catalogItemId: "catalog.toshiba.tb6618-motor",
-    config: { channel: "m1", pwmPin: "D5" }
+    config: { channel: "M1", pwmPin: "S", in1Pin: "L2", in2Pin: "K2", enablePin: "H", encoderAPin: "J2", encoderBPin: "I2" }
   });
   const rearLeftMotor = store.createPluginInstance(project.id, {
     name: "Rear Left",
@@ -201,11 +211,7 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
     catalogItemId: "catalog.toshiba.tb6618-motor",
     config: { channel: "M4", pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", encoderAPin: "PC4", encoderBPin: "PC3" }
   });
-  const armServo = store.createPluginInstance(project.id, {
-    name: "Arm Joint 1",
-    catalogItemId: catalog[0].id,
-    config: { servoId: 8 }
-  });
+  const armServo = store.createPluginInstance(project.id, legacyFeetechPluginPayload("Arm Joint 1", 8));
   const localCamera = store.createPluginInstance(project.id, {
     name: "Desk Camera",
     catalogItemId: localCameraCatalog[0].id,
@@ -214,6 +220,12 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
 
   assert.equal(servo.config.servoId, 7);
   assert.equal(motor.config.channel, "M1");
+  assert.equal(motor.config.pwmPin, "PA0");
+  assert.equal(motor.config.in1Pin, "PB0");
+  assert.equal(motor.config.in2Pin, "PE12");
+  assert.equal(motor.config.enablePin, "PD12");
+  assert.equal(motor.config.encoderAPin, "PE4");
+  assert.equal(motor.config.encoderBPin, "PF0");
   assert.equal(localCamera.config.preferredDeviceId, "usb-camera-1");
   assert.equal(localCamera.config.detectedDeviceId, "camera:usb-camera-1");
   assert.equal(localCamera.config.detectedAt, 1234);
@@ -222,7 +234,7 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.equal(localCamera.config.height, 480);
   assert.equal(localCamera.config.fps, 30);
   assert.throws(
-    () => store.createPluginInstance(project.id, { name: "Duplicate Base", catalogItemId: catalog[0].id, config: { servoId: 7 } }),
+    () => store.createPluginInstance(project.id, legacyFeetechPluginPayload("Duplicate Base", 7)),
     /duplicate servo ID/
   );
   assert.throws(
@@ -382,4 +394,18 @@ async function openTempStore() {
   const store = await createDataStore(path.join(dir, "data.sqlite"));
   store.initialize();
   return store;
+}
+
+function legacyFeetechPluginPayload(name, servoId) {
+  return {
+    name,
+    type: "servo",
+    catalogItemId: null,
+    brand: "Feetech",
+    model: "Legacy STS/SCS",
+    driverId: "driver.feetech-servo",
+    transportId: "transport.web-serial",
+    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
+    config: { servoId }
+  };
 }

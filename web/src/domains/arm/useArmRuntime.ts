@@ -1,9 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import {
-  ARM_MAX_JOINT_LENGTH_PX,
-  ARM_MIN_JOINT_LENGTH_PX,
   armJointLocalEndDirectionDeg,
-  armJointShapeSegments,
   calculateArmDragAngle,
   DEFAULT_LINKAGE_MEMBER_SPEED_RAW,
   normalizeArmConfig,
@@ -12,6 +9,7 @@ import {
   type ArmSegmentPose
 } from "@adapters/persistence/storage";
 import { clamp, normalizeServoProfile, servoLogicalSpan, type ServoProfile } from "@adapters/hardware/protocol";
+import { updateArmJointNumberValue, type ArmJointNumberField } from "@domains/arm/armConfigEditing";
 
 const ARM_LIVE_COMMAND_DELAY_MS = 180;
 
@@ -141,7 +139,7 @@ export function useArmRuntime({
     );
   }
 
-  function updateArmJointNumber(id: string, field: "lengthPx" | "angleDeg" | "neutralDeg" | "speedRaw" | "acc", value: string, live = false) {
+  function updateArmJointNumber(id: string, field: ArmJointNumberField, value: string, live = false) {
     if (value.trim() === "") {
       return;
     }
@@ -154,19 +152,7 @@ export function useArmRuntime({
       id,
       (joint) => {
         const servo = armServoForJoint(joint);
-        const span = servo ? servoLogicalSpan(servo) : 360;
-        if (field === "lengthPx") {
-          const lengthPx = clamp(Math.round(numericValue), ARM_MIN_JOINT_LENGTH_PX, ARM_MAX_JOINT_LENGTH_PX);
-          const shapeSegments = armJointShapeSegments(joint).map((segment, index) => (index === 0 ? { ...segment, lengthPx } : segment));
-          return { ...joint, lengthPx, shapeSegments };
-        }
-        if (field === "speedRaw") {
-          return { ...joint, speedRaw: clamp(Math.round(numericValue), 0, 4095) };
-        }
-        if (field === "acc") {
-          return { ...joint, acc: clamp(Math.round(numericValue), 0, 254) };
-        }
-        return { ...joint, [field]: clamp(numericValue, 0, span) };
+        return updateArmJointNumberValue(joint, field, numericValue, servo);
       },
       live
     );

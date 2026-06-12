@@ -30,12 +30,12 @@ export interface DriveMixOptions {
 }
 
 export const DEFAULT_DRIVE_CHANNELS: DriveChannelConfig = {
-  leftTrack: "M1",
-  rightTrack: "M2",
-  frontLeft: "M1",
-  frontRight: "M4",
-  rearLeft: "M2",
-  rearRight: "M3"
+  leftTrack: "M5",
+  rightTrack: "M6",
+  frontLeft: "M3",
+  frontRight: "M1",
+  rearLeft: "M4",
+  rearRight: "M2"
 };
 
 export const ZERO_DRIVE_INPUT: DriveInputState = {

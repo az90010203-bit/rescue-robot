@@ -32,7 +32,7 @@ describe("plugin auto detection", () => {
     expect(candidates[1].tags).toContain("tb6618");
   });
 
-  it("creates camera, gamepad, servo, motor, CAN, and Pi candidates", () => {
+  it("creates camera, gamepad, motor, CAN, and Pi candidates without legacy Feetech servo plugins", () => {
     expect(candidatesFromLocalCameras([{ deviceId: "cam-a", label: "USB Camera" }], 1)[0]).toMatchObject({
       catalogItemId: "catalog.browser.local-camera",
       config: { preferredDeviceId: "cam-a" }
@@ -41,7 +41,7 @@ describe("plugin auto detection", () => {
       catalogItemId: "catalog.browser.gamepad",
       config: { preferredIndex: 0, gamepadId: "Xbox Pad" }
     });
-    expect(candidatesFromServoFeedback({ 7: { id: 7 } }, 1)[0]).toMatchObject({ config: { servoId: 7 }, source: "feetech-servo" });
+    expect(candidatesFromServoFeedback({ 7: { id: 7 } }, 1)).toEqual([]);
     expect(candidatesFromMotorFeedback({ M2: { channel: "m2" } }, 1)[0]).toMatchObject({ config: { channel: "M2" }, source: "motor-controller" });
     expect(candidatesFromMotorMessages([{ type: "motor.feedback", seq: 1, channel: "m3" }], 1)[0]).toMatchObject({ config: { channel: "M3" } });
     expect(candidateFromPiProfile({ host: "raspberrypi.local", username: "robot1", workspaceDir: "~/rescue-robot" }, 1)).toMatchObject({
@@ -55,19 +55,19 @@ describe("plugin auto detection", () => {
   });
 
   it("matches old plugins without detectedDeviceId by hardware fields", () => {
-    const existing = [plugin("servo-a", "Servo A", "servo", { servoId: 7 }, "driver.feetech-servo", "transport.web-serial")];
-    const candidate = candidatesFromServoFeedback({ 7: { id: 7 } }, 1)[0];
+    const existing = [plugin("motor-a", "Motor A", "motor", { channel: "M1" }, "driver.tb6618-motor", "transport.controller-json")];
+    const candidate = candidatesFromMotorFeedback({ M1: { channel: "m1" } }, 1)[0];
 
-    expect(findMatchingPluginInstance(candidate, existing)?.id).toBe("servo-a");
+    expect(findMatchingPluginInstance(candidate, existing)?.id).toBe("motor-a");
   });
 
   it("auto-adds new plugins, skips existing ones, and preserves user config", async () => {
-    const existing = [plugin("servo-a", "Custom Shoulder", "servo", { servoId: 7, minDeg: 10 }, "driver.feetech-servo", "transport.web-serial")];
+    const existing = [plugin("motor-a", "Custom Motor", "motor", { channel: "M1", pwmPin: "D" }, "driver.tb6618-motor", "transport.controller-json")];
     const candidates = [
-      candidatesFromServoFeedback({ 7: { id: 7 } }, 1)[0],
-      candidatesFromMotorFeedback({ M1: { channel: "M1" } }, 1)[0]
+      candidatesFromMotorFeedback({ M1: { channel: "M1" } }, 1)[0],
+      candidatesFromGamepads([{ index: 0, id: "Xbox Pad", axes: 4, buttons: 12, mapping: "standard" }], 1)[0]
     ];
-    const createPluginInstance = vi.fn(async (_projectId: string, value: Partial<PluginInstance>) => plugin("motor-a", value.name ?? "Motor", "motor", value.config ?? {}, value.driverId, value.transportId));
+    const createPluginInstance = vi.fn(async (_projectId: string, value: Partial<PluginInstance>) => plugin("gamepad-a", value.name ?? "Gamepad", "gamepad", value.config ?? {}, value.driverId, value.transportId));
     const updatePluginInstance = vi.fn(async (_projectId: string, _id: string, value: Partial<PluginInstance>) => ({
       ...existing[0],
       config: { ...existing[0].config, ...value.config }
@@ -78,8 +78,8 @@ describe("plugin auto detection", () => {
     expect(result.created).toHaveLength(1);
     expect(result.skipped).toHaveLength(1);
     expect(createPluginInstance).toHaveBeenCalledOnce();
-    expect(updatePluginInstance).toHaveBeenCalledWith("project", "servo-a", {
-      config: expect.objectContaining({ servoId: 7, minDeg: 10, detectedAt: 2, detectedSource: "feetech-servo" })
+    expect(updatePluginInstance).toHaveBeenCalledWith("project", "motor-a", {
+      config: expect.objectContaining({ channel: "M1", pwmPin: "D", detectedAt: 2, detectedSource: "motor-controller" })
     });
   });
 
@@ -107,7 +107,6 @@ describe("plugin auto detection", () => {
       nowMs: 123,
       onPhase: (phase) => phases.push(phase),
       piProfile: { host: "raspberrypi.local", username: "robot1", workspaceDir: "~/rescue-robot" },
-      scanFeetechServoBus: async () => candidatesFromServoFeedback({ 7: { id: 7 } }, 123),
       sendAboardBridgeCanServoCommand,
       servoFeedback: { 8: { type: "servo.feedback", seq: 13, id: 8 } }
     });
@@ -115,7 +114,6 @@ describe("plugin auto detection", () => {
     expect(phases).toEqual([
       "scanningLocalCameras",
       "scanningSerialPorts",
-      "scanningFeetechServoBus",
       "scanningAboardCan",
       "scanningAboardMotorChannels"
     ]);
@@ -123,13 +121,11 @@ describe("plugin auto detection", () => {
     expect(result.logs).toEqual(expect.arrayContaining([
       "Camera scan found 1 video input(s).",
       "Serial scan found 1 port(s).",
-      "Feetech bus scan found 1 servo candidate(s).",
       "A board CAN scan found 1 servo candidate(s).",
       "A board motor scan found 1 channel candidate(s)."
     ]));
     expect(result.candidates.map((candidate) => candidate.source)).toEqual(expect.arrayContaining([
       "gamepad",
-      "feetech-servo",
       "motor-controller",
       "raspberry-pi",
       "local-camera",
@@ -140,7 +136,6 @@ describe("plugin auto detection", () => {
       expect.objectContaining({ config: expect.objectContaining({ preferredDeviceId: "cam-a" }) }),
       expect.objectContaining({ config: expect.objectContaining({ portPath: "COM7" }) }),
       expect.objectContaining({ config: expect.objectContaining({ servoId: 7 }) }),
-      expect.objectContaining({ config: expect.objectContaining({ servoId: 8 }) }),
       expect.objectContaining({ config: expect.objectContaining({ channel: "M4" }) })
     ]));
   });
@@ -153,7 +148,6 @@ describe("plugin auto detection", () => {
       listFirmwarePorts: async () => [],
       nextCommandSeq: () => 1,
       nowMs: 1,
-      scanFeetechServoBus: async () => [],
       sendAboardBridgeCanServoCommand
     });
 

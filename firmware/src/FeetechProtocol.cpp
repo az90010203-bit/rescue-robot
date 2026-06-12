@@ -106,6 +106,14 @@ bool Bus::syncWrite(uint8_t address, uint8_t bytesPerServo, const std::vector<ui
   return true;
 }
 
+bool Bus::setEepromLock(uint8_t id, bool locked, StatusPacket* status) {
+  return write(id, kEepromLockAddr, {static_cast<uint8_t>(locked ? 1 : 0)}, status);
+}
+
+bool Bus::writeServoId(uint8_t oldId, uint8_t newId, StatusPacket* status) {
+  return write(oldId, kServoIdAddr, {newId}, status);
+}
+
 bool Bus::setMode(uint8_t id, uint8_t mode, StatusPacket* status) {
   return write(id, kModeAddr, {mode}, status);
 }

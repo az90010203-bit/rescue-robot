@@ -3,33 +3,42 @@
 ## 1. 系统链路
 
 ```text
-Browser WebSerial UI
-  -> newline-delimited JSON over USB serial
-  -> board-side interpreter
-  -> local channel-to-pin mapping
-  -> PWM + IN1/IN2 H-bridge driver
+Browser / React UI
+  -> unified A-board sender in the web app
+  -> Pi a-board-serial-bridge.service HTTP :17353
+  -> /dev/ttyAMA5 @ 115200 on Raspberry Pi UART5
+  -> RoboMaster Type A PD6/PD5 USART2
+  -> Type A firmware motion scheduler
+  -> PWM + IN1/IN2 H-bridge driver, CAN servo bus, IMU feedback
   -> DC motor
 ```
 
-这一部分只定义 PC 和下位机解释程序之间的通用协议。`M1`、`M2` 这类逻辑端口不等于电脑上的 COM 串口；它们表示开发板解释程序里的电机通道。TB6618 按每路 `PWM + IN1 + IN2` 控制；Arduino、STM32、RoboMaster A 板等平台可以用 `motor.config` 从 UI 接收映射，也可以把映射写死在固件里。
+当前运行时只支持这条 A 板链路。浏览器端不再通过 Arduino/WebSerial 直接控制 PWM 电机，也不再暴露旧 PWM 电机固件下载、编译、上传入口。Feetech 舵机的 WebSerial 直连调试仍然保留，但它不属于本文的 A 板电机/CAN/IMU 链路。
 
-TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Arduino 5V 当成驱动板电源接入。驱动板使用外接 12V 给电机侧供电，Arduino 只接控制信号，并且 Arduino GND 必须与 TB6618/12V 电源 GND 共地。
+这一部分定义 PC 与 RoboMaster Type A 固件之间的语义命令。`M1`、`M2` 这类逻辑端口不等于电脑上的 COM 串口；它们表示 A 板固件里的电机通道。TB6618 按每路 `PWM + IN1 + IN2` 控制；当前 UI 使用 A 板官方丝印别名或 STM32 pin 名保存映射，并通过 `motor.config` 发送给 A 板。
 
-推荐 Arduino Uno/Nano 首版接线：
+推荐 RoboMaster Type A 默认接线见下方映射。`M1`-`M6` 随固件默认启用，
+`M7`/`M8` 是预留通道，必须先通过 `motor.config` 配置成 A 板 GPIO 后再运行：
 
-| 通道 | TB6618 PWM | TB6618 IN1 | TB6618 IN2 | TB6618 EN/STBY |
-| --- | --- | --- | --- | --- |
-| M1 | D5 | D4 | D7 | D10 |
-| M2 | D6 | D8 | D9 | D10 |
+| 通道 | TB6618 PWM | TB6618 IN1 | TB6618 IN2 | TB6618 EN/STBY | Encoder A | Encoder B |
+| --- | --- | --- | --- | --- | --- | --- |
+| M1 | PD14 / F | PB1 / M2 | PC0 / N2 | PI0 / A | PC1 / O2 | PA4 / P2 |
+| M2 | PD13 / G | PF0 / I2 | PE4 / J2 | PI0 / A | PE12 / K2 | PB0 / L2 |
+| M3 | PD15 / E | PI5 / W | PI6 / X | PH12 / B | PI7 / Y | PI2 / Z |
+| M4 | PH11 / C | PC3 / M1 | PC4 / N1 | PH12 / B | PC5 / O1 | PA5 / P1 |
+| M5 | PH10 / D | PA0 / S | PA1 / T | PH12 / B | PA2 / U | PA3 / V |
+| M6 | PD12 / H | PF1 / I1 | PE5 / J1 | PI0 / A | PE6 / K1 | PC2 / L1 |
+| M7 | `motor.config` required | `motor.config` required | `motor.config` required | optional | optional | optional |
+| M8 | `motor.config` required | `motor.config` required | `motor.config` required | optional | optional | optional |
 
 供电：
 
 - TB6618 `12V / VM / VIN / +` 接外接 12V 正极。
 - TB6618 `GND / -` 接 12V 负极。
-- Arduino `GND` 接 TB6618 `GND`。
-- Arduino 不接 TB6618 的 12V 正极。
+- RoboMaster Type A `PGND`、TB6618 `GND`、12V 电源 `GND` 必须共地。
+- Type A 控制信号只接 TB6618 控制侧，不接 TB6618 的 12V 正极。
 
-## 2. PC -> MCU JSON 协议
+## 2. PC -> A 板 JSON 协议
 
 每条消息是一行 UTF-8 JSON，以 `\n` 结束。所有请求都带 `type` 和 `seq`。固件应忽略未知字段，以便后续扩展。
 
@@ -63,7 +72,7 @@ TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Ar
 
 ### `motor.config`
 
-设置一个逻辑电机端口在当前开发板上的实际接线。这个命令解决“`M1` 到底接到 Arduino 哪个引脚”的问题。
+设置一个逻辑电机端口在 RoboMaster Type A 上的实际接线。这个命令解决“`M1` 到底对应 A 板哪个 PWM/GPIO/encoder 引脚”的问题。
 
 ```json
 {
@@ -72,11 +81,13 @@ TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Ar
   "channel": "M1",
   "driver": "tb6618",
   "pins": {
-    "pwm": "D5",
-    "in1": "D4",
-    "in2": "D7",
-    "enable": "D10",
-    "sensor": "D2"
+    "pwm": "PA0",
+    "in1": "PB0",
+    "in2": "PE12",
+    "enable": "PD12",
+    "sensor": "PE4",
+    "encoderA": "PE4",
+    "encoderB": "PF0"
   }
 }
 ```
@@ -84,11 +95,12 @@ TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Ar
 字段约束：
 
 - `driver`：首版固定为 `tb6618`，可省略，解释程序按 TB6618 处理。
-- `pins.pwm`：必填，PWM 输出端，例如 Arduino `D5`、STM32 `PA8`。
-- `pins.in1`：必填，方向输入 1，例如 Arduino `D4`。
-- `pins.in2`：必填，方向输入 2，例如 Arduino `D7`。
+- `pins.pwm`：必填，PWM 输出端，例如 A 板 `PD14` 或丝印别名 `F`。
+- `pins.in1`：必填，方向输入 1，例如 A 板 `PB0`。
+- `pins.in2`：必填，方向输入 2，例如 A 板 `PE12`。
 - `pins.enable`：可选，`EN/STBY` 端。TB6618 模块如果没有这个脚可以省略。
-- `pins.sensor`：可选，GMR 或霍尔测速输入端。首版只保存/回传，不做闭环控制。
+- `pins.sensor`：可选，旧 GMR 或霍尔测速输入端。A 板固件闭环使用
+  `encoderA`/`encoderB` 双相信号；`sensor` 只保留为兼容字段。
 
 ### `motor.stop`
 
@@ -110,7 +122,7 @@ TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Ar
 {"type":"motor.read","seq":6,"channel":"M1"}
 ```
 
-## 3. MCU -> PC JSON 响应
+## 3. A 板 -> PC JSON 响应
 
 ### ACK
 
@@ -143,9 +155,9 @@ TB6618 模块按用户手头板子处理：没有单独 `VCC` 时，不要把 Ar
 
 `speedRpm`、`pulseHz`、`encoderTicks` 都是可选字段。没有测速传感器时不要伪造速度，省略这些字段即可。
 
-## 4. 通用解释程序结构
+## 4. A 板解释程序结构
 
-核心思想是把协议解释和板卡输出分离：协议层只处理 JSON、校验和 ACK；板卡层只实现端口映射和 PWM/IN1/IN2 输出。
+核心思想是把协议解释和板卡输出分离：协议层只处理 JSON、二进制帧、校验和 ACK；板卡层只实现 A 板端口映射、PWM/IN1/IN2 输出、CAN 舵机转发和 IMU 反馈。
 
 ```cpp
 struct MotorState {
@@ -166,42 +178,42 @@ class MotorDriver {
 };
 ```
 
-不同开发板只替换 `MotorDriver` 内部实现：
+当前 Type A 固件保持同一个 `MotorDriver` 语义：
 
-- `motor.config` 更新 `channel -> pins/timer` 映射，例如 `M1 -> PWM D5 + IN1 D4 + IN2 D7`。
-- 如果固件不允许运行时配置端口，可以忽略 `motor.config` 并返回 `unsupported_command`，但 UI 仍会保留本地接线备注。
+- `motor.config` 更新 `channel -> pins/timer` 映射，例如 `M1 -> PWM PA0 + IN1 PB0 + IN2 PE12 + encoder PE4/PF0`。
+- 如果固件不允许运行时配置端口，可以忽略 `motor.config` 并返回 `unsupported_command`，但 UI 仍会保留 A 板接线备注。
 - `speedPercent > 0` 时 `IN1=HIGH, IN2=LOW` 并输出 `abs(speedPercent)` 占空比。
 - `speedPercent < 0` 时 `IN1=LOW, IN2=HIGH` 并输出 `abs(speedPercent)` 占空比。
 - `speedPercent == 0` 或 `motor.stop` 时按 `stopMode` 选择滑行或刹车：`coast` 为双低，`brake` 为双高。
 - GMR/霍尔测速接入后，在 `read()` 中更新 `speedRpm`、`pulseHz` 或 `encoderTicks`。
 
-## 5. Arduino 风格伪代码
+## 5. Type A 固件输出语义
 
 ```cpp
-bool MotorDriver::apply(const char* channel, float speedPercent, const char* stopMode) {
-  MotorPins pins;
-  if (!lookupPins(channel, pins)) {
+bool apply_motor_target(const MotorTarget* target) {
+  MotorPins pins = lookup_type_a_motor_pins(target->channel);
+  if (!pins.valid) {
     return false;
   }
 
-  float duty = constrain(abs(speedPercent), 0.0f, 100.0f);
-  if (speedPercent > 0) {
-    digitalWrite(pins.in1Pin, HIGH);
-    digitalWrite(pins.in2Pin, LOW);
-  } else if (speedPercent < 0) {
-    digitalWrite(pins.in1Pin, LOW);
-    digitalWrite(pins.in2Pin, HIGH);
+  float duty = clamp_abs_percent(target->speed_percent);
+  if (target->speed_percent > 0) {
+    gpio_write(pins.in1, 1);
+    gpio_write(pins.in2, 0);
+  } else if (target->speed_percent < 0) {
+    gpio_write(pins.in1, 0);
+    gpio_write(pins.in2, 1);
   } else {
-    return stop(channel, stopMode);
+    return stop_motor(target->channel, target->stop_mode);
   }
 
-  analogWrite(pins.pwmPin, dutyToPwmTicks(duty));
-  rememberState(channel, speedPercent, duty, speedPercent > 0 ? "forward" : "reverse", stopMode);
+  tim5_set_pwm(pins.tim_channel, duty_to_ticks(duty));
+  remember_motor_state(target->channel, target->speed_percent, duty, target->stop_mode);
   return true;
 }
 ```
 
-STM32 HAL、RoboMaster A 板或其他平台也保持同样的 `apply()` 语义，只把 `digitalWrite/analogWrite` 换成对应的 GPIO 和定时器 PWM API。
+PC 端可以发送兼容语义 `motor.set`，但运行时会归一化为 `motor.target` 后进入同一条 A 板 sender。`motor.target`、`mecanum.target`、`can_servo.move` 和 `can_servo.group_move` 属于最新优先 motion 命令；`motor.read`、`imu.read`、`system.ping`、`motor.stop` 和配置类命令保持顺序处理，并会按需要清理 pending motion。
 
 ## 6. RoboMaster Type A quadrature encoder path
 
@@ -263,8 +275,8 @@ legacy single `sensor` pin:
   to a 13 PPR Hall encoder with quadrature x4 counting, so
   `encoderTicksPerRev = 52`. `motor.config.encoderTicksPerRev` may override
   this calibration value.
-- `closedLoop`: the current Type A firmware enables closed-loop control by
-  default on the four-channel GPIO encoder path. Override it with
+- `closedLoop`: the Type A firmware enables closed-loop control by default
+  only on channels with `encoderA` and `encoderB` configured. Override it with
   `motor.config` or `mecanum.config` only for debugging or saved calibration,
   not during live drive control.
 

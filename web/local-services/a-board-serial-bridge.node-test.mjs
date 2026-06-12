@@ -21,6 +21,8 @@ test("A board serial bridge keeps only the newest semantic motion target", () =>
 
 test("A board serial bridge treats IMU reads as lower priority telemetry", () => {
   assert.match(script, /LOW_PRIORITY_TYPES = \("imu\.read",\)/);
+  assert.match(script, /COMMAND_CLASS_PRIORITIES = \{/);
+  assert.match(script, /"telemetry": 20/);
   assert.match(script, /def _is_low_priority_command\(self, command\):/);
   assert.match(script, /def _low_priority_busy_response_locked\(self, job, reason\):/);
   assert.match(script, /"telemetrySkipped": True/);
@@ -30,10 +32,43 @@ test("A board serial bridge treats IMU reads as lower priority telemetry", () =>
   assert.match(script, /return self\.in_flight or self\._queue_depth_locked\(\) > 0/);
 });
 
+test("A board serial bridge schedules commands by optional JSON priority", () => {
+  assert.match(script, /VALID_COMMAND_CLASSES = \("motor", "arm-servo", "can-servo", "telemetry", "system"\)/);
+  assert.match(script, /VALID_COMMAND_POLICIES = \("fifo", "latest", "stop"\)/);
+  assert.match(script, /def command_priority\(command\):/);
+  assert.match(script, /return clamp_int\(explicit, 0, 1000/);
+  assert.match(script, /def command_class\(command\):/);
+  assert.match(script, /def command_policy\(command\):/);
+  assert.match(script, /def _insert_job_by_priority_locked\(self, job\):/);
+  assert.match(script, /priority > command_priority\(queued_job\.get\("command"\)\)/);
+  assert.match(script, /if command_priority\(self\.queue\[0\]\.get\("command"\)\) >= command_priority\(self\.pending_motion_job\.get\("command"\)\):/);
+  assert.match(script, /kept higher priority pending motion target/);
+});
+
+test("A board serial bridge keeps old no-priority commands on type defaults", () => {
+  assert.match(script, /COMMAND_TYPE_PRIORITIES = \{/);
+  assert.match(script, /"mecanum\.target": 80/);
+  assert.match(script, /"can_servo\.group_move": 40/);
+  assert.match(script, /"can_servo\.read": 20/);
+  assert.match(script, /if command_type in COMMAND_TYPE_PRIORITIES:/);
+  assert.match(script, /if command_type in STOP_TYPES:/);
+  assert.match(script, /if command_type in LATEST_WINS_TYPES:/);
+});
+
 test("A board serial bridge waits for real motion feedback after scheduler feedback", () => {
   assert.match(script, /TERMINAL_TYPES = \("error", "protocol\.feedback", "motor\.feedback", "mecanum\.feedback", "can\.feedback", "can\.frame", "can_servo\.feedback", "imu\.feedback"\)/);
   assert.doesNotMatch(script, /TERMINAL_TYPES = .*"ack"/);
   assert.doesNotMatch(script, /TERMINAL_TYPES = .*scheduler\.feedback/);
+});
+
+test("A board serial bridge drains all motor feedback for all-channel reads and stops", () => {
+  assert.match(script, /MOTOR_CHANNEL_COUNT = 8/);
+  assert.match(script, /def _expected_terminal_count\(self, command\):/);
+  assert.match(script, /command\.get\("type"\) in \("motor\.stop", "motor\.read"\) and command\.get\("all"\) is True/);
+  assert.match(script, /return MOTOR_CHANNEL_COUNT/);
+  assert.match(script, /matched_terminal_count = 0/);
+  assert.match(script, /matched_terminal_count \+= 1/);
+  assert.match(script, /matched_terminal_count >= expected_terminal_count/);
 });
 
 test("A board serial bridge health exposes busy, queue depth, and scheduler state", () => {
@@ -64,11 +99,14 @@ test("A board serial bridge exposes serial disconnect diagnostics", () => {
 test("A board serial bridge encodes V1 binary frames with COBS and CRC16", () => {
   assert.match(script, /SERIAL_PROTOCOL_MODE = os\.environ\.get\("A_BOARD_SERIAL_PROTOCOL", "auto"\)/);
   assert.match(script, /PROTOCOL_VERSION = 1/);
+  assert.match(script, /if 1 <= index <= 8:/);
+  assert.match(script, /binary motor\.target supports channels M1-M8/);
   assert.match(script, /def crc16_ccitt_false\(data\):/);
   assert.match(script, /crc = 0xFFFF/);
   assert.match(script, /crc = \(\(crc << 1\) \^ 0x1021\) & 0xFFFF/);
   assert.match(script, /def cobs_encode\(data\):/);
   assert.match(script, /def build_binary_command_frame\(command\):/);
+  assert.match(script, /any\(key in command for key in \("priority", "commandClass", "policy"\)\)/);
   assert.match(script, /body\.extend\(seq_u16\(command\)\.to_bytes\(2, "little", signed=False\)\)/);
   assert.match(script, /return b"\\x00" \+ cobs_encode\(bytes\(body\)\) \+ b"\\x00"/);
 });

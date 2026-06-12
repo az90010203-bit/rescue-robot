@@ -12,12 +12,14 @@ constexpr uint8_t kInstRead = 0x02;
 constexpr uint8_t kInstWrite = 0x03;
 constexpr uint8_t kInstSyncWrite = 0x83;
 
+constexpr uint8_t kServoIdAddr = 5;
 constexpr uint8_t kModeAddr = 33;
 constexpr uint8_t kTorqueEnableAddr = 40;
 constexpr uint8_t kAccAddr = 41;
 constexpr uint8_t kGoalPositionAddr = 42;
 constexpr uint8_t kGoalTimeAddr = 44;
 constexpr uint8_t kGoalSpeedAddr = 46;
+constexpr uint8_t kEepromLockAddr = 55;
 constexpr uint8_t kPresentPositionAddr = 56;
 constexpr uint8_t kFeedbackReadLength = 15;
 
@@ -51,6 +53,8 @@ class Bus {
   bool ping(uint8_t id, StatusPacket& status);
   bool write(uint8_t id, uint8_t address, const std::vector<uint8_t>& data, StatusPacket* status);
   bool syncWrite(uint8_t address, uint8_t bytesPerServo, const std::vector<uint8_t>& data);
+  bool setEepromLock(uint8_t id, bool locked, StatusPacket* status);
+  bool writeServoId(uint8_t oldId, uint8_t newId, StatusPacket* status);
   bool setMode(uint8_t id, uint8_t mode, StatusPacket* status);
   bool setWheelMode(uint8_t id, StatusPacket* status);
   bool setServoMode(uint8_t id, StatusPacket* status);

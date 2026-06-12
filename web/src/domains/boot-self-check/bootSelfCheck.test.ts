@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createPlatformCommand } from "@platform/commands";
 import {
   BOOT_SELF_CHECK_STEP_ORDER,
-  blockedPlatformCommandResult,
   cancelBootSelfCheckRun,
   completeBootSelfCheckStep,
   createBootSelfCheckGateState,
@@ -33,19 +32,22 @@ describe("boot self check", () => {
 
     expect(createBootSelfCheckSignature(baseInput())).toContain("project-1");
     expect(createBootSelfCheckSignature(baseInput({ piHost: "pi-a.local" }))).not.toBe(createBootSelfCheckSignature(baseInput({ piHost: "pi-b.local" })));
+    expect(createBootSelfCheckSignature(baseInput({ piServoBridgeStatus: "idle" }))).not.toBe(createBootSelfCheckSignature(baseInput({ piServoBridgeStatus: "connected" })));
+    expect(createBootSelfCheckSignature(baseInput({ connected: false }))).not.toBe(createBootSelfCheckSignature(baseInput({ connected: true, connectionMode: "servo-bus" })));
   });
 
-  it("locks dangerous commands when a critical step fails but keeps checks and stops available", () => {
+  it("reports critical failures without blocking control commands", () => {
     let run = createInitialBootSelfCheckRun(baseInput(), 100);
     run = completeBootSelfCheckStep(run, "a-board-bridge", evaluateBootSelfCheckStep("a-board-bridge", baseInput({ aBoardBridgeStatus: "error" })), 120);
     const gate = createBootSelfCheckGateState(run);
 
-    expect(gate.locked).toBe(true);
+    expect(gate.locked).toBe(false);
     expect(gate.blockedStepIds).toContain("a-board-bridge");
-    expect(shouldBlockPlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 10 }), gate)).toBe(true);
+    expect(gate.reason).toContain("仅提示，不阻断控制");
+    expect(shouldBlockPlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 10 }), gate)).toBe(false);
     expect(shouldBlockPlatformCommand(createPlatformCommand("motor.stop", "motor:M1", { stopMode: "brake" }), gate)).toBe(false);
     expect(shouldBlockPlatformCommand(createPlatformCommand("servo.read_feedback", "servo:7"), gate)).toBe(false);
-    expect(blockedPlatformCommandResult(createPlatformCommand("robot-arm.set_pose", "robot-arm:main", { joints: [] }), gate).status).toBe("failed");
+    expect(shouldBlockPlatformCommand(createPlatformCommand("robot-arm.set_pose", "robot-arm:main", { joints: [] }), gate)).toBe(false);
   });
 
   it("builds confirm-only repair actions for bridge failures", () => {
@@ -71,7 +73,7 @@ describe("boot self check", () => {
     expect(planBootSelfCheckStepCommands("motor-feedback", input).commands.map((command) => command.type)).toEqual(["motor.read_feedback"]);
   });
 
-  it("marks configured feedback missing as critical until a read succeeds", () => {
+  it("marks configured feedback missing as a warning until a read succeeds", () => {
     const input = baseInput({ servos: [{ id: 7, name: "Elbow" }] });
     const missing = evaluateBootSelfCheckStep("servo-feedback", input);
     const passed = evaluateBootSelfCheckStep("servo-feedback", input, [{
@@ -80,9 +82,23 @@ describe("boot self check", () => {
       status: "sent"
     }]);
 
-    expect(missing.status).toBe("failed");
+    expect(missing.status).toBe("warning");
     expect(missing.repairActions[0].command?.type).toBe("servo.read_feedback");
     expect(passed.status).toBe("passed");
+  });
+
+  it("does not globally lock motion just because feedback is missing", () => {
+    let run = createInitialBootSelfCheckRun(baseInput({ servos: [{ id: 7, name: "Elbow" }] }), 100);
+    run = completeBootSelfCheckStep(run, "servo-feedback", evaluateBootSelfCheckStep("servo-feedback", baseInput({ servos: [{ id: 7, name: "Elbow" }] })), 120);
+    run = {
+      ...run,
+      status: "warning",
+      activeStepId: undefined,
+      steps: run.steps.map((step) => step.status === "pending" ? { ...step, status: "passed" } : step)
+    };
+    const gate = createBootSelfCheckGateState(run);
+
+    expect(gate.locked).toBe(false);
   });
 
   it("cancels pending and running steps without fabricating success", () => {

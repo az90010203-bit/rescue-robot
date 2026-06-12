@@ -13,7 +13,7 @@
     "health": "node local-services/health-check.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "npm.cmd run check:docs && vitest run && node --test ../pi-image/install-rescue-pi.node-test.mjs local-services/a-board-serial-bridge.node-test.mjs local-services/pi-servo-serial-bridge.node-test.mjs local-services/robomaster-a-controller.node-test.mjs local-services/data-store.node-test.mjs local-services/local-http-helper.node-test.mjs local-services/pi-helper.node-test.mjs local-services/ai-vision-helper.node-test.mjs"
+    "test": "npm.cmd run check:docs && vitest run && node --test ../pi-image/install-rescue-pi.node-test.mjs local-services/a-board-serial-bridge.node-test.mjs local-services/pi-servo-serial-bridge.node-test.mjs local-services/esp32-feetech-firmware.node-test.mjs local-services/robomaster-a-controller.node-test.mjs local-services/data-store.node-test.mjs local-services/local-http-helper.node-test.mjs local-services/pi-helper.node-test.mjs local-services/ai-vision-helper.node-test.mjs"
   },
   "dependencies": {
     "blockly": "^12.5.1",

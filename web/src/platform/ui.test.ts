@@ -138,7 +138,7 @@ describe("platform ui helpers", () => {
   });
 
   it("finds a ui panel from device capability", () => {
-    expect(findPlatformUiPanelForDevice({ ...devices[0], capabilities: [{ id: "servo", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("servo-control");
+    expect(findPlatformUiPanelForDevice({ ...devices[0], capabilities: [{ id: "servo", features: [] }] }, BUILTIN_UI_PANELS)).toBeUndefined();
     expect(findPlatformUiPanelForDevice({ ...devices[1], capabilities: [{ id: "motor", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("motor-control");
     expect(findPlatformUiPanelForDevice({ ...devices[2], capabilities: [{ id: "camera", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("camera-gimbal-control");
     expect(findPlatformUiPanelForDevice({ ...devices[3], capabilities: [{ id: "camera", features: [] }] }, BUILTIN_UI_PANELS)?.id).toBe("secondary-camera-control");

@@ -1,237 +1,66 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
-export const BUILTIN_DEVICE_CATALOG_ITEMS = [
-  {
-    id: "catalog.feetech.sts3215",
-    type: "servo",
-    brand: "Feetech",
-    model: "STS3215",
-    displayName: "Feetech STS3215 Servo",
-    driverId: "driver.feetech-servo",
-    transportId: "transport.web-serial",
-    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "direction", label: "Direction", kind: "select", options: [{ label: "Normal", value: 1 }, { label: "Reverse", value: -1 }] }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1 },
-    tags: ["servo", "ttl", "feetech"]
-  },
-  {
-    id: "catalog.feetech.scservo",
-    type: "servo",
-    brand: "Feetech",
-    model: "STS/SCS Generic",
-    displayName: "Feetech STS/SCS Generic Servo",
-    driverId: "driver.feetech-servo",
-    transportId: "transport.web-serial",
-    capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "direction", label: "Direction", kind: "select", options: [{ label: "Normal", value: 1 }, { label: "Reverse", value: -1 }] }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1 },
-    tags: ["servo", "ttl", "feetech"]
-  },
-  {
-    id: "catalog.asme.asme-se-can-servo",
-    type: "servo",
-    brand: "ASME",
-    model: "ASME-SE",
-    displayName: "ASME ASME-SE CAN Servo",
-    driverId: "driver.asme-can-servo",
-    transportId: "transport.a-board-can1",
-    capabilities: [{ id: "servo", features: ["position_control", "feedback", "current_config", "pid_config", "id_config", "can1"] }],
-    configSchema: [
-      { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
-      { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "direction", label: "Direction", kind: "select", options: [{ label: "Normal", value: 1 }, { label: "Reverse", value: -1 }] },
-      {
-        id: "bitrateKbps",
-        label: "CAN Bitrate",
-        kind: "select",
-        options: [
-          { label: "250 kbit/s", value: 250 },
-          { label: "500 kbit/s", value: 500 },
-          { label: "1000 kbit/s", value: 1000 }
-        ]
-      },
-      { id: "canBus", label: "CAN Bus", kind: "select", options: [{ label: "RoboMaster A CAN1", value: "CAN1" }] }
-    ],
-    defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1, bitrateKbps: 250, canBus: "CAN1" },
-    tags: ["servo", "can", "asme", "asmg-md", "robomaster-a"]
-  },
-  {
-    id: "catalog.toshiba.tb6618-motor",
-    type: "motor",
-    brand: "Toshiba",
-    model: "TB6618 Motor Channel",
-    displayName: "TB6618 Motor Channel",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: Array.from({ length: 8 }, (_, index) => ({ label: `M${index + 1}`, value: `M${index + 1}` })) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
-    tags: ["motor", "pwm", "h-bridge"]
-  },
-  {
-    id: "catalog.wheeltec.g513xl",
-    type: "motor",
-    brand: "WHEELTEC",
-    model: "G513XL",
-    displayName: "WHEELTEC G513XL Motor",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: Array.from({ length: 8 }, (_, index) => ({ label: `M${index + 1}`, value: `M${index + 1}` })) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "PA0", in1Pin: "PB0", in2Pin: "PE12", enablePin: "PD12", sensorPin: "", encoderAPin: "PE4", encoderBPin: "PF0" },
-    tags: ["motor", "wheeltec", "pwm", "encoder"]
-  },
-  {
-    id: "catalog.wheeltec.mg540",
-    type: "motor",
-    brand: "WHEELTEC",
-    model: "MG540",
-    displayName: "WHEELTEC MG540 Motor",
-    driverId: "driver.tb6618-motor",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "motor", features: ["pwm_control", "direction_control", "open_loop"] }],
-    configSchema: [
-      { id: "channel", label: "Channel", kind: "select", required: true, options: Array.from({ length: 8 }, (_, index) => ({ label: `M${index + 1}`, value: `M${index + 1}` })) },
-      { id: "pwmPin", label: "PWM Pin", kind: "text" },
-      { id: "in1Pin", label: "IN1 Pin", kind: "text" },
-      { id: "in2Pin", label: "IN2 Pin", kind: "text" },
-      { id: "enablePin", label: "Enable Pin", kind: "text" },
-      { id: "sensorPin", label: "Sensor Pin", kind: "text" },
-      { id: "encoderAPin", label: "Encoder A Pin", kind: "text" },
-      { id: "encoderBPin", label: "Encoder B Pin", kind: "text" }
-    ],
-    defaultConfig: { channel: "M1", pwmPin: "", in1Pin: "", in2Pin: "", enablePin: "", sensorPin: "", encoderAPin: "PA0", encoderBPin: "PA1" },
-    tags: ["motor", "wheeltec", "pwm", "encoder"]
-  },
-  {
-    id: "catalog.generic.camera-gimbal",
-    type: "camera",
-    brand: "Generic",
-    model: "Camera Gimbal",
-    displayName: "Generic Camera Gimbal",
-    driverId: "driver.camera-gimbal",
-    transportId: "transport.controller-json",
-    capabilities: [{ id: "camera", features: ["mjpeg_stream", "servo_gimbal"] }],
-    configSchema: [
-      { id: "streamUrl", label: "Stream URL", kind: "text" },
-      { id: "panServoId", label: "Pan Servo ID", kind: "number", min: 0, max: 253, step: 1 },
-      { id: "tiltServoId", label: "Tilt Servo ID", kind: "number", min: 0, max: 253, step: 1 },
-      { id: "panAngleDeg", label: "Pan Angle", kind: "number", min: 0, max: 360, step: 1 },
-      { id: "tiltAngleDeg", label: "Tilt Angle", kind: "number", min: 0, max: 360, step: 1 }
-    ],
-    defaultConfig: { streamUrl: "http://192.168.55.220:8080/stream", webrtcOfferUrl: "http://192.168.55.220:8080/offer", streamMode: "mjpeg", latencyProfile: "lowLatency", panServoId: 1, tiltServoId: 2, panAngleDeg: 90, tiltAngleDeg: 90 },
-    tags: ["camera", "gimbal"]
-  },
-  {
-    id: "catalog.generic.secondary-camera",
-    type: "camera",
-    brand: "Generic",
-    model: "Second Camera",
-    displayName: "Generic Second Camera",
-    driverId: "driver.secondary-camera",
-    transportId: "transport.ssh",
-    capabilities: [{ id: "camera", features: ["mjpeg_stream", "secondary_source"] }],
-    configSchema: [
-      { id: "streamUrl", label: "Stream URL", kind: "text" },
-      { id: "devicePath", label: "Device Path", kind: "text" },
-      { id: "port", label: "Port", kind: "number", min: 1, max: 65535, step: 1 }
-    ],
-    defaultConfig: { streamUrl: "http://192.168.55.220:8081/stream", devicePath: "/dev/video1", port: 8081 },
-    tags: ["camera", "secondary", "raspberry-pi"]
-  },
-  {
-    id: "catalog.browser.gamepad",
-    type: "gamepad",
-    brand: "Browser",
-    model: "Gamepad API",
-    displayName: "Browser Gamepad",
-    driverId: "driver.browser-gamepad",
-    transportId: "transport.browser-gamepad-api",
-    capabilities: [{ id: "gamepad", features: ["drive_input", "camera_gimbal_input", "button_mapping", "live_axes"] }],
-    configSchema: [
-      { id: "preferredIndex", label: "Preferred Index", kind: "number", min: 0, max: 15, step: 1 },
-      {
-        id: "preset",
-        label: "Preset",
-        kind: "select",
-        options: [
-          { label: "Auto", value: "auto" },
-          { label: "Xbox / XInput", value: "xinput" },
-          { label: "PlayStation", value: "playstation" },
-          { label: "Switch Pro", value: "switchPro" },
-          { label: "Generic", value: "generic" }
-        ]
-      }
-    ],
-    defaultConfig: { preferredIndex: null, preset: "auto" },
-    tags: ["gamepad", "browser", "input"]
-  },
-  {
-    id: "catalog.browser.local-camera",
-    type: "camera",
-    brand: "Browser",
-    model: "Local Camera",
-    displayName: "Browser Local Camera",
-    driverId: "driver.browser-camera",
-    transportId: "transport.browser-media",
-    capabilities: [{ id: "camera", features: ["local_media_stream", "browser_camera"] }],
-    configSchema: [
-      { id: "preferredDeviceId", label: "Preferred Device", kind: "text" },
-      { id: "width", label: "Width", kind: "number", min: 1, max: 7680, step: 1 },
-      { id: "height", label: "Height", kind: "number", min: 1, max: 4320, step: 1 },
-      { id: "fps", label: "FPS", kind: "number", min: 1, max: 240, step: 1 }
-    ],
-    defaultConfig: { preferredDeviceId: "", width: 640, height: 480, fps: 30 },
-    tags: ["camera", "browser", "local", "usb", "webcam"]
-  },
-  {
-    id: "catalog.local.ai-vision",
-    type: "ai-vision",
-    brand: "Local",
-    model: "AI Vision Helper",
-    displayName: "Local AI Vision Helper",
-    driverId: "driver.ai-vision-helper",
-    transportId: "transport.local-helper",
-    capabilities: [{ id: "ai-vision", features: ["mjpeg_stream_analysis", "competition_mannequin", "sample_capture", "external_helper"] }],
-    configSchema: [
-      { id: "sourceId", label: "Source ID", kind: "text", required: true },
-      { id: "streamUrl", label: "Stream URL", kind: "text", required: true },
-      { id: "label", label: "Label", kind: "text" },
-      { id: "helperUrl", label: "Helper URL", kind: "text" }
-    ],
-    defaultConfig: { sourceId: "main", streamUrl: "http://192.168.55.220:8080/stream", label: "competition_mannequin", helperUrl: "http://127.0.0.1:17353" },
-    tags: ["ai", "vision", "local-helper", "competition_mannequin"]
-  }
-];
+const TYPE_A_BOARD_SILK_TO_PIN = {
+  A: "PI0",
+  B: "PH12",
+  C: "PH11",
+  D: "PH10",
+  E: "PD15",
+  F: "PD14",
+  G: "PD13",
+  H: "PD12",
+  I1: "PF1",
+  I2: "PF0",
+  J1: "PE5",
+  J2: "PE4",
+  K1: "PE6",
+  K2: "PE12",
+  L1: "PC2",
+  L2: "PB0",
+  M1: "PC3",
+  M2: "PB1",
+  N1: "PC4",
+  N2: "PC0",
+  O1: "PC5",
+  O2: "PC1",
+  P1: "PA5",
+  P2: "PA4",
+  Q1: "PF10",
+  Q2: "PI9",
+  S: "PA0",
+  T: "PA1",
+  U: "PA2",
+  V: "PA3",
+  W: "PI5",
+  X: "PI6",
+  Y: "PI7",
+  Z: "PI2"
+};
+
+const MOTOR_PIN_FIELD_IDS = new Set(["pwmPin", "in1Pin", "in2Pin", "enablePin", "sensorPin", "encoderAPin", "encoderBPin"]);
+
+export const BUILTIN_DEVICE_CATALOG_ITEMS = JSON.parse(
+  readFileSync(new URL("../src/platform/defaultCatalog.json", import.meta.url), "utf8")
+);
+
+const LEGACY_FEETECH_SERVO_DEFAULTS = {
+  type: "servo",
+  brand: "Feetech",
+  model: "Legacy STS/SCS",
+  displayName: "Legacy Feetech Servo",
+  driverId: "driver.feetech-servo",
+  transportId: "transport.web-serial",
+  capabilities: [{ id: "servo", features: ["position_control", "wheel_speed_control", "torque_control", "feedback"] }],
+  configSchema: [
+    { id: "servoId", label: "ID", kind: "number", required: true, min: 0, max: 253, step: 1 },
+    { id: "minDeg", label: "Min Angle", kind: "number", min: 0, max: 360, step: 1 },
+    { id: "maxDeg", label: "Max Angle", kind: "number", min: 0, max: 360, step: 1 },
+    { id: "direction", label: "Direction", kind: "select", options: [{ label: "Normal", value: 1 }, { label: "Reverse", value: -1 }] }
+  ],
+  defaultConfig: { servoId: 1, minDeg: 0, maxDeg: 360, direction: 1 },
+  tags: ["servo", "ttl", "feetech", "legacy"]
+};
 
 
 export function importNodeBuiltin(specifier) {
@@ -341,7 +170,7 @@ export function normalizePluginInstance(value, catalogItem, existing) {
     throw badRequestError("plugin instance is required");
   }
   const type = cleanType(value.type ?? catalogItem?.type);
-  const fallback = catalogItem ?? catalogDefaultsForType(type);
+  const fallback = catalogItem ?? pluginDefaultsForValue(value, type);
   const configSchema = Array.isArray(fallback.configSchema) ? fallback.configSchema : [];
   const config = normalizeConfigForSchema(configSchema, { ...(fallback.defaultConfig ?? {}), ...(value.config ?? {}) });
   const instance = {
@@ -362,6 +191,13 @@ export function normalizePluginInstance(value, catalogItem, existing) {
     throw badRequestError(`duplicate plugin instance name: ${instance.name}`);
   }
   return instance;
+}
+
+function pluginDefaultsForValue(value, type) {
+  if (type === "servo" && value?.driverId === "driver.feetech-servo") {
+    return LEGACY_FEETECH_SERVO_DEFAULTS;
+  }
+  return catalogDefaultsForType(type);
 }
 
 export function validatePluginInstanceForProject(projectId, instance, ignoreId) {
@@ -394,6 +230,7 @@ export function validatePluginInstanceForProject(projectId, instance, ignoreId) 
       throw badRequestError("motor plugin instance requires a valid channel");
     }
     instance.config.channel = channel;
+    normalizeMotorPinAliases(instance.config);
     const duplicate = pluginInstancesForValidation(projectId).find((item) => item.id !== ignoreId && item.type === "motor" && normalizeMotorChannel(item.config.channel) === channel);
     if (duplicate) {
       throw badRequestError(`duplicate motor channel: ${channel}`);
@@ -687,7 +524,8 @@ export function normalizeConfigForSchema(schema, config) {
     } else if (field.kind === "toggle") {
       normalized[field.id] = value === true;
     } else if (field.kind === "select") {
-      const selected = (field.options ?? []).find((option) => String(option.value) === String(value));
+      const selectValue = typeof value === "string" && MOTOR_PIN_FIELD_IDS.has(field.id) ? resolveMotorPinAlias(value) : value;
+      const selected = (field.options ?? []).find((option) => String(option.value) === String(selectValue));
       normalized[field.id] = selected ? selected.value : field.options?.[0]?.value ?? null;
     } else {
       normalized[field.id] = value === null || value === undefined ? "" : String(value);
@@ -742,6 +580,52 @@ export function normalizeMotorChannel(value) {
 
 export function isValidMotorChannel(value) {
   return /^M([1-9]|1[0-6])$/.test(normalizeMotorChannel(value));
+}
+
+const TYPE_A_PIN_ALIASES = {
+  ...TYPE_A_BOARD_SILK_TO_PIN,
+  CAN1_TX: "PD1",
+  CAN1_H: "PD1",
+  CAN1_RX: "PD0",
+  CAN1_L: "PD0",
+  CAN2_TX: "PB13",
+  CAN2_H: "PB13",
+  CAN2_RX: "PB12",
+  CAN2_L: "PB12",
+  UART6_TX: "PG14",
+  USART6_TX: "PG14",
+  UART6_RX: "PG9",
+  USART6_RX: "PG9",
+  UART3_TX: "PD8",
+  USART3_TX: "PD8",
+  UART3_RX: "PD9",
+  USART3_RX: "PD9",
+  USART2_TX: "PD5",
+  USART2_RX: "PD6",
+  KEY: "PD10",
+  USER_KEY: "PD10",
+  LASER: "PG13",
+  BUZZER: "PB4",
+  MPU_INT: "PE1",
+  IMU_INT: "PE1",
+  IST8310_DRDY: "PE3",
+  IST8310_SET_RESET: "PE2"
+};
+
+function normalizeMotorPinAliases(config) {
+  for (const role of ["pwmPin", "in1Pin", "in2Pin", "enablePin", "sensorPin", "encoderAPin", "encoderBPin"]) {
+    const normalized = resolveMotorPinAlias(config[role]);
+    if (normalized) {
+      config[role] = normalized;
+    }
+  }
+}
+
+function resolveMotorPinAlias(value) {
+  const key = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s.:-]+/g, "_") : "";
+  if (!key) return "";
+  if (/^P[A-I][0-9]{1,2}$/.test(key)) return key;
+  return TYPE_A_PIN_ALIASES[key] ?? key;
 }
 
 export function integerInRange(value, min, max, fallback) {

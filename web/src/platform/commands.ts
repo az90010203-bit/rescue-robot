@@ -25,6 +25,7 @@ export type PlatformCommandType =
   | "mecanum-drive.set_velocity"
   | "mecanum-drive.stop"
   | "can-servo-group.set_positions"
+  | "servo-preset.run"
   | "pi.check"
   | "pi.setup"
   | "pi.upload_file"
@@ -86,6 +87,7 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "mecanum-drive.set_velocity",
   "mecanum-drive.stop",
   "can-servo-group.set_positions",
+  "servo-preset.run",
   "pi.check",
   "pi.setup",
   "pi.upload_file",
@@ -127,6 +129,7 @@ const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
   "mecanum-drive.set_velocity": "mecanum-drive",
   "mecanum-drive.stop": "mecanum-drive",
   "can-servo-group.set_positions": "can-servo-group",
+  "servo-preset.run": "servo",
   "pi.check": "raspberry-pi",
   "pi.setup": "raspberry-pi",
   "pi.upload_file": "raspberry-pi",
@@ -152,6 +155,7 @@ const TARGET_CAPABILITY_BY_PREFIX: Array<[string, CapabilityId]> = [
   ["robot-arm:", "robot-arm"],
   ["mecanum-drive:", "mecanum-drive"],
   ["can-servo-group:", "can-servo-group"],
+  ["servo-preset:", "servo"],
   ["pi:", "raspberry-pi"],
   ["firmware:", "firmware"],
   ["gamepad:", "gamepad"],
@@ -266,23 +270,47 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
     }
   }
   if (command.type === "can-servo-group.set_positions") {
-    if (!isPlainObject(command.payload.positions)) {
-      return "can-servo-group.set_positions requires positions";
+    const pcCommands = command.payload.pcCommands;
+    if (!Array.isArray(pcCommands)) {
+      return "can-servo-group.set_positions requires pcCommands";
     }
-    const positions = command.payload.positions as Record<string, unknown>;
-    const keys = Object.keys(positions);
-    if (keys.length === 0) {
-      return "can-servo-group.set_positions requires at least one position";
+    if (pcCommands.length === 0) {
+      return "can-servo-group.set_positions requires at least one pcCommand";
     }
-    for (const key of keys) {
-      const value = positions[key];
-      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 360) {
-        return `can-servo-group.set_positions ${key} must be from 0 to 360`;
+    let hasGroupMove = false;
+    for (const pcCommand of pcCommands) {
+      if (!isPlainObject(pcCommand)) {
+        return "can-servo-group.set_positions pcCommands must be JSON objects";
+      }
+      if (pcCommand.type !== "can_servo.config" && pcCommand.type !== "can_servo.group_move") {
+        return "can-servo-group.set_positions pcCommands must be CAN servo commands";
+      }
+      if (!Number.isInteger(pcCommand.seq)) {
+        return "can-servo-group.set_positions pcCommand seq must be an integer";
+      }
+      if (pcCommand.type === "can_servo.group_move") {
+        hasGroupMove = true;
+        if (!Array.isArray(pcCommand.targets) || pcCommand.targets.length === 0) {
+          return "can-servo-group.set_positions group_move requires targets";
+        }
+        for (const target of pcCommand.targets) {
+          if (!isPlainObject(target) || !Number.isInteger(target.id) || !Number.isInteger(target.position)) {
+            return "can-servo-group.set_positions group_move targets require id and position";
+          }
+        }
+        if (!Number.isInteger(pcCommand.speed)) {
+          return "can-servo-group.set_positions group_move speed must be an integer";
+        }
       }
     }
-    const speedRaw = command.payload.speedRaw;
-    if (speedRaw !== undefined && (typeof speedRaw !== "number" || !Number.isInteger(speedRaw) || speedRaw < 0 || speedRaw > 4095)) {
-      return "can-servo-group.set_positions speedRaw must be an integer from 0 to 4095";
+    if (!hasGroupMove) {
+      return "can-servo-group.set_positions requires a group_move pcCommand";
+    }
+  }
+  if (command.type === "servo-preset.run") {
+    const validation = validateServoPresetPcCommands(command.payload.pcCommands);
+    if (validation) {
+      return validation;
     }
   }
   if (command.type === "camera.set_gimbal") {
@@ -345,4 +373,62 @@ function isPositiveInteger(value: unknown, max: number): boolean {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function validateServoPresetPcCommands(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return "servo-preset.run requires pcCommands";
+  }
+  if (value.length === 0) {
+    return "servo-preset.run requires at least one pcCommand";
+  }
+  let hasMotion = false;
+  for (const item of value) {
+    if (!isPlainObject(item)) {
+      return "servo-preset.run pcCommands must be JSON objects";
+    }
+    if (item.type !== "servo.move" && item.type !== "can_servo.config" && item.type !== "can_servo.group_move") {
+      return "servo-preset.run pcCommands must be servo.move or CAN group commands";
+    }
+    if (!Number.isInteger(item.seq)) {
+      return "servo-preset.run pcCommand seq must be an integer";
+    }
+    if (item.type === "servo.move") {
+      hasMotion = true;
+      if (!Array.isArray(item.targets) || item.targets.length === 0) {
+        return "servo-preset.run servo.move requires targets";
+      }
+      if (item.sync !== undefined && typeof item.sync !== "boolean") {
+        return "servo-preset.run servo.move sync must be boolean";
+      }
+      for (const target of item.targets) {
+        if (!isPlainObject(target)) {
+          return "servo-preset.run servo.move targets require id, angleDeg, and speedRaw";
+        }
+        const speedRaw = target.speedRaw;
+        const acc = target.acc;
+        if (!Number.isInteger(target.id) || !isAngle(target.angleDeg) || !Number.isInteger(speedRaw) || Number(speedRaw) < 0 || Number(speedRaw) > 4095) {
+          return "servo-preset.run servo.move targets require id, angleDeg, and speedRaw";
+        }
+        if (acc !== undefined && (!Number.isInteger(acc) || Number(acc) < 0 || Number(acc) > 254)) {
+          return "servo-preset.run servo.move target acc must be an integer from 0 to 254";
+        }
+      }
+    }
+    if (item.type === "can_servo.group_move") {
+      hasMotion = true;
+      if (!Array.isArray(item.targets) || item.targets.length === 0) {
+        return "servo-preset.run group_move requires targets";
+      }
+      for (const target of item.targets) {
+        if (!isPlainObject(target) || !Number.isInteger(target.id) || !Number.isInteger(target.position)) {
+          return "servo-preset.run group_move targets require id and position";
+        }
+      }
+      if (!Number.isInteger(item.speed)) {
+        return "servo-preset.run group_move speed must be an integer";
+      }
+    }
+  }
+  return hasMotion ? null : "servo-preset.run requires a motion pcCommand";
 }
