@@ -316,6 +316,12 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.manual-drive-panel,
+.manual-tracked-panel,
+.manual-can-panel {
+  grid-column: span 4;
+}
+
 .gamepad-view > .panel:nth-child(1) {
   grid-column: span 5;
 }
@@ -732,6 +738,88 @@ h2 {
   line-height: 1.35;
 }
 
+.manual-pad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.manual-pad > span {
+  min-height: 38px;
+}
+
+.hold-button,
+.manual-stop-button {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 6px;
+  color: var(--ink);
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 790;
+}
+
+.hold-button.active {
+  border-color: rgba(20, 86, 240, 0.5);
+  color: #ffffff;
+  background: var(--blue);
+}
+
+.hold-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.manual-stop-button {
+  border-color: rgba(212, 86, 86, 0.36);
+  color: var(--red);
+}
+
+.can-jog-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.can-jog-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(58px, 0.42fr) minmax(58px, 0.42fr);
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: #ffffff;
+}
+
+.can-jog-row div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.can-jog-row strong,
+.can-jog-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.can-jog-row strong {
+  font-size: 0.76rem;
+}
+
+.can-jog-row span {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.66rem;
+}
+
 .servo-info-card {
   min-width: 0;
   display: grid;
@@ -835,6 +923,31 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   margin-top: 7px;
+}
+
+.fixed-gamepad-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.gamepad-enable-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 7px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+  color: var(--slate);
+  background: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 760;
+}
+
+.gamepad-enable-row input {
+  width: auto;
 }
 
 .axis-bar {
@@ -1034,6 +1147,9 @@ h2 {
   .architecture-panel,
   .can-panel,
   .log-panel,
+  .manual-drive-panel,
+  .manual-tracked-panel,
+  .manual-can-panel,
   .control-camera-panel,
   .device-panel,
   .can-group-panel,
@@ -1098,7 +1214,8 @@ h2 {
   .view-tabs,
   .device-status-grid,
   .camera-feed-grid,
-  .gamepad-live-grid {
+  .gamepad-live-grid,
+  .fixed-gamepad-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1116,7 +1233,8 @@ h2 {
   .camera-feed div,
   .compact-row,
   .mapping-row,
-  .button-mapping-grid .mapping-row {
+  .button-mapping-grid .mapping-row,
+  .can-jog-row {
     grid-template-columns: 1fr;
   }
 

@@ -1,7 +1,7 @@
 import type { PiDiscoveryCandidate } from "./runtime/piDiscoveryLite";
 import { DEFAULT_PRIORITY_SETTINGS } from "./runtime/priority";
 import type { AsmgMdServoProfile } from "@adapters/hardware/asmgMdCanServo";
-import type { MotorProfile, ServoProfile } from "@adapters/hardware/protocol";
+import type { MotorProfile, MotorStopMode, ServoProfile } from "@adapters/hardware/protocol";
 
 export const A_BOARD_BRIDGE_PORT = 17353;
 export const PI_SERVO_BRIDGE_PORT = 17354;
@@ -19,6 +19,36 @@ export interface PwmServoProfile {
   minPulseUs: number;
   centerPulseUs: number;
   maxPulseUs: number;
+}
+
+export interface LiteDriveProfile {
+  speedLimitPercent: number;
+  stopMode: MotorStopMode;
+  deadzone: number;
+  mecanum: {
+    frontLeft: string;
+    frontRight: string;
+    rearLeft: string;
+    rearRight: string;
+  };
+  tracked: {
+    left: string;
+    right: string;
+  };
+}
+
+export interface LiteCanJogProfile {
+  frontIds: number[];
+  rearIds: number[];
+  positions: {
+    leftFront: number;
+    rightFront: number;
+    leftRear: number;
+    rightRear: number;
+  };
+  stepDeg: number;
+  intervalMs: number;
+  speedRaw: number;
 }
 
 export const ROBOT_PROFILE = {
@@ -54,10 +84,40 @@ export const ROBOT_PROFILE = {
     { id: "pwm-aux-1", name: "PWM Aux 1", silk: "U", pin: "PA2", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },
     { id: "pwm-aux-2", name: "PWM Aux 2", silk: "V", pin: "PA3", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 }
   ] satisfies PwmServoProfile[],
+  drive: {
+    speedLimitPercent: 35,
+    stopMode: "brake",
+    deadzone: 0.12,
+    mecanum: {
+      frontLeft: "M3",
+      frontRight: "M1",
+      rearLeft: "M4",
+      rearRight: "M2"
+    },
+    tracked: {
+      left: "M5",
+      right: "M6"
+    }
+  } satisfies LiteDriveProfile,
+  canJog: {
+    frontIds: [4, 1],
+    rearIds: [3, 2],
+    positions: {
+      leftFront: 4,
+      rightFront: 1,
+      leftRear: 3,
+      rightRear: 2
+    },
+    stepDeg: 1,
+    intervalMs: 80,
+    speedRaw: 300
+  } satisfies LiteCanJogProfile,
   motors: [
     { channel: "M1", name: "Mecanum FR", pwmPin: "PD14", in1Pin: "PB1", in2Pin: "PC0", enablePin: "PI0", encoderAPin: "PC1", encoderBPin: "PA4" },
     { channel: "M2", name: "Mecanum BR", pwmPin: "PD13", in1Pin: "PF0", in2Pin: "PE4", enablePin: "PI0", encoderAPin: "PE12", encoderBPin: "PB0" },
     { channel: "M3", name: "Mecanum FL", pwmPin: "PD15", in1Pin: "PI5", in2Pin: "PI6", enablePin: "PH12", encoderAPin: "PI7", encoderBPin: "PI2" },
-    { channel: "M4", name: "Mecanum BL", pwmPin: "PH11", in1Pin: "PC3", in2Pin: "PC4", enablePin: "PH12", encoderAPin: "PC5", encoderBPin: "PA5" }
+    { channel: "M4", name: "Mecanum BL", pwmPin: "PH11", in1Pin: "PC3", in2Pin: "PC4", enablePin: "PH12", encoderAPin: "PC5", encoderBPin: "PA5" },
+    { channel: "M5", name: "Left Track", pwmPin: "PH10", in1Pin: "PA0", in2Pin: "PA1", enablePin: "PH12", encoderAPin: "PA2", encoderBPin: "PA3" },
+    { channel: "M6", name: "Right Track", pwmPin: "PD12", in1Pin: "PF1", in2Pin: "PE5", enablePin: "PI0", encoderAPin: "PE6", encoderBPin: "PC2" }
   ] satisfies MotorProfile[]
 };

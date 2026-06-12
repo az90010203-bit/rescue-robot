@@ -27,6 +27,16 @@ describe("web-lite priority settings", () => {
       policy: "fifo",
       priority: 20
     });
+    expect(resolveCommandScheduling({ type: "mecanum.stop" }, DEFAULT_PRIORITY_SETTINGS)).toMatchObject({
+      commandClass: "system",
+      policy: "stop",
+      priority: 100
+    });
+    expect(resolveCommandScheduling({ type: "motor.stop" }, DEFAULT_PRIORITY_SETTINGS)).toMatchObject({
+      commandClass: "system",
+      policy: "stop",
+      priority: 100
+    });
   });
 
   it("keeps explicit command priority overrides inside the command envelope", () => {
