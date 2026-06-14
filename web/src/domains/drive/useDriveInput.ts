@@ -1,6 +1,5 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEFAULT_DRIVE_CHANNELS,
   DriveBase,
   DriveInputState,
   ZERO_DRIVE_INPUT,
@@ -12,13 +11,15 @@ import {
   DEFAULT_INPUT_MAPPING,
   GamepadPresetId,
   InputMapping,
+  ZERO_ROBOT_GAMEPAD_INPUT,
   cloneMapping,
-  gamepadInputFromGamepad,
   getGamepadPresetMapping,
   isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
   normalizeInputMapping,
-  resolveGamepadPreset
+  robotGamepadInputFromGamepad,
+  resolveGamepadPreset,
+  selectGamepadByIndex
 } from "@domains/drive/inputMapping";
 import {
   findPrimaryMecanumDriveComponent,
@@ -27,24 +28,30 @@ import {
   mecanumDriveMotorConfigMappings,
   normalizeMecanumDriveConfig
 } from "@domains/drive/mecanumComponent";
-import { clamp } from "@adapters/hardware/protocol";
-import { ActiveModule, GamepadAxisName, GamepadButtonName, GamepadSummary, LogEntry, isEditableTarget } from "@app/appModel";
+import {
+  findPrimaryTrackedDriveComponent,
+  normalizeTrackedDriveConfig,
+  trackedDriveChannels,
+  trackedDriveDirections,
+  trackedDriveMotorConfigMappings
+} from "@domains/drive/trackedComponent";
+import { clamp, normalizeMotorChannel, type MotorPortMapping, type MotorTarget } from "@adapters/hardware/protocol";
+import { GamepadAxisName, GamepadButtonName, GamepadSummary, LogEntry, isEditableTarget } from "@app/appModel";
 import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 
 interface UseDriveInputOptions {
-  activeModule: ActiveModule;
   addSystemLog: (messageKey: string, level?: LogEntry["level"]) => void;
   components?: ComponentDefinition[];
   pluginInstances?: PluginInstance[];
   stopAllMotors: (silent?: boolean) => Promise<void>;
 }
 
-export function useDriveInput({ activeModule, addSystemLog, components = [], pluginInstances = [], stopAllMotors }: UseDriveInputOptions) {
+export function useDriveInput({ addSystemLog, components = [], pluginInstances = [], stopAllMotors }: UseDriveInputOptions) {
   const [activeDriveBase, setActiveDriveBase] = useState<DriveBase>("tracked");
   const [driveSpeedLimit, setDriveSpeedLimit] = useState("60");
   const [pressedKeys, setPressedKeys] = useState<Set<string>>(() => new Set());
   const [virtualDriveInput, setVirtualDriveInput] = useState<DriveInputState>(ZERO_DRIVE_INPUT);
-  const [gamepadInput, setGamepadInput] = useState<DriveInputState>(ZERO_DRIVE_INPUT);
+  const [robotGamepadInput, setRobotGamepadInput] = useState(ZERO_ROBOT_GAMEPAD_INPUT);
   const [gamepads, setGamepads] = useState<GamepadSummary[]>([]);
   const [selectedGamepadIndex, setSelectedGamepadIndex] = useState<number | "">("");
   const [selectedGamepadPreset, setSelectedGamepadPreset] = useState<GamepadPresetId>("auto");
@@ -59,36 +66,63 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
     () => keyboardInputFromPressedKeys(pressedKeys, inputMapping.keyboard),
     [inputMapping.keyboard, pressedKeys]
   );
-  const driveInput = useMemo(
-    () => combineDriveInputs(combineDriveInputs(keyboardInput, gamepadInput), virtualDriveInput),
-    [gamepadInput, keyboardInput, virtualDriveInput]
+  const manualDriveInput = useMemo(
+    () => combineDriveInputs(keyboardInput, virtualDriveInput),
+    [keyboardInput, virtualDriveInput]
   );
   const mecanumComponent = useMemo(() => findPrimaryMecanumDriveComponent(components), [components]);
   const mecanumConfig = useMemo(
     () => normalizeMecanumDriveConfig(mecanumComponent?.config, pluginInstances),
     [mecanumComponent?.config, pluginInstances]
   );
-  const driveMixOptions = useMemo(
-    () => activeDriveBase === "mecanum"
-      ? {
-          channels: mecanumDriveChannels(mecanumConfig, pluginInstances),
-          directions: mecanumDriveDirections(mecanumConfig),
-          speedLimitPercent
-        }
-      : { channels: DEFAULT_DRIVE_CHANNELS, speedLimitPercent },
-    [activeDriveBase, mecanumConfig, pluginInstances, speedLimitPercent]
+  const trackedComponent = useMemo(() => findPrimaryTrackedDriveComponent(components), [components]);
+  const trackedConfig = useMemo(
+    () => normalizeTrackedDriveConfig(trackedComponent?.config, pluginInstances),
+    [pluginInstances, trackedComponent?.config]
+  );
+  const mecanumDriveInput = useMemo(
+    () => combineDriveInputs(activeDriveBase === "mecanum" ? manualDriveInput : ZERO_DRIVE_INPUT, robotGamepadInput.mecanum),
+    [activeDriveBase, manualDriveInput, robotGamepadInput.mecanum]
+  );
+  const trackedDriveInput = useMemo(
+    () => combineDriveInputs(activeDriveBase === "tracked" ? manualDriveInput : ZERO_DRIVE_INPUT, robotGamepadInput.tracked),
+    [activeDriveBase, manualDriveInput, robotGamepadInput.tracked]
+  );
+  const driveInput = useMemo(
+    () => activeDriveBase === "mecanum" ? mecanumDriveInput : trackedDriveInput,
+    [activeDriveBase, mecanumDriveInput, trackedDriveInput]
+  );
+  const mecanumMixOptions = useMemo(
+    () => ({
+      channels: mecanumDriveChannels(mecanumConfig, pluginInstances),
+      directions: mecanumDriveDirections(mecanumConfig),
+      speedLimitPercent
+    }),
+    [mecanumConfig, pluginInstances, speedLimitPercent]
+  );
+  const trackedMixOptions = useMemo(
+    () => ({
+      channels: trackedDriveChannels(trackedConfig, pluginInstances),
+      directions: trackedDriveDirections(trackedConfig),
+      speedLimitPercent
+    }),
+    [pluginInstances, speedLimitPercent, trackedConfig]
   );
   const driveTargets = useMemo(
-    () => mixDriveTargets(activeDriveBase, driveInput, driveMixOptions).map((target) => (
-      activeDriveBase === "mecanum" ? { ...target, closedLoop: mecanumConfig.closedLoop } : target
-    )),
-    [activeDriveBase, driveInput, driveMixOptions, mecanumConfig.closedLoop]
+    () => mergeMotorTargets([
+      ...mixDriveTargets("mecanum", mecanumDriveInput, mecanumMixOptions).map((target) => ({ ...target, closedLoop: mecanumConfig.closedLoop })),
+      ...mixDriveTargets("tracked", trackedDriveInput, trackedMixOptions).map((target) => ({ ...target, closedLoop: trackedConfig.closedLoop }))
+    ]),
+    [mecanumConfig.closedLoop, mecanumDriveInput, mecanumMixOptions, trackedConfig.closedLoop, trackedDriveInput, trackedMixOptions]
   );
   const driveSetupMappings = useMemo(
-    () => activeDriveBase === "mecanum" ? mecanumDriveMotorConfigMappings(mecanumConfig, pluginInstances) : [],
-    [activeDriveBase, mecanumConfig, pluginInstances]
+    () => mergeMotorMappings([
+      ...mecanumDriveMotorConfigMappings(mecanumConfig, pluginInstances),
+      ...trackedDriveMotorConfigMappings(trackedConfig, pluginInstances)
+    ]),
+    [mecanumConfig, pluginInstances, trackedConfig]
   );
-  const activeGamepad = gamepads.find((gamepad) => gamepad.index === selectedGamepadIndex) ?? gamepads[0];
+  const activeGamepad = selectGamepadByIndex(gamepads, selectedGamepadIndex);
   const recommendedGamepadPreset = useMemo(() => resolveGamepadPreset(activeGamepad), [activeGamepad]);
   const savedGamepadIsCustom = useMemo(() => isCustomGamepadMapping(inputMapping.gamepad), [inputMapping.gamepad]);
   const effectiveGamepadMapping = useMemo(() => {
@@ -269,7 +303,7 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
         return next;
       });
 
-      if (event.repeat || activeModule !== "camera") {
+      if (event.repeat) {
         return;
       }
 
@@ -301,7 +335,7 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [activeModule, capturingKey, inputMapping.keyboard]);
+  }, [capturingKey, inputMapping.keyboard]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
@@ -313,18 +347,15 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
 
     function pollGamepads(time: number) {
       const pads = Array.from(navigator.getGamepads()).filter((gamepad): gamepad is Gamepad => Boolean(gamepad));
-      const selectedPad =
-        selectedGamepadIndex === ""
-          ? pads[0]
-          : pads.find((gamepad) => gamepad.index === selectedGamepadIndex);
-      const nextInput = gamepadInputFromGamepad(selectedPad, effectiveGamepadMapping);
+      const selectedPad = selectGamepadByIndex(pads, selectedGamepadIndex);
+      const nextInput = robotGamepadInputFromGamepad(selectedPad, effectiveGamepadMapping);
       const inputSignature = JSON.stringify(nextInput);
       if (inputSignature !== gamepadInputSignatureRef.current) {
         gamepadInputSignatureRef.current = inputSignature;
-        setGamepadInput(nextInput);
+        setRobotGamepadInput(nextInput);
       }
 
-      if (selectedPad && activeModule === "camera") {
+      if (selectedPad) {
         handleGamepadButtonEdges(selectedPad);
       }
 
@@ -350,7 +381,7 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
 
     frameId = window.requestAnimationFrame(pollGamepads);
     return () => window.cancelAnimationFrame(frameId);
-  }, [activeModule, effectiveGamepadMapping, selectedGamepadIndex]);
+  }, [effectiveGamepadMapping, selectedGamepadIndex]);
 
   useEffect(() => {
     if (!driveInput.stop) {
@@ -358,13 +389,6 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
     }
     void stopAllMotors(true);
   }, [driveInput.stop]);
-
-  useEffect(() => {
-    if (activeModule !== "camera") {
-      setPressedKeys(new Set());
-      void stopAllMotors(true);
-    }
-  }, [activeModule]);
 
   useEffect(() => {
     function handleBlur() {
@@ -406,10 +430,31 @@ export function useDriveInput({ activeModule, addSystemLog, components = [], plu
     setSelectedGamepadIndex,
     setSelectedGamepadPreset,
     speedLimitPercent,
+    canServoGamepadAngle: robotGamepadInput.canServoAngle,
     updateGamepadAxis,
     updateGamepadButton,
     updateGamepadDeadzone,
     updateKeyboardMapping,
     virtualDriveInput
   };
+}
+
+function mergeMotorTargets(targets: MotorTarget[]): MotorTarget[] {
+  const byChannel = new Map<string, MotorTarget>();
+  for (const target of targets) {
+    const channel = normalizeMotorChannel(target.channel);
+    byChannel.set(channel, { ...target, channel });
+  }
+  return Array.from(byChannel.values());
+}
+
+function mergeMotorMappings(mappings: MotorPortMapping[]): MotorPortMapping[] {
+  const byChannel = new Map<string, MotorPortMapping>();
+  for (const mapping of mappings) {
+    const channel = normalizeMotorChannel(mapping.channel);
+    if (channel) {
+      byChannel.set(channel, { ...mapping, channel });
+    }
+  }
+  return Array.from(byChannel.values());
 }

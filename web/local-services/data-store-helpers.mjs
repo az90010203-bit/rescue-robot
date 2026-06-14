@@ -118,7 +118,7 @@ export function componentRow(row) {
   return {
     id: row.id,
     name: row.name,
-    kind: row.kind === "robot-arm" || row.kind === "mecanum-drive" || row.kind === "can-servo-group" ? row.kind : "custom",
+    kind: row.kind === "robot-arm" || row.kind === "tracked-drive" || row.kind === "mecanum-drive" || row.kind === "can-servo-group" ? row.kind : "custom",
     pluginInstanceIds: normalizeStringArray(parseJson(row.pluginInstanceIdsJson, [])),
     config: parseJson(row.configJson, {}),
     tags: normalizeStringArray(parseJson(row.tagsJson, [])),
@@ -254,7 +254,7 @@ export function normalizeComponent(value) {
   if (!value || typeof value !== "object") {
     throw badRequestError("component is required");
   }
-  const kind = value.kind === "robot-arm" || value.kind === "mecanum-drive" || value.kind === "can-servo-group" ? value.kind : "custom";
+  const kind = value.kind === "robot-arm" || value.kind === "tracked-drive" || value.kind === "mecanum-drive" || value.kind === "can-servo-group" ? value.kind : "custom";
   const config = value.config && typeof value.config === "object" && !Array.isArray(value.config) ? value.config : {};
   return {
     id: typeof value.id === "string" && value.id.trim() ? value.id.trim() : randomUUID(),
@@ -323,7 +323,7 @@ export function assertPluginIdsAvailable(projectId, pluginIds, options = {}) {
 }
 
 export function assertComponentPluginTypes(projectId, component) {
-  if (component.kind !== "robot-arm" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
+  if (component.kind !== "robot-arm" && component.kind !== "tracked-drive" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
     return;
   }
   const rows = currentDb()
@@ -337,6 +337,9 @@ export function assertComponentPluginTypes(projectId, component) {
     }
     if (component.kind === "mecanum-drive" && plugin?.type !== "motor") {
       throw badRequestError(`mecanum-drive component requires motor plugin instances: ${pluginId}`);
+    }
+    if (component.kind === "tracked-drive" && plugin?.type !== "motor") {
+      throw badRequestError(`tracked-drive component requires motor plugin instances: ${pluginId}`);
     }
     if (component.kind === "can-servo-group" && (plugin?.type !== "servo" || plugin.driverId !== "driver.asme-can-servo")) {
       throw badRequestError(`can-servo-group component requires ASME CAN servo plugin instances: ${pluginId}`);
@@ -355,6 +358,22 @@ export function assertComponentPluginTypes(projectId, component) {
     for (const pluginId of wheelIds) {
       if (!component.pluginInstanceIds.includes(pluginId)) {
         throw badRequestError(`mecanum-drive wheel plugin must be assigned to the component: ${pluginId}`);
+      }
+    }
+  }
+  if (component.kind === "tracked-drive") {
+    const tracks = component.config?.tracks && typeof component.config.tracks === "object" && !Array.isArray(component.config.tracks)
+      ? component.config.tracks
+      : {};
+    const trackIds = ["leftTrack", "rightTrack"]
+      .map((position) => typeof tracks[position] === "string" ? tracks[position].trim() : "")
+      .filter(Boolean);
+    if (component.pluginInstanceIds.length !== 2 || new Set(component.pluginInstanceIds).size !== 2 || trackIds.length !== 2 || new Set(trackIds).size !== 2) {
+      throw badRequestError("tracked-drive component requires two unique motor plugin instances");
+    }
+    for (const pluginId of trackIds) {
+      if (!component.pluginInstanceIds.includes(pluginId)) {
+        throw badRequestError(`tracked-drive track plugin must be assigned to the component: ${pluginId}`);
       }
     }
   }

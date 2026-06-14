@@ -4,7 +4,7 @@ import type { WorkflowDefinition } from "@platform/workflow";
 
 export type DeviceConfigValue = string | number | boolean | null;
 export type DeviceConfig = Record<string, DeviceConfigValue>;
-export type ComponentKind = "custom" | "robot-arm" | "mecanum-drive" | "can-servo-group";
+export type ComponentKind = "custom" | "robot-arm" | "tracked-drive" | "mecanum-drive" | "can-servo-group";
 export type ComponentConfig = Record<string, unknown>;
 export type DeviceConfigFieldKind = "text" | "number" | "select" | "toggle";
 

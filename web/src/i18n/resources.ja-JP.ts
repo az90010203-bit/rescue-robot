@@ -500,6 +500,7 @@ export const jaJPResource = {
         "motor": "モーター",
         "camera": "カメラ",
         "robot-arm": "ロボットアーム",
+        "tracked-drive": "履帯駆動",
         "mecanum-drive": "メカナムホイール",
         "can-servo-group": "CAN サーボグループ",
         "raspberry-pi": "Raspberry Pi",
@@ -751,11 +752,13 @@ export const jaJPResource = {
         "kind": {
           "custom": "通常コンポーネント",
           "robotArm": "ロボットアーム",
+          "trackedDrive": "履帯駆動",
           "mecanumDrive": "メカナムホイール",
           "canServoGroup": "CAN サーボグループ"
         },
         "noAvailablePluginInstances": "利用可能なプラグインインスタンスはありません",
         "createRobotArm": "ロボットアーム作成",
+        "createTrackedDrive": "履帯駆動作成",
         "createMecanumDrive": "メカナム作成",
         "createCanServoGroup": "CAN サーボグループ作成",
         "createComponent": "コンポーネント作成",
@@ -764,6 +767,34 @@ export const jaJPResource = {
         "empty": "コンポーネントはまだありません",
         "pluginCount": "{{count}} プラグイン",
         "selectComponent": "コンポーネントを選択してください"
+      },
+      "tracked": {
+        "tracks": {
+          "leftTrack": "左履帯",
+          "rightTrack": "右履帯"
+        },
+        "incomplete": "未完了",
+        "ready": "準備完了",
+        "closedLoop": "閉ループ",
+        "maxRpm": "最大 RPM",
+        "encoderTicksPerRev": "エンコーダーパルス / 回転",
+        "closedLoopDefault": "コンポーネントの閉ループ速度制御を有効化",
+        "linkedSpeed": "連動速度",
+        "speedPercent": "速度",
+        "forward": "前進",
+        "backward": "後退",
+        "turnLeft": "左旋回",
+        "turnRight": "右旋回",
+        "stop": "停止",
+        "channel": "チャンネル",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "エンコーダー A / B",
+        "rpm": "RPM",
+        "ticks": "パルス",
+        "targetRpm": "目標",
+        "reverse": "反転",
+        "save": "履帯駆動を保存"
       },
       "mecanum": {
         "wheels": {

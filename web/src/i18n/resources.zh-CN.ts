@@ -500,6 +500,7 @@ export const zhCNResource = {
         "motor": "电机",
         "camera": "摄像头",
         "robot-arm": "机械臂",
+        "tracked-drive": "履带底盘",
         "mecanum-drive": "麦克纳姆轮",
         "can-servo-group": "CAN 舵机组",
         "raspberry-pi": "树莓派",
@@ -751,11 +752,13 @@ export const zhCNResource = {
         "kind": {
           "custom": "普通组件",
           "robotArm": "机械臂",
+          "trackedDrive": "履带底盘",
           "mecanumDrive": "麦克纳姆轮",
           "canServoGroup": "CAN 舵机组"
         },
         "noAvailablePluginInstances": "没有可用插件实例",
         "createRobotArm": "生成机械臂",
+        "createTrackedDrive": "生成履带底盘",
         "createMecanumDrive": "生成麦克纳姆轮",
         "createCanServoGroup": "生成 CAN 舵机组",
         "createComponent": "生成组件",
@@ -764,6 +767,34 @@ export const zhCNResource = {
         "empty": "还没有组件",
         "pluginCount": "{{count}} 个插件",
         "selectComponent": "请选择组件"
+      },
+      "tracked": {
+        "tracks": {
+          "leftTrack": "左履带",
+          "rightTrack": "右履带"
+        },
+        "incomplete": "未完成",
+        "ready": "就绪",
+        "closedLoop": "闭环",
+        "maxRpm": "最大 RPM",
+        "encoderTicksPerRev": "编码器每圈脉冲",
+        "closedLoopDefault": "启用组件闭环速度控制",
+        "linkedSpeed": "联动速度",
+        "speedPercent": "速度",
+        "forward": "前进",
+        "backward": "后退",
+        "turnLeft": "左转",
+        "turnRight": "右转",
+        "stop": "停止",
+        "channel": "通道",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "编码器 A / B",
+        "rpm": "RPM",
+        "ticks": "脉冲",
+        "targetRpm": "目标",
+        "reverse": "反向",
+        "save": "保存履带底盘"
       },
       "mecanum": {
         "wheels": {

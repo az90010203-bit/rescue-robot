@@ -12,6 +12,7 @@ import { CapabilityId, DeviceDescriptor, PlatformPluginPackage, UiPanelSchema } 
 import { findPlatformUiPanelForDevice } from "@platform/ui";
 import builtInDeviceCatalogItems from "@platform/defaultCatalog.json";
 import { validateMecanumDriveComponentConfig } from "@domains/drive/mecanumComponent";
+import { validateTrackedDriveComponentConfig } from "@domains/drive/trackedComponent";
 import { validateCanServoGroupComponentConfig } from "@domains/can-servo/canServoGroupComponent";
 export {
   defaultPanelLayoutItems,
@@ -308,8 +309,8 @@ export function validateComponentDefinition(component: ComponentDefinition, plug
   if (!component.id.trim() || !component.name.trim()) {
     return "component requires id and name";
   }
-  if (component.kind !== "custom" && component.kind !== "robot-arm" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
-    return "component kind must be custom, robot-arm, mecanum-drive, or can-servo-group";
+  if (component.kind !== "custom" && component.kind !== "robot-arm" && component.kind !== "tracked-drive" && component.kind !== "mecanum-drive" && component.kind !== "can-servo-group") {
+    return "component kind must be custom, robot-arm, tracked-drive, mecanum-drive, or can-servo-group";
   }
   const pluginById = new Map(pluginInstances.map((plugin) => [plugin.id, plugin]));
   const used = new Set<string>();
@@ -324,6 +325,9 @@ export function validateComponentDefinition(component: ComponentDefinition, plug
     if (component.kind === "mecanum-drive" && plugin.type !== "motor") {
       return `mecanum-drive component requires motor plugin instances: ${pluginId}`;
     }
+    if (component.kind === "tracked-drive" && plugin.type !== "motor") {
+      return `tracked-drive component requires motor plugin instances: ${pluginId}`;
+    }
     if (component.kind === "can-servo-group" && (plugin.type !== "servo" || plugin.driverId !== "driver.asme-can-servo")) {
       return `can-servo-group component requires ASME CAN servo plugin instances: ${pluginId}`;
     }
@@ -332,7 +336,7 @@ export function validateComponentDefinition(component: ComponentDefinition, plug
     }
     used.add(pluginId);
   }
-  return validateMecanumDriveComponentConfig(component, pluginInstances) ?? validateCanServoGroupComponentConfig(component, pluginInstances);
+  return validateTrackedDriveComponentConfig(component, pluginInstances) ?? validateMecanumDriveComponentConfig(component, pluginInstances) ?? validateCanServoGroupComponentConfig(component, pluginInstances);
 }
 
 export function validateRobotDefinition(robot: RobotDefinition, components: ComponentDefinition[], pluginInstances: PluginInstance[]): string | null {

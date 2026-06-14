@@ -4,6 +4,7 @@ import {
   createDefaultMecanumDriveConfig,
   mecanumDriveMotorConfigMappings,
   mecanumDriveTargets,
+  normalizeMecanumDriveConfig,
   validateMecanumDriveComponentConfig
 } from "@domains/drive/mecanumComponent";
 
@@ -18,11 +19,48 @@ describe("mecanum drive component config", () => {
         rearLeft: "m4",
         rearRight: "m2"
       },
+      directions: {
+        frontLeft: -1,
+        frontRight: -1,
+        rearLeft: -1,
+        rearRight: -1
+      },
       closedLoop: true,
       maxRpm: 6000,
       encoderTicksPerRev: 52
     });
     expect(validateMecanumDriveComponentConfig(component(config), motors)).toBeNull();
+  });
+
+  it("migrates the old all-positive wheel direction default to the current hardware polarity", () => {
+    const config = createDefaultMecanumDriveConfig(motors);
+    const migrated = normalizeMecanumDriveConfig({
+      ...config,
+      directions: {
+        frontLeft: 1,
+        frontRight: 1,
+        rearLeft: 1,
+        rearRight: 1
+      }
+    });
+
+    expect(migrated.directions).toEqual({
+      frontLeft: -1,
+      frontRight: -1,
+      rearLeft: -1,
+      rearRight: -1
+    });
+  });
+
+  it("uses the current hardware polarity for default forward motion", () => {
+    const config = createDefaultMecanumDriveConfig(motors);
+
+    expect(mecanumDriveTargets(config, motors, { forward: 1, strafe: 0, turn: 0 }, 50, "brake")).toEqual([
+      { channel: "M3", speedPercent: -50, stopMode: "brake", closedLoop: true },
+      { channel: "M1", speedPercent: -50, stopMode: "brake", closedLoop: true },
+      { channel: "M4", speedPercent: -50, stopMode: "brake", closedLoop: true },
+      { channel: "M2", speedPercent: -50, stopMode: "brake", closedLoop: true }
+    ]);
   });
 
   it("mixes component wheel targets with per-wheel reverse and closed-loop enabled", () => {

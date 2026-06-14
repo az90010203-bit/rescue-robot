@@ -1400,7 +1400,13 @@ function componentMeta(component: ComponentDefinition | null | undefined, plugin
     return "--";
   }
   const motors = pluginInstancesToMotorProfiles(effectivePluginInstancesForComponent(component, pluginInstances)).length;
-  const kind = component.kind === "robot-arm" ? "robot arm" : component.kind === "mecanum-drive" ? "mecanum drive" : motors >= 2 ? "tracked base" : "component";
+  const kind = component.kind === "robot-arm"
+    ? "robot arm"
+    : component.kind === "mecanum-drive"
+      ? "mecanum drive"
+      : component.kind === "tracked-drive" || motors >= 2
+        ? "tracked base"
+        : "component";
   return `${kind} / ${component.pluginInstanceIds.length} plugins`;
 }
 

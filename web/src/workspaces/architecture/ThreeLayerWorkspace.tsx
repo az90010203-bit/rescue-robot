@@ -157,6 +157,15 @@ import {
   type MecanumDriveComponentConfig,
   type MecanumWheelPosition
 } from "@domains/drive/mecanumComponent";
+import {
+  TRACKED_TRACK_POSITIONS,
+  createDefaultTrackedDriveConfig,
+  normalizeTrackedDriveConfig,
+  trackedDrivePluginIds,
+  validateTrackedDriveComponentConfig,
+  type TrackedDriveComponentConfig,
+  type TrackedTrackPosition
+} from "@domains/drive/trackedComponent";
 import { solvePlanarIk, type ArmIkSolution } from "@domains/arm/armKinematics";
 import type { MotorFeedbackMap, ServoFeedbackMap } from "@platform/stateStore";
 
@@ -165,6 +174,8 @@ type SaveState = "idle" | "loading" | "saving" | "error";
 type ServoFeedbackValue = ReturnType<typeof parseServoFeedback>;
 type MecanumDriveTestVector = { forward: number; strafe: number; turn: number };
 type MecanumDriveTestDraft = { speedPercent: number };
+type TrackedDriveTestVector = { forward: number; turn: number };
+type TrackedDriveTestDraft = { speedPercent: number };
 type CanServoGroupTestDraft = { positions: Record<CanServoGroupSlot, number>; speedRaw: number };
 type CanServoGroupLinkedDragState = { basePositions: Record<CanServoGroupSlot, number>; offsetDeg: number };
 type CanServoGroupLiveStatus = "off" | "configuring" | "syncing" | "ready" | "sending" | "error";
@@ -196,11 +207,17 @@ const MECANUM_WHEEL_LABEL_KEYS: Record<MecanumWheelPosition, string> = {
   rearLeft: "rearLeft",
   rearRight: "rearRight"
 };
+const TRACKED_TRACK_LABEL_KEYS: Record<TrackedTrackPosition, string> = {
+  leftTrack: "leftTrack",
+  rightTrack: "rightTrack"
+};
 const fallbackTypeLabels: Partial<Record<CapabilityId, string>> = {
   servo: "舵机",
   motor: "电机",
   camera: "摄像头",
   "robot-arm": "机械臂",
+  "tracked-drive": "履带底盘",
+  "mecanum-drive": "麦克纳姆轮",
   "can-servo-group": "CAN 舵机组",
   "raspberry-pi": "树莓派",
   firmware: "固件",
@@ -310,6 +327,8 @@ export function ThreeLayerWorkspace({
   const [canServoGroupLinkedDragByComponentId, setCanServoGroupLinkedDragByComponentId] = useState<Record<string, CanServoGroupLinkedDragState>>({});
   const [componentServoLimitDraftByInstanceId, setComponentServoLimitDraftByInstanceId] = useState<Record<string, { minDeg: string; maxDeg: string }>>({});
   const [componentServoLimitErrorByInstanceId, setComponentServoLimitErrorByInstanceId] = useState<Record<string, string>>({});
+  const [trackedDraftByComponentId, setTrackedDraftByComponentId] = useState<Record<string, TrackedDriveComponentConfig>>({});
+  const [trackedTestDraftByComponentId, setTrackedTestDraftByComponentId] = useState<Record<string, TrackedDriveTestDraft>>({});
   const [draggingArmJointId, setDraggingArmJointId] = useState<string | null>(null);
   const [draggingArmIkComponentId, setDraggingArmIkComponentId] = useState<string | null>(null);
   const [armArchivePlayingId, setArmArchivePlayingId] = useState<string | null>(null);
@@ -341,7 +360,9 @@ export function ThreeLayerWorkspace({
   const componentKindLabel = (kind: ComponentKind) => (
     kind === "robot-arm"
       ? uiText("architecture.components.kind.robotArm", "机械臂")
-      : kind === "mecanum-drive"
+      : kind === "tracked-drive"
+        ? uiText("architecture.components.kind.trackedDrive", "Tracked drive")
+        : kind === "mecanum-drive"
         ? uiText("architecture.components.kind.mecanumDrive", "麦克纳姆轮")
         : uiText("architecture.components.kind.custom", "普通组件")
   );
@@ -384,7 +405,7 @@ export function ThreeLayerWorkspace({
   const componentSelectableInstances =
     componentKind === "robot-arm"
       ? availableServoPluginsForComponents
-      : componentKind === "mecanum-drive"
+      : componentKind === "mecanum-drive" || componentKind === "tracked-drive"
         ? availableMotorPluginsForComponents
         : componentKind === "can-servo-group"
           ? availableCanServoPluginsForComponents
@@ -491,6 +512,15 @@ export function ThreeLayerWorkspace({
       setComponentPluginIds((current) => {
         const filtered = Array.from(current).filter((id) => motorIds.has(id));
         return new Set(filtered.length > 0 ? filtered : defaults);
+      });
+      return;
+    }
+    if (componentKind === "tracked-drive") {
+      const motorIds = new Set(availableMotorPluginsForComponents.map((instance) => instance.id));
+      const defaults = trackedDrivePluginIds(createDefaultTrackedDriveConfig(availableMotorPluginsForComponents));
+      setComponentPluginIds((current) => {
+        const filtered = Array.from(current).filter((id) => motorIds.has(id));
+        return new Set(filtered.length > 0 ? filtered.slice(0, 2) : defaults);
       });
       return;
     }
@@ -722,6 +752,118 @@ export function ThreeLayerWorkspace({
       setError("");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "mecanum drive save failed");
+      setStatus("error");
+    }
+  }
+
+  function trackedTrackLabel(position: TrackedTrackPosition): string {
+    const fallback: Record<TrackedTrackPosition, string> = {
+      leftTrack: "Left track",
+      rightTrack: "Right track"
+    };
+    return uiText(`architecture.tracked.tracks.${TRACKED_TRACK_LABEL_KEYS[position]}`, fallback[position]);
+  }
+
+  function trackedMotorOptions(component: ComponentDefinition): PluginInstance[] {
+    return mecanumMotorOptions(component);
+  }
+
+  function trackedDraftForComponent(component: ComponentDefinition): TrackedDriveComponentConfig {
+    return trackedDraftByComponentId[component.id] ?? normalizeTrackedDriveConfig(component.config, pluginInstances);
+  }
+
+  function updateTrackedDraft(component: ComponentDefinition, patch: Partial<TrackedDriveComponentConfig>) {
+    setTrackedDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...trackedDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  function trackedTestDraftForComponent(component: ComponentDefinition): TrackedDriveTestDraft {
+    return trackedTestDraftByComponentId[component.id] ?? { speedPercent: 35 };
+  }
+
+  function updateTrackedTestDraft(component: ComponentDefinition, patch: Partial<TrackedDriveTestDraft>) {
+    setTrackedTestDraftByComponentId((current) => ({
+      ...current,
+      [component.id]: {
+        ...trackedTestDraftForComponent(component),
+        ...patch
+      }
+    }));
+  }
+
+  async function sendTrackedDriveVelocity(component: ComponentDefinition, vector: TrackedDriveTestVector) {
+    const config = normalizeTrackedDriveConfig(trackedDraftForComponent(component), pluginInstances);
+    const validation = validateTrackedDriveComponentConfig({ ...component, kind: "tracked-drive", pluginInstanceIds: trackedDrivePluginIds(config), config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    try {
+      await onPrepareCommand?.("tracked-drive");
+      const speedPercent = clamp(Math.round(trackedTestDraftForComponent(component).speedPercent), 0, 100);
+      const result = await dispatchPlatformCommand(createPlatformCommand("tracked-drive.set_velocity", `tracked-drive:${component.id}`, {
+        ...vector,
+        config,
+        speedLimitPercent: speedPercent,
+        stopMode: "brake"
+      }));
+      setError(result.message ?? "");
+      setStatus(result.status === "failed" ? "error" : "idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "tracked drive velocity command failed");
+      setStatus("error");
+    }
+  }
+
+  async function stopTrackedDrive(component: ComponentDefinition) {
+    try {
+      await onPrepareCommand?.("tracked-drive");
+      const config = normalizeTrackedDriveConfig(trackedDraftForComponent(component), pluginInstances);
+      const result = await dispatchPlatformCommand(createPlatformCommand("tracked-drive.stop", `tracked-drive:${component.id}`, { config, stopMode: "brake" }));
+      setError(result.message ?? "");
+      setStatus(result.status === "failed" ? "error" : "idle");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "tracked drive stop command failed");
+      setStatus("error");
+    }
+  }
+
+  async function saveTrackedDriveComponent(component: ComponentDefinition) {
+    if (!project) {
+      return;
+    }
+    const config = normalizeTrackedDriveConfig(trackedDraftForComponent(component), pluginInstances);
+    const pluginIds = trackedDrivePluginIds(config);
+    const validation = validateTrackedDriveComponentConfig({ ...component, kind: "tracked-drive", pluginInstanceIds: pluginIds, config }, pluginInstances);
+    if (validation) {
+      setError(validation);
+      setStatus("error");
+      return;
+    }
+    setStatus("saving");
+    try {
+      const updated = await updateComponent(project.id, component.id, {
+        kind: "tracked-drive",
+        pluginInstanceIds: pluginIds,
+        config
+      });
+      setTrackedDraftByComponentId((current) => {
+        const next = { ...current };
+        delete next[component.id];
+        return next;
+      });
+      replaceComponent(updated);
+      await refreshArchitecture(project.id);
+      setStatus("idle");
+      setError("");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "tracked drive save failed");
       setStatus("error");
     }
   }
@@ -2157,20 +2299,24 @@ export function ThreeLayerWorkspace({
       const selectedIds = Array.from(componentPluginIds);
       const selectedInstances = selectedIds.map((id) => pluginInstances.find((instance) => instance.id === id)).filter((instance): instance is PluginInstance => Boolean(instance));
       const armConfig = intendedKind === "robot-arm" ? createArmConfigFromServos(pluginInstancesToServoProfiles(selectedInstances)) : undefined;
+      const trackedConfig = intendedKind === "tracked-drive" ? normalizeTrackedDriveConfig(createDefaultTrackedDriveConfig(selectedInstances), selectedInstances) : undefined;
       const mecanumConfig = intendedKind === "mecanum-drive" ? normalizeMecanumDriveConfig(createDefaultMecanumDriveConfig(selectedInstances), selectedInstances) : undefined;
       const canServoGroupConfig = intendedKind === "can-servo-group" ? normalizeCanServoGroupConfig(createDefaultCanServoGroupConfig(selectedInstances), selectedInstances) : undefined;
-      const componentPluginIdsForKind = mecanumConfig ? mecanumDrivePluginIds(mecanumConfig) : canServoGroupConfig ? canServoGroupPluginIds(canServoGroupConfig) : selectedIds;
+      const componentPluginIdsForKind = trackedConfig ? trackedDrivePluginIds(trackedConfig) : mecanumConfig ? mecanumDrivePluginIds(mecanumConfig) : canServoGroupConfig ? canServoGroupPluginIds(canServoGroupConfig) : selectedIds;
       const componentPayload: Partial<ComponentDefinition> = {
         name: componentName.trim() || "New Component",
         kind: intendedKind,
         pluginInstanceIds: componentPluginIdsForKind,
-        config: armConfig ? { armConfig } : mecanumConfig ?? canServoGroupConfig ?? {}
+        config: armConfig ? { armConfig } : trackedConfig ?? mecanumConfig ?? canServoGroupConfig ?? {}
       };
       let component = await createComponent(project.id, componentPayload);
       if (intendedKind === "robot-arm" && component.kind !== "robot-arm") {
         component = await updateComponent(project.id, component.id, componentPayload);
       }
       if (intendedKind === "mecanum-drive" && component.kind !== "mecanum-drive") {
+        component = await updateComponent(project.id, component.id, componentPayload);
+      }
+      if (intendedKind === "tracked-drive" && component.kind !== "tracked-drive") {
         component = await updateComponent(project.id, component.id, componentPayload);
       }
       if (intendedKind === "can-servo-group" && component.kind !== "can-servo-group") {
@@ -2181,6 +2327,9 @@ export function ThreeLayerWorkspace({
       }
       if (intendedKind === "mecanum-drive" && component.kind !== "mecanum-drive") {
         throw new Error("data-service saved an older component kind; restart data-service and create the mecanum drive again.");
+      }
+      if (intendedKind === "tracked-drive" && component.kind !== "tracked-drive") {
+        throw new Error("data-service saved an older component kind; restart data-service and create the tracked drive again.");
       }
       if (intendedKind === "can-servo-group" && component.kind !== "can-servo-group") {
         throw new Error("data-service saved an older component kind; restart data-service and create the CAN servo group again.");
@@ -2539,6 +2688,219 @@ export function ThreeLayerWorkspace({
           const instance = instanceByTarget.get(item.targetId);
           return instance ? renderPanelForInstance(instance, item) : null;
         })}
+      </div>
+    );
+  }
+
+  function renderTrackedDriveComponentPanel(component: ComponentDefinition) {
+    const config = trackedDraftForComponent(component);
+    const motorOptions = trackedMotorOptions(component);
+    const selectedTrackIds = new Set(TRACKED_TRACK_POSITIONS.map((position) => config.tracks[position]).filter(Boolean));
+    const validation = validateTrackedDriveComponentConfig({
+      ...component,
+      kind: "tracked-drive",
+      pluginInstanceIds: trackedDrivePluginIds(config),
+      config
+    }, pluginInstances);
+    const testDraft = trackedTestDraftForComponent(component);
+    const motorPinText = (plugin: PluginInstance, value: unknown, role: MotorPinRole) => {
+      const text = String(value ?? "").trim();
+      if (!text) {
+        return "--";
+      }
+      const channel = normalizeMotorChannel(String(plugin.config.channel ?? ""));
+      return roboMasterAPinAliasForMotorPin(text, role, channel) ?? text;
+    };
+    const numberText = (value: unknown, digits = 0) => (
+      typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "--"
+    );
+    const trackDetails = TRACKED_TRACK_POSITIONS.map((position) => {
+      const plugin = pluginInstances.find((instance) => instance.id === config.tracks[position]) ?? null;
+      const channel = plugin ? normalizeMotorChannel(String(plugin.config.channel ?? "")) : "";
+      const feedback = channel ? motorFeedback[channel] : undefined;
+      return { position, plugin, channel, feedback };
+    });
+
+    return (
+      <div className="plugin-instance-debug-stack">
+        <article className="servo-command-card selected plugin-debug-card">
+          <div className="servo-command-card-header">
+            <button className="servo-card-select" type="button">
+              <span className="device-id">TRACKED</span>
+              <span className="device-name">{component.name}</span>
+            </button>
+            <div className="servo-card-status-stack">
+              <span className={validation ? "device-signal muted" : "device-signal"}>{validation ? uiText("architecture.tracked.incomplete", "Incomplete") : uiText("architecture.tracked.ready", "Ready")}</span>
+              <span className="device-signal motion muted">{uiText("architecture.tracked.closedLoop", "Closed loop")}: {config.closedLoop ? "ON" : "OFF"}</span>
+            </div>
+          </div>
+
+          <div className="command-grid servo-command-grid">
+            {TRACKED_TRACK_POSITIONS.map((position) => (
+              <label key={position}>
+                <span>{trackedTrackLabel(position)}</span>
+                <select
+                  value={config.tracks[position]}
+                  onChange={(event) => updateTrackedDraft(component, {
+                    tracks: {
+                      ...config.tracks,
+                      [position]: event.target.value
+                    }
+                  })}
+                >
+                  <option value="">{uiText("architecture.components.noAvailablePluginInstances", "No available motor plugin")}</option>
+                  {motorOptions.map((instance) => (
+                    <option
+                      disabled={selectedTrackIds.has(instance.id) && config.tracks[position] !== instance.id}
+                      key={instance.id}
+                      value={instance.id}
+                    >
+                      {instance.name} / {pluginInstanceDeviceId(instance)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <label>
+              <span>{uiText("architecture.tracked.maxRpm", "Max RPM")}</span>
+              <input
+                min={1}
+                max={30000}
+                step={1}
+                type="number"
+                value={config.maxRpm}
+                onChange={(event) => updateTrackedDraft(component, { maxRpm: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>{uiText("architecture.tracked.encoderTicksPerRev", "Encoder ticks / rev")}</span>
+              <input
+                min={1}
+                max={100000}
+                step={1}
+                type="number"
+                value={config.encoderTicksPerRev}
+                onChange={(event) => updateTrackedDraft(component, { encoderTicksPerRev: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+
+          <div className="servo-extra-grid">
+            <label className="checkbox-field">
+              <input
+                checked={config.closedLoop}
+                type="checkbox"
+                onChange={(event) => updateTrackedDraft(component, { closedLoop: event.target.checked })}
+              />
+              <span>{uiText("architecture.tracked.closedLoopDefault", "Enable component closed-loop speed control")}</span>
+            </label>
+            {TRACKED_TRACK_POSITIONS.map((position) => (
+              <label className="checkbox-field" key={`reverse:${position}`}>
+                <input
+                  checked={config.directions[position] === -1}
+                  type="checkbox"
+                  onChange={(event) => updateTrackedDraft(component, {
+                    directions: {
+                      ...config.directions,
+                      [position]: event.target.checked ? -1 : 1
+                    }
+                  })}
+                />
+                <span>{trackedTrackLabel(position)} {uiText("architecture.tracked.reverse", "Reverse")}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="mecanum-linked-speed-panel">
+            <div className="command-grid servo-command-grid">
+              <label className="speed-slider-field architecture-wide-field">
+                <span>{uiText("architecture.tracked.linkedSpeed", "Linked speed")}</span>
+                <input
+                  min={0}
+                  max={100}
+                  step={1}
+                  type="range"
+                  value={testDraft.speedPercent}
+                  onChange={(event) => updateTrackedTestDraft(component, { speedPercent: clamp(Number(event.target.value), 0, 100) })}
+                />
+              </label>
+              <Metric label={uiText("architecture.tracked.speedPercent", "Speed")} value={`${Math.round(testDraft.speedPercent)}%`} />
+            </div>
+            <div className="action-grid servo-card-actions mecanum-linked-actions">
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendTrackedDriveVelocity(component, { forward: 1, turn: 0 })} type="button">
+                <ArrowUp size={18} />
+                <span>{uiText("architecture.tracked.forward", "Forward")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendTrackedDriveVelocity(component, { forward: -1, turn: 0 })} type="button">
+                <ArrowDown size={18} />
+                <span>{uiText("architecture.tracked.backward", "Backward")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendTrackedDriveVelocity(component, { forward: 0, turn: -1 })} type="button">
+                <RotateCcw size={18} />
+                <span>{uiText("architecture.tracked.turnLeft", "Turn left")}</span>
+              </button>
+              <button className="icon-button" disabled={Boolean(validation)} onClick={() => void sendTrackedDriveVelocity(component, { forward: 0, turn: 1 })} type="button">
+                <RotateCw size={18} />
+                <span>{uiText("architecture.tracked.turnRight", "Turn right")}</span>
+              </button>
+              <button className="icon-button danger" disabled={Boolean(validation)} onClick={() => void stopTrackedDrive(component)} type="button">
+                <Square size={18} />
+                <span>{uiText("architecture.tracked.stop", "Stop")}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mecanum-wheel-feedback-grid">
+            {trackDetails.map(({ position, plugin, channel, feedback }) => (
+              <div className="mecanum-wheel-feedback-item" key={`metric:${position}`}>
+                <div className="mecanum-wheel-feedback-head">
+                  <strong>{trackedTrackLabel(position)}</strong>
+                  <small>{plugin ? pluginInstanceDeviceId(plugin) : "--"}</small>
+                </div>
+                <div className="servo-card-telemetry mecanum-wheel-metrics">
+                  <span>
+                    <small>{uiText("architecture.tracked.channel", "Channel")}</small>
+                    <strong>{channel || "--"}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.motorPins", "PWM / IN")}</small>
+                    <strong>{plugin ? `${motorPinText(plugin, plugin.config.pwmPin, "pwmPin")} / ${motorPinText(plugin, plugin.config.in1Pin, "in1Pin")} / ${motorPinText(plugin, plugin.config.in2Pin, "in2Pin")}` : "--"}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.stbyPin", "STBY")}</small>
+                    <strong>{plugin ? motorPinText(plugin, plugin.config.enablePin, "enablePin") : "--"}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.encoderPins", "Encoder A / B")}</small>
+                    <strong>{plugin ? `${motorPinText(plugin, plugin.config.encoderAPin, "encoderAPin")} / ${motorPinText(plugin, plugin.config.encoderBPin, "encoderBPin")}` : "--"}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.rpm", "RPM")}</small>
+                    <strong>{numberText(feedback?.speedRpm, 1)}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.ticks", "Ticks")}</small>
+                    <strong>{numberText(feedback?.encoderTicks)}</strong>
+                  </span>
+                  <span>
+                    <small>{uiText("architecture.tracked.targetRpm", "Target")}</small>
+                    <strong>{numberText(feedback?.targetRpm, 0)}</strong>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {validation ? <p className="empty-state">{validation}</p> : null}
+
+          <div className="action-grid servo-card-actions">
+            <button className="icon-button primary" disabled={Boolean(validation) || status === "saving"} onClick={() => void saveTrackedDriveComponent(component)} type="button">
+              <Save size={18} />
+              <span>{uiText("architecture.tracked.save", "Save tracked drive")}</span>
+            </button>
+          </div>
+        </article>
+        {renderPanelGrid(`component:${component.id}`, effectivePluginInstancesForComponent(component, pluginInstances))}
       </div>
     );
   }
@@ -4187,6 +4549,7 @@ export function ThreeLayerWorkspace({
               <select value={componentKind} onChange={(event) => setComponentKind(event.target.value as ComponentKind)}>
                 <option value="custom">{componentKindDisplayLabel("custom")}</option>
                 <option value="robot-arm">{componentKindDisplayLabel("robot-arm")}</option>
+                <option value="tracked-drive">{componentKindDisplayLabel("tracked-drive")}</option>
                 <option value="mecanum-drive">{componentKindDisplayLabel("mecanum-drive")}</option>
                 <option value="can-servo-group">{componentKindDisplayLabel("can-servo-group")}</option>
               </select>
@@ -4203,11 +4566,13 @@ export function ThreeLayerWorkspace({
               usage={usage}
               onToggle={(id) => setComponentPluginIds(toggleSet(componentPluginIds, id))}
             />
-            <button className="icon-button primary architecture-wide-button" disabled={componentKind === "mecanum-drive" || componentKind === "can-servo-group" ? componentPluginIds.size !== 4 : componentPluginIds.size === 0} onClick={() => void handleCreateComponent()} type="button">
+            <button className="icon-button primary architecture-wide-button" disabled={componentKind === "tracked-drive" ? componentPluginIds.size !== 2 : componentKind === "mecanum-drive" || componentKind === "can-servo-group" ? componentPluginIds.size !== 4 : componentPluginIds.size === 0} onClick={() => void handleCreateComponent()} type="button">
               <Save size={17} />
               <span>
                 {componentKind === "robot-arm"
                   ? uiText("architecture.components.createRobotArm", "Create robot arm")
+                  : componentKind === "tracked-drive"
+                    ? uiText("architecture.components.createTrackedDrive", "Create tracked drive")
                   : componentKind === "mecanum-drive"
                     ? uiText("architecture.components.createMecanumDrive", "Create mecanum drive")
                     : componentKind === "can-servo-group"
@@ -4229,6 +4594,8 @@ export function ThreeLayerWorkspace({
             {selectedComponent
               ? selectedComponent.kind === "robot-arm"
                 ? renderRobotArmComponentPanel(selectedComponent)
+                : selectedComponent.kind === "tracked-drive"
+                  ? renderTrackedDriveComponentPanel(selectedComponent)
                 : selectedComponent.kind === "mecanum-drive"
                   ? renderMecanumDriveComponentPanel(selectedComponent)
                   : selectedComponent.kind === "can-servo-group"

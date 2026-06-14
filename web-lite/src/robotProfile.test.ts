@@ -17,7 +17,16 @@ describe("web-lite fixed robot profile", () => {
   });
 
   it("keeps the fixed Feetech and PWM servo defaults available without database lookup", () => {
-    expect(ROBOT_PROFILE.feetech.servos).toEqual([expect.objectContaining({ id: 22, name: "ID22" })]);
+    expect(ROBOT_PROFILE.feetech.servos).toEqual([
+      expect.objectContaining({ id: 9, name: "J1" }),
+      expect.objectContaining({ id: 10, name: "J2" }),
+      expect.objectContaining({ id: 22, name: "ID22" })
+    ]);
+    expect(ROBOT_PROFILE.arm).toMatchObject({
+      j1ServoId: 9,
+      j2ServoId: 10,
+      calibrated: false
+    });
     expect(ROBOT_PROFILE.pwmServos.map((servo) => `${servo.silk}:${servo.pin}`)).toEqual(["S:PA0", "T:PA1", "U:PA2", "V:PA3"]);
   });
 

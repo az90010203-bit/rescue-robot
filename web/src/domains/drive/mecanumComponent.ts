@@ -33,10 +33,10 @@ export interface MecanumDriveComponentConfig extends Record<string, unknown> {
 }
 
 export const DEFAULT_MECANUM_DIRECTIONS: Record<MecanumWheelPosition, 1 | -1> = {
-  frontLeft: 1,
-  frontRight: 1,
-  rearLeft: 1,
-  rearRight: 1
+  frontLeft: -1,
+  frontRight: -1,
+  rearLeft: -1,
+  rearRight: -1
 };
 
 export function isMecanumDriveComponent(component: ComponentDefinition | null | undefined): component is ComponentDefinition {
@@ -66,6 +66,7 @@ export function normalizeMecanumDriveConfig(value: unknown, pluginInstances: Plu
     ? draft.directions as Record<string, unknown>
     : {};
   const pluginIds = new Set(motorPluginInstances(pluginInstances).map((plugin) => plugin.id));
+  const rawDirectionsAreOldDefault = MECANUM_WHEEL_POSITIONS.every((position) => rawDirections[position] === 1);
 
   const wheels = { ...defaults.wheels };
   const directions = { ...defaults.directions };
@@ -74,7 +75,13 @@ export function normalizeMecanumDriveConfig(value: unknown, pluginInstances: Plu
     if (pluginId && (pluginIds.size === 0 || pluginIds.has(pluginId))) {
       wheels[position] = pluginId;
     }
-    directions[position] = rawDirections[position] === -1 ? -1 : 1;
+    directions[position] = rawDirectionsAreOldDefault
+      ? defaults.directions[position]
+      : rawDirections[position] === -1
+        ? -1
+        : rawDirections[position] === 1
+          ? 1
+          : defaults.directions[position];
   }
 
   return {

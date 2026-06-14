@@ -1,9 +1,10 @@
 import type { ArmTeachTrack } from "@domains/arm/armTeach";
-import { buildMecanumTargetCommand, type MotorStopMode, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
+import { buildMecanumTargetCommand, buildMotorConfigCommand, buildMotorSetCommand, type MotorStopMode, type PcCommand, type ServoProfile } from "@adapters/hardware/protocol";
 import type { ArmConfig, CameraConfig, CameraVideoSource } from "@adapters/persistence/storage";
 import { armConfigFromCommandPayload, servoProfilesFromCommandPayload } from "@domains/arm/armCommandPayload";
 import { cameraSourceForDevice } from "@domains/camera/cameraSources";
 import { normalizeMecanumDriveConfig } from "@domains/drive/mecanumComponent";
+import { normalizeTrackedDriveConfig, trackedDriveMotorConfigMappings, trackedDriveTargets } from "@domains/drive/trackedComponent";
 import type { PlatformCommand, PlatformCommandResult, PlatformCommandStatus } from "@platform/commands";
 import type { ComponentDefinition, PluginInstance } from "@platform/architecture";
 import type { ArmTeachStatus, PiRemoteForm } from "@app/appModel";
@@ -153,6 +154,14 @@ export function createAppPlatformCommandDispatcher(options: AppPlatformCommandBr
         const result = await stopMecanumDrive(command, options);
         return completePlatformCommand(command, result.sent ? "sent" : "failed", result.response, result.sent ? undefined : result.message);
       }
+      if (command.type === "tracked-drive.set_velocity") {
+        const result = await sendTrackedDriveVelocity(command, options);
+        return completePlatformCommand(command, result.sent ? "sent" : "failed", result.response, result.sent ? undefined : result.message);
+      }
+      if (command.type === "tracked-drive.stop") {
+        const result = await stopTrackedDrive(command, options);
+        return completePlatformCommand(command, result.sent ? "sent" : "failed", result.response, result.sent ? undefined : result.message);
+      }
       if (command.type === "can-servo-group.set_positions") {
         const result = await sendCanServoGroupPositions(command, options);
         return completePlatformCommand(command, result.sent ? "sent" : "failed", result.response, result.sent ? undefined : result.message);
@@ -286,6 +295,46 @@ async function stopMecanumDrive(command: PlatformCommand, options: AppPlatformCo
 function mecanumComponentForCommand(command: PlatformCommand, components: ComponentDefinition[]): ComponentDefinition | null {
   const componentId = command.targetDeviceId.replace("mecanum-drive:", "");
   return components.find((component) => component.id === componentId && component.kind === "mecanum-drive") ?? null;
+}
+
+async function sendTrackedDriveVelocity(command: PlatformCommand, options: AppPlatformCommandBridgeOptions): Promise<{ sent: boolean; response?: unknown; message?: string }> {
+  const component = trackedComponentForCommand(command, options.components);
+  if (!component) {
+    return { sent: false, message: "tracked drive component was not found" };
+  }
+  const config = normalizeTrackedDriveConfig(command.payload.config ?? component.config, options.pluginInstances);
+  const stopMode = command.payload.stopMode === "brake" || command.payload.stopMode === "coast" ? command.payload.stopMode : options.stopMode;
+  const targets = trackedDriveTargets(
+    config,
+    options.pluginInstances,
+    {
+      forward: numberInRange(command.payload.forward, -1, 1, 0),
+      turn: numberInRange(command.payload.turn, -1, 1, 0)
+    },
+    numberInRange(command.payload.speedLimitPercent, 0, 100, 100),
+    stopMode
+  );
+  const configCommands = trackedDriveMotorConfigMappings(config, options.pluginInstances).map((mapping) => buildMotorConfigCommand(options.nextSeq(), mapping));
+  const motionCommands = targets.map((target) => buildMotorSetCommand(options.nextSeq(), target));
+  const sent = await options.sendAboardMotionBatch([...configCommands, ...motionCommands], { log: true });
+  return { sent: Boolean(sent), response: { componentId: component.id, targets } };
+}
+
+async function stopTrackedDrive(command: PlatformCommand, options: AppPlatformCommandBridgeOptions): Promise<{ sent: boolean; response?: unknown; message?: string }> {
+  const component = trackedComponentForCommand(command, options.components);
+  if (!component) {
+    return { sent: false, message: "tracked drive component was not found" };
+  }
+  const config = normalizeTrackedDriveConfig(command.payload.config ?? component.config, options.pluginInstances);
+  const stopMode = command.payload.stopMode === "brake" || command.payload.stopMode === "coast" ? command.payload.stopMode : options.stopMode;
+  const targets = trackedDriveTargets(config, options.pluginInstances, { forward: 0, turn: 0 }, 100, stopMode);
+  const sent = await options.sendAboardMotionBatch(targets.map((target) => buildMotorSetCommand(options.nextSeq(), target)), { log: true });
+  return { sent: Boolean(sent), response: { componentId: component.id, stopMode } };
+}
+
+function trackedComponentForCommand(command: PlatformCommand, components: ComponentDefinition[]): ComponentDefinition | null {
+  const componentId = command.targetDeviceId.replace("tracked-drive:", "");
+  return components.find((component) => component.id === componentId && component.kind === "tracked-drive") ?? null;
 }
 
 async function sendCanServoGroupPositions(command: PlatformCommand, options: AppPlatformCommandBridgeOptions): Promise<{ sent: boolean; response?: unknown; message?: string }> {

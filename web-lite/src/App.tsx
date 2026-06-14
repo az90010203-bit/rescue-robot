@@ -1,4 +1,4 @@
-import { Activity, Cable, Camera, Cpu, DatabaseZap, Gamepad2, Gauge, Home, Network, Radar, RotateCw, Save, Send, Settings2, Shield, SlidersHorizontal, Video, Wrench } from "lucide-react";
+import { Activity, Cable, Camera, Cpu, DatabaseZap, Gamepad2, Gauge, Home, Network, Radar, RotateCw, Save, Send, Settings2, Shield, SlidersHorizontal, Square, Video, Wrench } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
@@ -29,15 +29,19 @@ import {
   type AsmgMdParsedFrame,
   type AsmgMdServoProfile
 } from "@adapters/hardware/asmgMdCanServo";
-import type { PcCommand } from "@adapters/hardware/protocol";
+import { servoPhysicalToLogicalAngle, type InboundMessage, type PcCommand } from "@adapters/hardware/protocol";
 import { LANGUAGE_LABELS, SUPPORTED_LANGUAGES, isLiteLanguage, type LiteLanguage } from "./i18n/languages";
-import { A_BOARD_BRIDGE_PORT, CAMERA_PORTS, PI_SERVO_BRIDGE_PORT, ROBOT_PROFILE, type PwmServoProfile } from "./robotProfile";
+import { A_BOARD_BRIDGE_PORT, CAMERA_PORTS, PI_SERVO_BRIDGE_PORT, ROBOT_PROFILE, type LiteArmProfile, type PwmServoProfile } from "./robotProfile";
 import { bridgeBaseUrl, buildCommandEnvelope, checkAboardBridgeHealth, checkPiServoBridgeHealth, sendAboardCommand, sendPiServoBridgeCommand, type AboardCommandResult, type BridgeHealth, type PiServoCommandResult } from "./runtime/bridgeClient";
 import {
   ZERO_LITE_GAMEPAD_STATE,
   buildLiteCanJogCommand,
   buildLiteMecanumStopCommand,
   buildLiteMecanumTargetCommand,
+  buildLitePwmMotorConfigCommand,
+  buildLitePwmMotorSetCommand,
+  buildLitePwmMotorStopAllCommand,
+  buildLitePwmMotorStopCommand,
   buildLiteTrackedStopCommands,
   buildLiteTrackedTargetCommands,
   canJogGroupLabel,
@@ -55,11 +59,23 @@ import {
 } from "./runtime/manualControl";
 import { discoverPiHosts, normalizeHost, recommendedPiResult, type PiDiscoveryResult, type PiDiscoverySource } from "./runtime/piDiscoveryLite";
 import { DEFAULT_PRIORITY_SETTINGS, PRIORITY_FIELDS, loadPrioritySettings, normalizePrioritySettings, savePrioritySettings, type PrioritySettings } from "./runtime/priority";
+import {
+  applyArmJoystickStep,
+  armCommandSignature,
+  buildLiteArmMoveCommand,
+  createLiteArmRuntimeState,
+  hasArmJoystickMotion,
+  normalizeLiteArmProfile,
+  solveTwoLinkArmIk,
+  type LiteArmRuntimeState
+} from "./runtime/twoLinkArm";
 
 type Tone = "danger" | "neutral" | "online" | "warning";
 type ViewId = "control" | "can" | "feetech" | "pwm" | "gamepad" | "settings";
 type GamepadAxisKey = keyof GamepadMapping["axes"];
 type GamepadButtonKey = keyof GamepadMapping["buttons"];
+type ServoFeedbackMessage = Extract<InboundMessage, { type: "servo.feedback" }>;
+type LitePwmMotorProfile = (typeof ROBOT_PROFILE.motors)[number];
 
 interface LogEntry {
   id: number;
@@ -90,6 +106,7 @@ interface GamepadSummary {
   buttons: number;
   mapping: string;
   axesValues: number[];
+  buttonValues: number[];
   pressedButtons: number[];
 }
 
@@ -102,6 +119,16 @@ interface GamepadLiveInput {
   stop: boolean;
 }
 
+interface ManualTxStatus {
+  source: "gamepad" | "manual";
+  label: string;
+  commandType: PcCommand["type"];
+  seq: number | null;
+  state: "sending" | "ok" | "error";
+  at: number;
+  error?: string;
+}
+
 interface ManualHoldState {
   mecanum: "" | "forward" | "backward" | "left" | "right";
   tracked: "" | "forward" | "backward" | "left" | "right";
@@ -111,8 +138,11 @@ interface ManualHoldState {
 
 const PI_HOST_STORAGE_KEY = "rescue-robot-lite.piHost.v1";
 const CAN_CONFIG_STORAGE_KEY = "rescue-robot-lite.canConfig.v1";
+const CAN_SERVO_PROFILES_STORAGE_KEY = "rescue-robot-lite.canServoProfiles.v1";
 const CAN_GROUP_STORAGE_KEY = "rescue-robot-lite.canGroupAngles.v1";
 const GAMEPAD_STORAGE_KEY = "rescue-robot-lite.gamepad.v1";
+const ARM_CONTROL_STORAGE_KEY = "rescue-robot-lite.armControl.v1";
+const GAMEPAD_DRIVE_RESEND_MS = 200;
 
 const baudOptions: AsmgMdBaudKbps[] = [250, 500, 1000];
 const gamepadPresetOptions: Array<Exclude<GamepadPresetId, "auto">> = ["xinput", "playstation", "switchPro", "generic"];
@@ -135,6 +165,7 @@ export default function App() {
   const [canBusy, setCanBusy] = useState<string | null>(null);
   const [canError, setCanError] = useState<string | null>(null);
   const [lastCanExchange, setLastCanExchange] = useState<CanExchange | null>(null);
+  const [canServoProfiles, setCanServoProfiles] = useState<AsmgMdServoProfile[]>(() => readCanServoProfiles());
   const [canConfig, setCanConfig] = useState(() => readCanConfig());
   const [canGroupAngles, setCanGroupAngles] = useState(() => readCanGroupAngles());
   const [feetechBusy, setFeetechBusy] = useState<string | null>(null);
@@ -149,19 +180,31 @@ export default function App() {
   }));
   const [selectedPwmServoId, setSelectedPwmServoId] = useState(ROBOT_PROFILE.pwmServos[0]?.id ?? "");
   const [pwmPulseUs, setPwmPulseUs] = useState("1500");
+  const [pwmMotorSpeeds, setPwmMotorSpeeds] = useState<Record<string, string>>(() => createPwmMotorSpeedStrings());
+  const [pwmMotorTargets, setPwmMotorTargets] = useState<Record<string, number>>({});
   const [gamepadMapping, setGamepadMapping] = useState<GamepadMapping>(() => readGamepadMapping());
   const [gamepadPreset, setGamepadPreset] = useState<Exclude<GamepadPresetId, "auto">>("xinput");
   const [activeGamepadIndex, setActiveGamepadIndex] = useState<number | null>(null);
   const [gamepads, setGamepads] = useState<GamepadSummary[]>([]);
   const [gamepadInput, setGamepadInput] = useState<GamepadLiveInput>(() => zeroGamepadInput());
   const [liteGamepadState, setLiteGamepadState] = useState<LiteGamepadState>(ZERO_LITE_GAMEPAD_STATE);
+  const [gamepadActivityAt, setGamepadActivityAt] = useState(0);
   const [gamepadControlEnabled, setGamepadControlEnabled] = useState(false);
+  const [manualTxStatus, setManualTxStatus] = useState<ManualTxStatus | null>(null);
+  const [armProfile, setArmProfile] = useState<LiteArmProfile>(() => readArmProfile());
+  const [armState, setArmState] = useState<LiteArmRuntimeState>(() => createLiteArmRuntimeState(readArmProfile(), ROBOT_PROFILE.feetech.servos));
   const [manualHold, setManualHold] = useState<ManualHoldState>({ mecanum: "", tracked: "", canFront: 0, canRear: 0 });
   const seqRef = useRef(1);
   const canJogTimersRef = useRef<Record<LiteCanJogGroup, number | null>>({ front: null, rear: null });
   const canJogAnglesRef = useRef<Record<string, number> | null>(null);
   const driveActiveRef = useRef({ mecanum: false, tracked: false });
+  const gamepadDriveSendAtRef = useRef({ mecanum: 0, tracked: 0 });
   const gamepadMotionRef = useRef({ mecanum: "", tracked: "", canFront: 0 as LiteCanJogDirection, canRear: 0 as LiteCanJogDirection });
+  const armProfileRef = useRef<LiteArmProfile>(armProfile);
+  const armStateRef = useRef<LiteArmRuntimeState>(armState);
+  const armLastTickAtRef = useRef<number | null>(null);
+  const armLastSendAtRef = useRef(0);
+  const armCommandSignatureRef = useRef("");
 
   const currentLanguage = useMemo<LiteLanguage>(() => {
     const resolved = i18n.resolvedLanguage ?? i18n.language;
@@ -172,11 +215,12 @@ export default function App() {
   const piServoTone = bridgeTone(piServoHealth, piServoError);
   const mainCameraUrl = `http://${piHost}:${CAMERA_PORTS.main}/stream`;
   const secondaryCameraUrl = `http://${piHost}:${CAMERA_PORTS.secondary}/stream`;
-  const selectedCanServo = ROBOT_PROFILE.can.servos.find((servo) => servo.id === readTargetId(canConfig.targetId)) ?? ROBOT_PROFILE.can.servos[0];
+  const selectedCanServo = canServoProfiles.find((servo) => servo.id === readTargetId(canConfig.targetId)) ?? canServoProfiles[0] ?? normalizeAsmgMdServoProfile(ROBOT_PROFILE.can.servos[0]);
   const selectedCanProfile = useMemo(() => canServoProfileFromConfig(selectedCanServo, canConfig), [canConfig, selectedCanServo]);
   const selectedPwmServo = ROBOT_PROFILE.pwmServos.find((servo) => servo.id === selectedPwmServoId) ?? ROBOT_PROFILE.pwmServos[0];
   const latestParsed = lastCanExchange?.parsed[lastCanExchange.parsed.length - 1] ?? null;
-  const activeGamepad = gamepads.find((gamepad) => gamepad.index === activeGamepadIndex) ?? gamepads[0] ?? null;
+  const activeGamepad = selectPreferredGamepadSummary(gamepads, activeGamepadIndex);
+  const armSolution = useMemo(() => solveTwoLinkArmIk(armState.target, armProfile, ROBOT_PROFILE.feetech.servos), [armProfile, armState.target]);
 
   useEffect(() => {
     document.title = t("app.title");
@@ -193,6 +237,14 @@ export default function App() {
   }, [canConfig]);
 
   useEffect(() => {
+    window.localStorage.setItem(CAN_SERVO_PROFILES_STORAGE_KEY, JSON.stringify(canServoProfiles));
+  }, [canServoProfiles]);
+
+  useEffect(() => {
+    setCanConfig((current) => syncCanConfigToServo(current, selectedCanServo));
+  }, [selectedCanServo]);
+
+  useEffect(() => {
     window.localStorage.setItem(CAN_GROUP_STORAGE_KEY, JSON.stringify(canGroupAngles));
   }, [canGroupAngles]);
 
@@ -203,6 +255,15 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(GAMEPAD_STORAGE_KEY, JSON.stringify(gamepadMapping));
   }, [gamepadMapping]);
+
+  useEffect(() => {
+    armProfileRef.current = armProfile;
+    window.localStorage.setItem(ARM_CONTROL_STORAGE_KEY, JSON.stringify(armProfile));
+  }, [armProfile]);
+
+  useEffect(() => {
+    armStateRef.current = armState;
+  }, [armState]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -224,15 +285,17 @@ export default function App() {
         buttons: gamepad.buttons.length,
         mapping: gamepad.mapping || "unknown",
         axesValues: gamepad.axes.map((axis) => Number(axis.toFixed(2))),
+        buttonValues: gamepad.buttons.map((button) => Number((button.value ?? 0).toFixed(2))),
         pressedButtons: gamepad.buttons.map((button, index) => button.pressed ? index : -1).filter((index) => index >= 0)
       }));
       setGamepads(summaries);
-      const selected = activeGamepadIndex === null
-        ? pads[0] ?? null
-        : pads.find((gamepad) => gamepad.index === activeGamepadIndex) ?? pads[0] ?? null;
+      const selected = selectPreferredGamepad(pads, activeGamepadIndex);
       setGamepadInput(readGamepadInput(selected, gamepadMapping));
       const liteState = liteGamepadStateFromGamepad(selected, ROBOT_PROFILE.drive.deadzone);
       setLiteGamepadState(liteState);
+      if (selected && hasRawGamepadActivity(selected, ROBOT_PROFILE.drive.deadzone)) {
+        setGamepadActivityAt(Date.now());
+      }
       if (!selected && gamepadControlEnabled) {
         stopAllManualControl(t("manual.stopReasonGamepadDisconnected"));
         setGamepadControlEnabled(false);
@@ -243,11 +306,11 @@ export default function App() {
       }
     }, ROBOT_PROFILE.canJog.intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeGamepadIndex, gamepadControlEnabled, gamepadMapping, piHost, prioritySettings, t]);
+  }, [activeGamepadIndex, canServoProfiles, gamepadControlEnabled, gamepadMapping, piHost, prioritySettings, t]);
 
   useEffect(() => {
-    canJogAnglesRef.current = canGroupAngleStringsToNumbers(canGroupAngles);
-  }, [canGroupAngles]);
+    canJogAnglesRef.current = canGroupAngleStringsToNumbers(canGroupAngles, canServoProfiles);
+  }, [canGroupAngles, canServoProfiles]);
 
   useEffect(() => {
     const stopForWindowState = () => {
@@ -344,26 +407,114 @@ export default function App() {
     addLog("system", t("logs.priorityReset"), "info");
   }
 
-  function sendManualAboardCommand(command: PcCommand, label: string, options: { can?: boolean; timeoutMs?: number } = {}) {
+  async function runManualAboardCommand(command: PcCommand, label: string, options: { can?: boolean; source?: ManualTxStatus["source"]; timeoutMs?: number } = {}): Promise<boolean> {
     const envelope = buildCommandEnvelope(command, prioritySettings, { timeoutMs: options.timeoutMs ?? 650 });
-    void sendAboardCommand(piHost, command, prioritySettings, { timeoutMs: options.timeoutMs ?? 650 })
+    const statusBase: ManualTxStatus = {
+      source: options.source ?? "manual",
+      label,
+      commandType: command.type,
+      seq: typeof command.seq === "number" ? command.seq : null,
+      state: "sending",
+      at: Date.now()
+    };
+    setManualTxStatus(statusBase);
+    try {
+      const result = await sendAboardCommand(piHost, command, prioritySettings, { timeoutMs: options.timeoutMs ?? 650 });
+      if (options.can) {
+        const parsed = result.messages.map((message) => parseAsmgMdCanFrame(message)).filter(Boolean) as AsmgMdParsedFrame[];
+        setLastCanExchange({ label, command: envelope.command, result, parsed, at: Date.now() });
+      }
+      if (result.ok === false || result.messages.some((message) => message.type === "error")) {
+        const message = result.error ?? t("errors.canRejected");
+        setManualTxStatus({ ...statusBase, state: "error", at: Date.now(), error: message });
+        addLog("system", t("logs.manualCommandFailed", { label, message }), "warn");
+        return false;
+      }
+      setManualTxStatus({ ...statusBase, state: "ok", at: Date.now() });
+      return true;
+    } catch (error) {
+      const message = errorMessage(error, t);
+      setManualTxStatus({ ...statusBase, state: "error", at: Date.now(), error: message });
+      addLog("system", t("logs.manualCommandFailed", { label, message }), "error");
+      return false;
+    }
+  }
+
+  function sendManualAboardCommand(command: PcCommand, label: string, options: { can?: boolean; source?: ManualTxStatus["source"]; timeoutMs?: number } = {}) {
+    void runManualAboardCommand(command, label, options);
+  }
+
+  function sendManualAboardCommands(commands: PcCommand[], label: string, options: { source?: ManualTxStatus["source"]; timeoutMs?: number } = {}) {
+    for (const command of commands) {
+      sendManualAboardCommand(command, label, { source: options.source, timeoutMs: options.timeoutMs ?? 650 });
+    }
+  }
+
+  function sendManualPiServoCommand(command: PcCommand, label: string, options: { timeoutMs?: number; waitMs?: number } = {}) {
+    void sendPiServoBridgeCommand(piHost, command, { waitMs: options.waitMs ?? 220, timeoutMs: options.timeoutMs ?? 900 })
       .then((result) => {
-        if (options.can) {
-          const parsed = result.messages.map((message) => parseAsmgMdCanFrame(message)).filter(Boolean) as AsmgMdParsedFrame[];
-          setLastCanExchange({ label, command: envelope.command, result, parsed, at: Date.now() });
-        }
+        setLastFeetechExchange({ label, command, result, at: Date.now() });
         if (result.ok === false || result.messages.some((message) => message.type === "error")) {
-          addLog("system", t("logs.manualCommandFailed", { label, message: result.error ?? t("errors.canRejected") }), "warn");
+          const message = result.error ?? t("errors.feetechRejected");
+          setFeetechError(message);
+          addLog("system", t("logs.manualCommandFailed", { label, message }), "warn");
         }
       })
       .catch((error) => {
-        addLog("system", t("logs.manualCommandFailed", { label, message: errorMessage(error, t) }), "error");
+        const message = errorMessage(error, t);
+        setFeetechError(message);
+        addLog("system", t("logs.manualCommandFailed", { label, message }), "error");
       });
   }
 
-  function sendManualAboardCommands(commands: PcCommand[], label: string) {
-    for (const command of commands) {
-      sendManualAboardCommand(command, label, { timeoutMs: 650 });
+  function pwmMotorSpeedPercent(channel: string) {
+    return Math.max(0, Math.min(100, integerFromText(pwmMotorSpeeds[channel] ?? "35", 35)));
+  }
+
+  function updatePwmMotorSpeed(channel: string, value: string) {
+    setPwmMotorSpeeds((current) => ({ ...current, [channel]: value }));
+  }
+
+  async function setPwmMotorSpeedFor(motor: LitePwmMotorProfile, direction: 1 | -1) {
+    const speedPercent = pwmMotorSpeedPercent(motor.channel) * direction;
+    const label = `${t("pwm.motorControlTitle")} ${motor.channel}`;
+    const configured = await runManualAboardCommand(
+      buildLitePwmMotorConfigCommand(nextSeq(), motor),
+      label,
+      { timeoutMs: 850 }
+    );
+    if (!configured) {
+      return;
+    }
+    const moved = await runManualAboardCommand(
+      buildLitePwmMotorSetCommand(nextSeq(), motor.channel, speedPercent, ROBOT_PROFILE.drive.stopMode),
+      label,
+      { timeoutMs: 850 }
+    );
+    if (moved) {
+      setPwmMotorTargets((current) => ({ ...current, [motor.channel]: speedPercent }));
+    }
+  }
+
+  async function stopPwmMotor(motor: LitePwmMotorProfile) {
+    const stopped = await runManualAboardCommand(
+      buildLitePwmMotorStopCommand(nextSeq(), motor.channel, ROBOT_PROFILE.drive.stopMode),
+      `${t("manual.stop")} ${motor.channel}`,
+      { timeoutMs: 850 }
+    );
+    if (stopped) {
+      setPwmMotorTargets((current) => ({ ...current, [motor.channel]: 0 }));
+    }
+  }
+
+  async function stopAllPwmMotors() {
+    const stopped = await runManualAboardCommand(
+      buildLitePwmMotorStopAllCommand(nextSeq(), ROBOT_PROFILE.drive.stopMode),
+      t("actions.stopAll"),
+      { timeoutMs: 850 }
+    );
+    if (stopped) {
+      setPwmMotorTargets(Object.fromEntries(ROBOT_PROFILE.motors.map((motor) => [motor.channel, 0])));
     }
   }
 
@@ -377,12 +528,13 @@ export default function App() {
     sendManualAboardCommand(buildLiteMecanumTargetCommand(nextSeq(), input, ROBOT_PROFILE.drive), t("manual.mecanumTitle"));
   }
 
-  function stopMecanumHold() {
+  function stopMecanumHold(source: ManualTxStatus["source"] = "manual") {
     setManualHold((current) => ({ ...current, mecanum: "" }));
     if (driveActiveRef.current.mecanum) {
-      sendManualAboardCommand(buildLiteMecanumStopCommand(nextSeq(), ROBOT_PROFILE.drive), t("manual.mecanumStop"));
+      sendManualAboardCommand(buildLiteMecanumStopCommand(nextSeq(), ROBOT_PROFILE.drive), t("manual.mecanumStop"), { source });
     }
     driveActiveRef.current.mecanum = false;
+    gamepadDriveSendAtRef.current.mecanum = 0;
     gamepadMotionRef.current.mecanum = "";
   }
 
@@ -396,12 +548,13 @@ export default function App() {
     sendManualAboardCommands(buildLiteTrackedTargetCommands(nextSeq(2), input, ROBOT_PROFILE.drive), t("manual.trackedTitle"));
   }
 
-  function stopTrackedHold() {
+  function stopTrackedHold(source: ManualTxStatus["source"] = "manual") {
     setManualHold((current) => ({ ...current, tracked: "" }));
     if (driveActiveRef.current.tracked) {
-      sendManualAboardCommands(buildLiteTrackedStopCommands(nextSeq(2), ROBOT_PROFILE.drive), t("manual.trackedStop"));
+      sendManualAboardCommands(buildLiteTrackedStopCommands(nextSeq(2), ROBOT_PROFILE.drive), t("manual.trackedStop"), { source });
     }
     driveActiveRef.current.tracked = false;
+    gamepadDriveSendAtRef.current.tracked = 0;
     gamepadMotionRef.current.tracked = "";
   }
 
@@ -432,13 +585,13 @@ export default function App() {
     }
   }
 
-  function sendCanJogStep(group: LiteCanJogGroup, direction: Exclude<LiteCanJogDirection, 0>) {
+  function sendCanJogStep(group: LiteCanJogGroup, direction: Exclude<LiteCanJogDirection, 0>, source: ManualTxStatus["source"] = "manual") {
     try {
-      const baseAngles = canJogAnglesRef.current ?? canGroupAngleStringsToNumbers(canGroupAngles);
-      const { command, angles } = buildLiteCanJogCommand(nextSeq(), baseAngles, group, direction, ROBOT_PROFILE.canJog, ROBOT_PROFILE.can.servos);
+      const baseAngles = canJogAnglesRef.current ?? canGroupAngleStringsToNumbers(canGroupAngles, canServoProfiles);
+      const { command, angles } = buildLiteCanJogCommand(nextSeq(), baseAngles, group, direction, ROBOT_PROFILE.canJog, canServoProfiles);
       canJogAnglesRef.current = angles;
-      setCanGroupAngles(canGroupAngleNumbersToStrings(angles));
-      sendManualAboardCommand(command, t(group === "front" ? "manual.canFrontTitle" : "manual.canRearTitle"), { can: true, timeoutMs: 700 });
+      setCanGroupAngles(canGroupAngleNumbersToStrings(angles, canServoProfiles));
+      sendManualAboardCommand(command, t(group === "front" ? "manual.canFrontTitle" : "manual.canRearTitle"), { can: true, source, timeoutMs: 700 });
     } catch (error) {
       const message = errorMessage(error, t);
       setCanError(message);
@@ -455,9 +608,11 @@ export default function App() {
       gamepadMotionRef.current.mecanum !== "" ||
       gamepadMotionRef.current.tracked !== "" ||
       gamepadMotionRef.current.canFront !== 0 ||
-      gamepadMotionRef.current.canRear !== 0;
+      gamepadMotionRef.current.canRear !== 0 ||
+      armCommandSignatureRef.current !== "";
     stopCanJogLoop("front");
     stopCanJogLoop("rear");
+    stopArmJoystickControl();
     setManualHold({ mecanum: "", tracked: "", canFront: 0, canRear: 0 });
     gamepadMotionRef.current = { mecanum: "", tracked: "", canFront: 0, canRear: 0 };
     if (driveActiveRef.current.mecanum) {
@@ -467,6 +622,7 @@ export default function App() {
       sendManualAboardCommands(buildLiteTrackedStopCommands(nextSeq(2), ROBOT_PROFILE.drive), t("manual.trackedStop"));
     }
     driveActiveRef.current = { mecanum: false, tracked: false };
+    gamepadDriveSendAtRef.current = { mecanum: 0, tracked: 0 };
     if (reason && hadActiveMotion) {
       addLog("system", reason, "warn");
     }
@@ -479,38 +635,86 @@ export default function App() {
     }
   }
 
+  function stopArmJoystickControl() {
+    armLastTickAtRef.current = null;
+    armLastSendAtRef.current = 0;
+    armCommandSignatureRef.current = "";
+  }
+
   function applyLiteGamepadControl(state: LiteGamepadState) {
     if (state.stop) {
       stopAllManualControl(t("manual.stopReasonGamepadStop"));
       return;
     }
     const snapshot = snapshotFromLiteGamepad(state);
+    const now = Date.now();
     const mecanumSignature = hasMecanumMotion(snapshot.mecanum) ? JSON.stringify(snapshot.mecanum) : "";
-    if (mecanumSignature && mecanumSignature !== gamepadMotionRef.current.mecanum) {
+    const shouldSendMecanum = Boolean(mecanumSignature) && (
+      mecanumSignature !== gamepadMotionRef.current.mecanum ||
+      now - gamepadDriveSendAtRef.current.mecanum >= GAMEPAD_DRIVE_RESEND_MS
+    );
+    if (shouldSendMecanum) {
       driveActiveRef.current.mecanum = true;
-      sendManualAboardCommand(buildLiteMecanumTargetCommand(nextSeq(), snapshot.mecanum, ROBOT_PROFILE.drive), t("manual.mecanumTitle"));
+      gamepadDriveSendAtRef.current.mecanum = now;
+      sendManualAboardCommand(buildLiteMecanumTargetCommand(nextSeq(), snapshot.mecanum, ROBOT_PROFILE.drive), t("manual.mecanumTitle"), { source: "gamepad" });
     } else if (!mecanumSignature && gamepadMotionRef.current.mecanum) {
-      stopMecanumHold();
+      stopMecanumHold("gamepad");
     }
     gamepadMotionRef.current.mecanum = mecanumSignature;
 
     const trackedSignature = hasTrackedMotion(snapshot.tracked) ? JSON.stringify(snapshot.tracked) : "";
-    if (trackedSignature && trackedSignature !== gamepadMotionRef.current.tracked) {
+    const shouldSendTracked = Boolean(trackedSignature) && (
+      trackedSignature !== gamepadMotionRef.current.tracked ||
+      now - gamepadDriveSendAtRef.current.tracked >= GAMEPAD_DRIVE_RESEND_MS
+    );
+    if (shouldSendTracked) {
       driveActiveRef.current.tracked = true;
-      sendManualAboardCommands(buildLiteTrackedTargetCommands(nextSeq(2), snapshot.tracked, ROBOT_PROFILE.drive), t("manual.trackedTitle"));
+      gamepadDriveSendAtRef.current.tracked = now;
+      sendManualAboardCommands(buildLiteTrackedTargetCommands(nextSeq(2), snapshot.tracked, ROBOT_PROFILE.drive), t("manual.trackedTitle"), { source: "gamepad" });
     } else if (!trackedSignature && gamepadMotionRef.current.tracked) {
-      stopTrackedHold();
+      stopTrackedHold("gamepad");
     }
     gamepadMotionRef.current.tracked = trackedSignature;
 
+    applyGamepadArmControl(snapshot.arm);
     applyGamepadCanJog("front", snapshot.canJog.front);
     applyGamepadCanJog("rear", snapshot.canJog.rear);
+  }
+
+  function applyGamepadArmControl(input: { forward: number; lift: number }) {
+    const profile = armProfileRef.current;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const lastTickAt = armLastTickAtRef.current ?? now - profile.commandIntervalMs;
+    armLastTickAtRef.current = now;
+    const step = applyArmJoystickStep(armStateRef.current, input, now - lastTickAt, profile, ROBOT_PROFILE.feetech.servos);
+    armStateRef.current = step.state;
+    setArmState(step.state);
+
+    if (!hasArmJoystickMotion(input, profile.deadzone)) {
+      stopArmJoystickControl();
+      return;
+    }
+    if (!profile.calibrated || !step.solution.reachable || !step.solution.withinLimits || now - armLastSendAtRef.current < profile.commandIntervalMs) {
+      return;
+    }
+
+    const signature = armCommandSignature(step.solution);
+    if (signature === armCommandSignatureRef.current) {
+      return;
+    }
+    armCommandSignatureRef.current = signature;
+    armLastSendAtRef.current = now;
+    try {
+      sendManualPiServoCommand(buildLiteArmMoveCommand(nextSeq(), step.solution, profile), t("manual.armTitle"));
+    } catch (error) {
+      addLog("system", t("logs.manualCommandFailed", { label: t("manual.armTitle"), message: errorMessage(error, t) }), "warn");
+    }
   }
 
   function applyGamepadCanJog(group: LiteCanJogGroup, direction: LiteCanJogDirection) {
     const key = group === "front" ? "canFront" : "canRear";
     if (direction !== 0) {
-      sendCanJogStep(group, direction);
+      sendCanJogStep(group, direction, "gamepad");
       setManualHold((current) => ({ ...current, [key]: direction }));
     } else if (gamepadMotionRef.current[key] !== 0) {
       setManualHold((current) => ({ ...current, [key]: 0 }));
@@ -532,6 +736,87 @@ export default function App() {
     if (direction === "backward") return trackedInputFromStick(0, -1);
     if (direction === "left") return trackedInputFromStick(-1, 0);
     return trackedInputFromStick(1, 0);
+  }
+
+  function updateArmProfileNumber(field: keyof LiteArmProfile, value: string) {
+    if (value.trim() === "") {
+      return;
+    }
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+    setArmProfile((current) => normalizeLiteArmProfile({ ...current, [field]: numericValue }, ROBOT_PROFILE.arm));
+  }
+
+  function updateArmProfileSign(field: "j1Sign" | "j2Sign" | "elbowSign", value: string) {
+    setArmProfile((current) => normalizeLiteArmProfile({ ...current, [field]: Number(value) === -1 ? -1 : 1 }, ROBOT_PROFILE.arm));
+  }
+
+  function resetArmFoldedTarget() {
+    const nextState = createLiteArmRuntimeState(armProfileRef.current, ROBOT_PROFILE.feetech.servos);
+    armStateRef.current = nextState;
+    setArmState(nextState);
+    stopArmJoystickControl();
+  }
+
+  async function calibrateArmFoldedZero() {
+    const label = t("actions.calibrateArmZero");
+    const j1Servo = armServoProfile(armProfileRef.current.j1ServoId);
+    const j2Servo = armServoProfile(armProfileRef.current.j2ServoId);
+    if (!j1Servo || !j2Servo) {
+      setFeetechError(t("errors.feetechRejected"));
+      return;
+    }
+    setFeetechBusy(label);
+    setFeetechError(null);
+    try {
+      const j1PhysicalDeg = await readFeetechPositionDeg(j1Servo, label);
+      const j2PhysicalDeg = await readFeetechPositionDeg(j2Servo, label);
+      const nextProfile = normalizeLiteArmProfile({
+        ...armProfileRef.current,
+        zeroJ1Deg: servoPhysicalToLogicalAngle(j1Servo, j1PhysicalDeg),
+        zeroJ2Deg: servoPhysicalToLogicalAngle(j2Servo, j2PhysicalDeg),
+        calibrated: true
+      }, ROBOT_PROFILE.arm);
+      armProfileRef.current = nextProfile;
+      setArmProfile(nextProfile);
+      const nextState = createLiteArmRuntimeState(nextProfile, ROBOT_PROFILE.feetech.servos);
+      armStateRef.current = nextState;
+      setArmState(nextState);
+      stopArmJoystickControl();
+      addLog("system", t("logs.armCalibrated"), "info");
+      await refreshHealth(piHost);
+    } catch (error) {
+      const message = errorMessage(error, t);
+      setFeetechError(message);
+      addLog("system", t("logs.armCalibrationFailed", { message }), "error");
+    } finally {
+      setFeetechBusy(null);
+    }
+  }
+
+  async function readFeetechPositionDeg(servo: (typeof ROBOT_PROFILE.feetech.servos)[number], label: string): Promise<number> {
+    const command: PcCommand = { type: "servo.read", seq: nextSeq(), id: servo.id };
+    addLog("tx", JSON.stringify(command), "info");
+    const result = await sendPiServoBridgeCommand(piHost, command, { waitMs: 650, timeoutMs: 1200 });
+    addLog("rx", JSON.stringify({ ok: result.ok, protocol: result.protocol, messages: result.messages }), result.ok ? "info" : "warn");
+    setLastFeetechExchange({ label, command, result, at: Date.now() });
+    if (result.ok === false) {
+      throw new Error(result.error ?? t("errors.feetechRejected"));
+    }
+    const feedback = result.messages.find((message): message is ServoFeedbackMessage =>
+      message.type === "servo.feedback" && message.id === servo.id && typeof message.positionDeg === "number"
+    );
+    const positionDeg = feedback?.positionDeg;
+    if (typeof positionDeg !== "number" || !Number.isFinite(positionDeg)) {
+      throw new Error(`ID${servo.id} feedback missing position`);
+    }
+    return positionDeg;
+  }
+
+  function armServoProfile(servoId: number) {
+    return ROBOT_PROFILE.feetech.servos.find((servo) => servo.id === servoId) ?? null;
   }
 
   async function runCanExchange(label: string, commandFactory: () => PcCommand, options: { configureFirst?: boolean; dangerous?: boolean; timeoutMs?: number } = {}) {
@@ -601,7 +886,7 @@ export default function App() {
     const speed = integerFromText(canConfig.speedRaw, ASMG_MD_SPEED_MAX);
     return buildAsmgMdGroupMoveCommand(
       nextSeq(),
-      ROBOT_PROFILE.can.servos.map((servo) => {
+      canServoProfiles.map((servo) => {
         const profile = normalizeAsmgMdServoProfile({ ...servo, bitrateKbps: canConfig.bitrateKbps });
         const angle = numberFromText(canGroupAngles[String(servo.id)], servoLogicalCenter(servo));
         return { id: profile.id, position: asmgMdLogicalAngleToPositionRaw(profile, angle) };
@@ -612,10 +897,16 @@ export default function App() {
 
   function updateCanConfig<K extends keyof ReturnType<typeof readCanConfig>>(key: K, value: ReturnType<typeof readCanConfig>[K]) {
     setCanConfig((current) => ({ ...current, [key]: value }));
+    if (key === "minDeg" || key === "maxDeg") {
+      const fallback = key === "minDeg" ? selectedCanServo.minDeg ?? 0 : selectedCanServo.maxDeg ?? 360;
+      updateCanServoProfile(selectedCanServo.id, { [key]: numberFromText(String(value), fallback) });
+    } else if (key === "direction") {
+      updateCanServoProfile(selectedCanServo.id, { direction: value === -1 ? -1 : 1 });
+    }
   }
 
   function selectCanServo(id: number) {
-    const servo = ROBOT_PROFILE.can.servos.find((item) => item.id === id) ?? ROBOT_PROFILE.can.servos[0];
+    const servo = canServoProfiles.find((item) => item.id === id) ?? canServoProfiles[0] ?? normalizeAsmgMdServoProfile(ROBOT_PROFILE.can.servos[0]);
     setCanConfig((current) => ({
       ...current,
       targetId: String(servo.id),
@@ -624,6 +915,13 @@ export default function App() {
       direction: servo.direction === -1 ? -1 : 1,
       bitrateKbps: servo.bitrateKbps ?? ROBOT_PROFILE.can.bitrateKbps
     }));
+  }
+
+  function updateCanServoProfile(id: number, patch: Partial<Pick<AsmgMdServoProfile, "direction" | "maxDeg" | "minDeg">>) {
+    setCanServoProfiles((current) => current.map((servo) => servo.id === id
+      ? normalizeEditableCanServoProfile({ ...servo, ...patch })
+      : servo
+    ));
   }
 
   function updateCanGroupAngle(id: number, value: string) {
@@ -668,7 +966,7 @@ export default function App() {
             <HoldButton active={manualHold.mecanum === "forward"} onHoldEnd={stopMecanumHold} onHoldStart={() => startMecanumHold("forward")}>{t("manual.forward")}</HoldButton>
             <span />
             <HoldButton active={manualHold.mecanum === "left"} onHoldEnd={stopMecanumHold} onHoldStart={() => startMecanumHold("left")}>{t("manual.strafeLeft")}</HoldButton>
-            <button className="manual-stop-button" onClick={stopMecanumHold} type="button">{t("manual.stop")}</button>
+            <button className="manual-stop-button" onClick={() => stopMecanumHold()} type="button">{t("manual.stop")}</button>
             <HoldButton active={manualHold.mecanum === "right"} onHoldEnd={stopMecanumHold} onHoldStart={() => startMecanumHold("right")}>{t("manual.strafeRight")}</HoldButton>
             <span />
             <HoldButton active={manualHold.mecanum === "backward"} onHoldEnd={stopMecanumHold} onHoldStart={() => startMecanumHold("backward")}>{t("manual.backward")}</HoldButton>
@@ -684,13 +982,50 @@ export default function App() {
             <HoldButton active={manualHold.tracked === "forward"} onHoldEnd={stopTrackedHold} onHoldStart={() => startTrackedHold("forward")}>{t("manual.forward")}</HoldButton>
             <span />
             <HoldButton active={manualHold.tracked === "left"} onHoldEnd={stopTrackedHold} onHoldStart={() => startTrackedHold("left")}>{t("manual.turnLeft")}</HoldButton>
-            <button className="manual-stop-button" onClick={stopTrackedHold} type="button">{t("manual.stop")}</button>
+            <button className="manual-stop-button" onClick={() => stopTrackedHold()} type="button">{t("manual.stop")}</button>
             <HoldButton active={manualHold.tracked === "right"} onHoldEnd={stopTrackedHold} onHoldStart={() => startTrackedHold("right")}>{t("manual.turnRight")}</HoldButton>
             <span />
             <HoldButton active={manualHold.tracked === "backward"} onHoldEnd={stopTrackedHold} onHoldStart={() => startTrackedHold("backward")}>{t("manual.backward")}</HoldButton>
             <span />
           </div>
           <p className="inline-note">{t("manual.trackedHint")}</p>
+        </section>
+
+        <section className="panel manual-arm-panel">
+          <PanelTitle icon={<Wrench size={18} />} title={t("manual.armTitle")} meta={`ID${armProfile.j1ServoId} / ID${armProfile.j2ServoId}`} />
+          <div className="metric-grid">
+            <Metric label={t("metrics.armForward")} value={formatNumber(armSolution.target.x)} />
+            <Metric label={t("metrics.armHeight")} value={formatNumber(armSolution.target.z)} />
+            <Metric label={t("metrics.j1Target")} value={`${formatNumber(armState.j1LogicalDeg)} / ${formatNumber(armSolution.j1PhysicalDeg)}`} />
+            <Metric label={t("metrics.j2Target")} value={`${formatNumber(armState.j2LogicalDeg)} / ${formatNumber(armSolution.j2PhysicalDeg)}`} />
+            <Metric label={t("metrics.calibrated")} value={armProfile.calibrated ? t("common.yes") : t("common.no")} tone={armProfile.calibrated ? "online" : "warning"} />
+            <Metric label={t("metrics.workspace")} value={armSolution.limitedByWorkspace ? t("status.limited") : t("status.ready")} tone={armSolution.limitedByWorkspace ? "warning" : "online"} />
+            <Metric label={t("metrics.reachable")} value={armSolution.withinLimits ? t("common.yes") : t("common.no")} tone={armSolution.withinLimits ? "online" : "danger"} />
+            <Metric label={t("metrics.piServoSerial")} value={piServoHealth?.serialOpen ? t("status.open") : t("status.closed")} tone={piServoTone} />
+          </div>
+          <div className="form-grid arm-tuning-grid">
+            <label>{t("fields.link1Length")}<input value={armProfile.link1Length} onChange={(event) => updateArmProfileNumber("link1Length", event.target.value)} /></label>
+            <label>{t("fields.link2Length")}<input value={armProfile.link2Length} onChange={(event) => updateArmProfileNumber("link2Length", event.target.value)} /></label>
+            <label>{t("fields.trimJ1")}<input value={armProfile.trimJ1Deg} onChange={(event) => updateArmProfileNumber("trimJ1Deg", event.target.value)} /></label>
+            <label>{t("fields.trimJ2")}<input value={armProfile.trimJ2Deg} onChange={(event) => updateArmProfileNumber("trimJ2Deg", event.target.value)} /></label>
+            <label>{t("fields.j1Sign")}<select value={armProfile.j1Sign} onChange={(event) => updateArmProfileSign("j1Sign", event.target.value)}><option value={1}>+1</option><option value={-1}>-1</option></select></label>
+            <label>{t("fields.j2Sign")}<select value={armProfile.j2Sign} onChange={(event) => updateArmProfileSign("j2Sign", event.target.value)}><option value={1}>+1</option><option value={-1}>-1</option></select></label>
+            <label>{t("fields.elbowSign")}<select value={armProfile.elbowSign} onChange={(event) => updateArmProfileSign("elbowSign", event.target.value)}><option value={1}>+1</option><option value={-1}>-1</option></select></label>
+            <label>{t("fields.angleStep")}<input value={armProfile.maxAngleStepDeg} onChange={(event) => updateArmProfileNumber("maxAngleStepDeg", event.target.value)} /></label>
+            <label>{t("fields.forwardSpeed")}<input value={armProfile.forwardSpeedPerSecond} onChange={(event) => updateArmProfileNumber("forwardSpeedPerSecond", event.target.value)} /></label>
+            <label>{t("fields.liftSpeed")}<input value={armProfile.liftSpeedPerSecond} onChange={(event) => updateArmProfileNumber("liftSpeedPerSecond", event.target.value)} /></label>
+            <label>{t("fields.minForward")}<input value={armProfile.minForward} onChange={(event) => updateArmProfileNumber("minForward", event.target.value)} /></label>
+            <label>{t("fields.maxForward")}<input value={armProfile.maxForward} onChange={(event) => updateArmProfileNumber("maxForward", event.target.value)} /></label>
+            <label>{t("fields.minHeight")}<input value={armProfile.minHeight} onChange={(event) => updateArmProfileNumber("minHeight", event.target.value)} /></label>
+            <label>{t("fields.maxHeight")}<input value={armProfile.maxHeight} onChange={(event) => updateArmProfileNumber("maxHeight", event.target.value)} /></label>
+            <label>{t("fields.speedRaw")}<input value={armProfile.speedRaw} onChange={(event) => updateArmProfileNumber("speedRaw", event.target.value)} /></label>
+            <label>{t("fields.acc")}<input value={armProfile.acc} onChange={(event) => updateArmProfileNumber("acc", event.target.value)} /></label>
+          </div>
+          <div className="toolbar-row">
+            <button className="icon-button primary" disabled={Boolean(feetechBusy)} onClick={() => void calibrateArmFoldedZero()} type="button"><Radar size={17} /><span>{t("actions.calibrateArmZero")}</span></button>
+            <button className="icon-button" onClick={resetArmFoldedTarget} type="button"><RotateCw size={17} /><span>{t("actions.resetArmTarget")}</span></button>
+          </div>
+          <p className="inline-note">{armProfile.calibrated ? t("manual.armHint") : t("manual.armNotCalibrated")}</p>
         </section>
 
         <section className="panel manual-can-panel">
@@ -762,7 +1097,7 @@ export default function App() {
         <section className="panel can-group-panel">
           <PanelTitle icon={<Settings2 size={18} />} title={t("can.settingsTitle")} meta={t("can.priorityMeta", { bus: ROBOT_PROFILE.can.bus, priority: prioritySettings.canServo })} />
           <div className="servo-card-grid">
-            {ROBOT_PROFILE.can.servos.map((servo) => (
+            {canServoProfiles.map((servo) => (
               <ServoInfoCard
                 active={servo.id === selectedCanServo.id}
                 key={servo.id}
@@ -779,7 +1114,7 @@ export default function App() {
             ))}
           </div>
           <div className="group-angle-grid">
-            {ROBOT_PROFILE.can.servos.map((servo) => (
+            {canServoProfiles.map((servo) => (
               <label key={servo.id}>
                 <span>{servo.name}</span>
                 <input value={canGroupAngles[String(servo.id)] ?? String(servoLogicalCenter(servo))} onChange={(event) => updateCanGroupAngle(servo.id, event.target.value)} />
@@ -799,7 +1134,7 @@ export default function App() {
         <section className="panel can-single-panel">
           <PanelTitle icon={<Shield size={18} />} title={t("can.singleTitle")} meta={selectedCanServo.name} />
           <div className="form-grid">
-            <label>{t("fields.targetId")}<select value={selectedCanServo.id} onChange={(event) => selectCanServo(Number(event.target.value))}>{ROBOT_PROFILE.can.servos.map((servo) => <option key={servo.id} value={servo.id}>{servo.name} / ID{servo.id}</option>)}</select></label>
+            <label>{t("fields.targetId")}<select value={selectedCanServo.id} onChange={(event) => selectCanServo(Number(event.target.value))}>{canServoProfiles.map((servo) => <option key={servo.id} value={servo.id}>{servo.name} / ID{servo.id}</option>)}</select></label>
             <label>{t("fields.bitrate")}<select value={canConfig.bitrateKbps} onChange={(event) => updateCanConfig("bitrateKbps", Number(event.target.value) as AsmgMdBaudKbps)}>{baudOptions.map((baud) => <option key={baud} value={baud}>{baud} kbps</option>)}</select></label>
             <label>{t("fields.minDeg")}<input value={canConfig.minDeg} onChange={(event) => updateCanConfig("minDeg", event.target.value)} /></label>
             <label>{t("fields.maxDeg")}<input value={canConfig.maxDeg} onChange={(event) => updateCanConfig("maxDeg", event.target.value)} /></label>
@@ -947,7 +1282,7 @@ export default function App() {
           <p className="inline-note">{t("pwm.note")}</p>
         </section>
         <section className="panel">
-          <PanelTitle icon={<Gauge size={18} />} title={t("pwm.motorStatusTitle")} meta="M1-M4" />
+          <PanelTitle icon={<Gauge size={18} />} title={t("pwm.motorStatusTitle")} meta="M1-M6" />
           <div className="compact-table">
             {ROBOT_PROFILE.motors.map((motor) => (
               <div className="compact-row" key={motor.channel}>
@@ -958,14 +1293,63 @@ export default function App() {
             ))}
           </div>
         </section>
+        <section className="panel pwm-motor-control-panel">
+          <PanelTitle icon={<Gauge size={18} />} title={t("pwm.motorControlTitle")} meta="M1-M6" />
+          <div className="compact-table pwm-motor-table">
+            {ROBOT_PROFILE.motors.map((motor) => (
+              <div className="pwm-motor-row" key={motor.channel}>
+                <strong>{motor.channel}</strong>
+                <span>{motor.name}</span>
+                <code>{motor.pwmPin ?? "--"} / {motor.in1Pin ?? "--"} / {motor.in2Pin ?? "--"}</code>
+                <code>{formatSignedPercent(pwmMotorTargets[motor.channel] ?? 0)}</code>
+                <div className="pwm-motor-speed-cell">
+                  <input aria-label={`${motor.channel} ${t("fields.motorSpeed")}`} max={100} min={0} step={1} type="range" value={pwmMotorSpeedPercent(motor.channel)} onChange={(event) => updatePwmMotorSpeed(motor.channel, event.target.value)} />
+                  <input aria-label={`${motor.channel} ${t("fields.motorSpeed")}`} inputMode="numeric" max={100} min={0} step={1} type="number" value={pwmMotorSpeeds[motor.channel] ?? "35"} onChange={(event) => updatePwmMotorSpeed(motor.channel, event.target.value)} />
+                </div>
+                <div className="pwm-motor-actions">
+                  <button className="icon-button" onClick={() => void setPwmMotorSpeedFor(motor, -1)} type="button"><RotateCw size={15} /><span>{t("manual.backward")}</span></button>
+                  <button className="icon-button danger" onClick={() => void stopPwmMotor(motor)} type="button"><Square size={15} /><span>{t("manual.stop")}</span></button>
+                  <button className="icon-button primary" onClick={() => void setPwmMotorSpeedFor(motor, 1)} type="button"><Send size={15} /><span>{t("manual.forward")}</span></button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="toolbar-row">
+            <button className="icon-button danger" onClick={stopAllPwmMotors} type="button"><Square size={17} /><span>{t("actions.stopAll")}</span></button>
+          </div>
+          <p className="inline-note">{t("pwm.motorControlNote")}</p>
+        </section>
       </section>
     );
   }
 
   function renderGamepadView() {
+    const gamepadApiSupported = typeof navigator !== "undefined" && Boolean(navigator.getGamepads);
+    const gamepadActivityFresh = gamepadActivityAt > 0 && Date.now() - gamepadActivityAt < 1200;
+    const manualTxAgeSeconds = manualTxStatus ? Math.max(0, Math.round((Date.now() - manualTxStatus.at) / 100) / 10) : null;
+    const manualTxSourceLabel = manualTxStatus ? t(manualTxStatus.source === "gamepad" ? "gamepad.diag.sourceGamepad" : "gamepad.diag.sourceManual") : "";
+    const manualTxValue = manualTxStatus
+      ? `${manualTxSourceLabel} ${manualTxStatus.commandType}${manualTxStatus.seq === null ? "" : ` #${manualTxStatus.seq}`} ${manualTxAgeSeconds}s`
+      : "--";
+    const manualTxTone: Tone = manualTxStatus?.state === "error" ? "danger" : manualTxStatus?.state === "sending" ? "warning" : "online";
+    const fixedInputLamps: Array<{ label: string; active: boolean; value?: string }> = [
+      { label: "D↑", active: liteGamepadState.dpadUp },
+      { label: "D↓", active: liteGamepadState.dpadDown },
+      { label: "D←", active: liteGamepadState.dpadLeft },
+      { label: "D→", active: liteGamepadState.dpadRight },
+      { label: "LX", active: Math.abs(liteGamepadState.leftX) > 0, value: liteGamepadState.leftX.toFixed(2) },
+      { label: "LY", active: Math.abs(liteGamepadState.leftY) > 0, value: liteGamepadState.leftY.toFixed(2) },
+      { label: "RX", active: Math.abs(liteGamepadState.rightX) > 0, value: liteGamepadState.rightX.toFixed(2) },
+      { label: "RY", active: Math.abs(liteGamepadState.rightY) > 0, value: liteGamepadState.rightY.toFixed(2) },
+      { label: "LB", active: liteGamepadState.lb },
+      { label: "LT", active: liteGamepadState.lt },
+      { label: "RB", active: liteGamepadState.rb },
+      { label: "RT", active: liteGamepadState.rt },
+      { label: "A", active: liteGamepadState.stop }
+    ];
     return (
       <section className="view-grid gamepad-view">
-        <section className="panel">
+        <section className="panel gamepad-main-panel">
           <PanelTitle icon={<Gamepad2 size={18} />} title={t("gamepad.title")} meta={activeGamepad ? `#${activeGamepad.index}` : t("gamepad.noGamepad")} />
           <div className="form-grid">
             <label>{t("fields.gamepad")}<select value={activeGamepadIndex ?? ""} onChange={(event) => setActiveGamepadIndex(event.target.value === "" ? null : Number(event.target.value))}>
@@ -992,11 +1376,48 @@ export default function App() {
           <div className="fixed-gamepad-grid">
             <Metric label={t("manual.dpad")} value={`${liteGamepadState.dpadUp ? "U" : "-"}${liteGamepadState.dpadDown ? "D" : "-"}${liteGamepadState.dpadLeft ? "L" : "-"}${liteGamepadState.dpadRight ? "R" : "-"}`} />
             <Metric label={t("manual.leftStick")} value={`${liteGamepadState.leftX.toFixed(2)} / ${liteGamepadState.leftY.toFixed(2)}`} />
+            <Metric label={t("manual.rightStick")} value={`${liteGamepadState.rightX.toFixed(2)} / ${liteGamepadState.rightY.toFixed(2)}`} />
             <Metric label="LB / LT" value={`${String(liteGamepadState.lb)} / ${String(liteGamepadState.lt)}`} />
             <Metric label="RB / RT" value={`${String(liteGamepadState.rb)} / ${String(liteGamepadState.rt)}`} />
           </div>
         </section>
-        <section className="panel">
+
+        <section className="panel gamepad-diagnostics-panel">
+          <PanelTitle icon={<Activity size={18} />} title={t("gamepad.diagnosticsTitle")} meta={activeGamepad?.id ?? t("gamepad.noGamepad")} />
+          <div className="gamepad-led-grid">
+            <GamepadLed active={gamepadApiSupported} label={t("gamepad.diag.api")} value={gamepadApiSupported ? t("status.ready") : t("status.notReady")} />
+            <GamepadLed active={Boolean(activeGamepad)} label={t("gamepad.diag.device")} value={activeGamepad ? `#${activeGamepad.index}` : "--"} />
+            <GamepadLed active={gamepadActivityFresh} label={t("gamepad.diag.activity")} value={gamepadActivityAt ? `${Math.max(0, Math.round((Date.now() - gamepadActivityAt) / 100) / 10)}s` : "--"} />
+            <GamepadLed active={gamepadControlEnabled} label={t("gamepad.diag.control")} value={gamepadControlEnabled ? t("status.enabled") : t("status.disabled")} tone={gamepadControlEnabled ? "warning" : "neutral"} />
+            <GamepadLed active={Boolean(manualTxStatus)} label={t("gamepad.diag.lastTx")} value={manualTxStatus?.error ?? manualTxValue} tone={manualTxTone} />
+          </div>
+          <div className="gamepad-lamp-grid">
+            {fixedInputLamps.map((item) => <GamepadLed active={item.active} key={item.label} label={item.label} value={item.value ?? (item.active ? "1" : "0")} />)}
+          </div>
+          <div className="gamepad-raw-grid">
+            <div>
+              <strong>{t("gamepad.diag.rawAxes")}</strong>
+              <div className="gamepad-axis-list">
+                {(activeGamepad?.axesValues ?? []).map((value, index) => <AxisBar key={index} label={`A${index}`} value={value} />)}
+                {!activeGamepad && <div className="empty-state">{t("gamepad.noGamepad")}</div>}
+              </div>
+            </div>
+            <div>
+              <strong>{t("gamepad.diag.rawButtons")}</strong>
+              <div className="gamepad-button-list">
+                {(activeGamepad?.buttonValues ?? []).map((value, index) => (
+                  <div className={`raw-button ${value > 0.15 ? "active" : ""}`} key={index}>
+                    <span>B{index}</span>
+                    <strong>{value.toFixed(2)}</strong>
+                  </div>
+                ))}
+                {!activeGamepad && <div className="empty-state">{t("gamepad.noGamepad")}</div>}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel gamepad-axis-panel">
           <PanelTitle icon={<SlidersHorizontal size={18} />} title={t("gamepad.axisMapping")} />
           <div className="mapping-grid">
             {(["forward", "strafe", "turn"] as GamepadAxisKey[]).map((axis) => (
@@ -1008,7 +1429,7 @@ export default function App() {
             ))}
           </div>
         </section>
-        <section className="panel">
+        <section className="panel gamepad-button-panel">
           <PanelTitle icon={<Gamepad2 size={18} />} title={t("gamepad.buttonMapping")} />
           <div className="mapping-grid button-mapping-grid">
             {(Object.keys(gamepadMapping.buttons) as GamepadButtonKey[]).map((button) => (
@@ -1216,6 +1637,17 @@ function AxisBar({ label, value }: { label: string; value: number }) {
   );
 }
 
+function GamepadLed({ active, label, tone = "online", value }: { active: boolean; label: string; tone?: Tone; value?: string }) {
+  const displayTone = active ? tone : "neutral";
+  return (
+    <div className={`gamepad-led ${displayTone}`}>
+      <span className="status-led" />
+      <small>{label}</small>
+      {value && <strong>{value}</strong>}
+    </div>
+  );
+}
+
 function HoldButton({ active = false, children, disabled = false, onHoldEnd, onHoldStart }: { active?: boolean; children: ReactNode; disabled?: boolean; onHoldEnd: () => void; onHoldStart: () => void }) {
   const holdingRef = useRef(false);
 
@@ -1305,6 +1737,64 @@ function readCanConfig() {
   }
 }
 
+function readCanServoProfiles(): AsmgMdServoProfile[] {
+  const fallback = ROBOT_PROFILE.can.servos.map((servo) => normalizeEditableCanServoProfile(servo));
+  try {
+    const raw = window.localStorage.getItem(CAN_SERVO_PROFILES_STORAGE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    const drafts = Array.isArray(parsed) ? parsed : [];
+    return fallback.map((base) => {
+      const draft = drafts.find((item): item is Partial<AsmgMdServoProfile> =>
+        Boolean(item) && typeof item === "object" && Number((item as Partial<AsmgMdServoProfile>).id) === base.id
+      );
+      return normalizeEditableCanServoProfile({ ...base, ...draft, id: base.id, name: base.name, canBus: base.canBus });
+    });
+  } catch {
+    window.localStorage.removeItem(CAN_SERVO_PROFILES_STORAGE_KEY);
+    return fallback;
+  }
+}
+
+function normalizeEditableCanServoProfile(profile: AsmgMdServoProfile): AsmgMdServoProfile {
+  let minDeg = finiteInRange(profile.minDeg, 0, 0, 360);
+  let maxDeg = finiteInRange(profile.maxDeg, 360, 0, 360);
+  if (minDeg >= maxDeg) {
+    if (minDeg >= 360) {
+      minDeg = Math.max(0, maxDeg - 1);
+    } else {
+      maxDeg = Math.min(360, minDeg + 1);
+    }
+  }
+  return normalizeAsmgMdServoProfile({
+    ...profile,
+    minDeg,
+    maxDeg,
+    direction: profile.direction === -1 ? -1 : 1,
+    bitrateKbps: normalizeCanBaud(profile.bitrateKbps)
+  });
+}
+
+function syncCanConfigToServo(config: ReturnType<typeof readCanConfig>, servo: AsmgMdServoProfile): ReturnType<typeof readCanConfig> {
+  const next = {
+    ...config,
+    targetId: String(servo.id),
+    minDeg: String(servo.minDeg ?? 0),
+    maxDeg: String(servo.maxDeg ?? 360),
+    direction: (servo.direction === -1 ? -1 : 1) as 1 | -1,
+    bitrateKbps: servo.bitrateKbps ?? config.bitrateKbps
+  };
+  return next.targetId === config.targetId &&
+    next.minDeg === config.minDeg &&
+    next.maxDeg === config.maxDeg &&
+    next.direction === config.direction &&
+    next.bitrateKbps === config.bitrateKbps
+    ? config
+    : next;
+}
+
 function readCanGroupAngles(): Record<string, string> {
   const fallback = Object.fromEntries(ROBOT_PROFILE.can.servos.map((servo) => [String(servo.id), String(servoLogicalCenter(servo))]));
   try {
@@ -1323,17 +1813,17 @@ function readCanGroupAngles(): Record<string, string> {
   }
 }
 
-function canGroupAngleStringsToNumbers(values: Record<string, string>): Record<string, number> {
-  const fallback = createCanJogAngles(ROBOT_PROFILE.can.servos);
-  return Object.fromEntries(ROBOT_PROFILE.can.servos.map((servo) => {
+function canGroupAngleStringsToNumbers(values: Record<string, string>, servos: AsmgMdServoProfile[]): Record<string, number> {
+  const fallback = createCanJogAngles(servos);
+  return Object.fromEntries(servos.map((servo) => {
     const key = String(servo.id);
     return [key, numberFromText(values[key], fallback[key] ?? servoLogicalCenter(servo))];
   }));
 }
 
-function canGroupAngleNumbersToStrings(values: Record<string, number>): Record<string, string> {
-  const fallback = createCanJogAngles(ROBOT_PROFILE.can.servos);
-  return Object.fromEntries(ROBOT_PROFILE.can.servos.map((servo) => {
+function canGroupAngleNumbersToStrings(values: Record<string, number>, servos: AsmgMdServoProfile[]): Record<string, string> {
+  const fallback = createCanJogAngles(servos);
+  return Object.fromEntries(servos.map((servo) => {
     const key = String(servo.id);
     const value = Number.isFinite(values[key]) ? values[key] : fallback[key] ?? servoLogicalCenter(servo);
     return [key, String(Math.round(value * 100) / 100)];
@@ -1350,6 +1840,63 @@ function readGamepadMapping(): GamepadMapping {
   }
 }
 
+function readArmProfile(): LiteArmProfile {
+  try {
+    const raw = window.localStorage.getItem(ARM_CONTROL_STORAGE_KEY);
+    return normalizeLiteArmProfile(raw ? JSON.parse(raw) : ROBOT_PROFILE.arm, ROBOT_PROFILE.arm);
+  } catch {
+    window.localStorage.removeItem(ARM_CONTROL_STORAGE_KEY);
+    return normalizeLiteArmProfile(ROBOT_PROFILE.arm, ROBOT_PROFILE.arm);
+  }
+}
+
+function selectPreferredGamepad(pads: Gamepad[], activeIndex: number | null): Gamepad | null {
+  if (activeIndex !== null) {
+    return pads.find((gamepad) => gamepad.index === activeIndex) ?? null;
+  }
+  return [...pads].sort((a, b) => gamepadPriority(b) - gamepadPriority(a) || a.index - b.index)[0] ?? null;
+}
+
+function selectPreferredGamepadSummary(gamepads: GamepadSummary[], activeIndex: number | null): GamepadSummary | null {
+  if (activeIndex !== null) {
+    return gamepads.find((gamepad) => gamepad.index === activeIndex) ?? null;
+  }
+  return [...gamepads].sort((a, b) => gamepadSummaryPriority(b) - gamepadSummaryPriority(a) || a.index - b.index)[0] ?? null;
+}
+
+function gamepadPriority(gamepad: Gamepad): number {
+  return scoreGamepad(gamepad.id, gamepad.mapping || "unknown", gamepad.axes.length, gamepad.buttons.length);
+}
+
+function gamepadSummaryPriority(gamepad: GamepadSummary): number {
+  return scoreGamepad(gamepad.id, gamepad.mapping, gamepad.axes, gamepad.buttons);
+}
+
+function scoreGamepad(id: string, mapping: string, axes: number, buttons: number): number {
+  const normalizedId = id.toLowerCase();
+  let score = 0;
+  if (mapping === "standard") {
+    score += 1000;
+  }
+  if (/\bxbox\b|xinput|x-box|360/.test(normalizedId)) {
+    score += 200;
+  }
+  if (/unknown/.test(normalizedId)) {
+    score -= 100;
+  }
+  score += Math.min(buttons, 16) * 6;
+  score += Math.min(axes, 8) * 3;
+  if (buttons <= 4 && axes >= 8) {
+    score -= 80;
+  }
+  return score;
+}
+
+function hasRawGamepadActivity(gamepad: Gamepad, deadzone: number): boolean {
+  return gamepad.axes.some((axis) => Math.abs(axis) > deadzone && Math.abs(axis) <= 1.05) ||
+    gamepad.buttons.some((button) => button.pressed || (button.value ?? 0) > 0.15);
+}
+
 function readStoredString(key: string, fallback: string): string {
   try {
     const value = window.localStorage.getItem(key);
@@ -1357,6 +1904,10 @@ function readStoredString(key: string, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+function createPwmMotorSpeedStrings(defaultValue = "35"): Record<string, string> {
+  return Object.fromEntries(ROBOT_PROFILE.motors.map((motor) => [motor.channel, defaultValue]));
 }
 
 function readTargetId(value: string): number {
@@ -1374,6 +1925,28 @@ function numberFromText(value: string, fallback: number): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function finiteInRange(value: unknown, fallback: number, min: number, max: number): number {
+  const number = typeof value === "number" ? value : Number(value);
+  return Math.max(min, Math.min(max, Number.isFinite(number) ? number : fallback));
+}
+
+function normalizeCanBaud(value: unknown): AsmgMdBaudKbps {
+  const number = Number(value);
+  return baudOptions.includes(number as AsmgMdBaudKbps) ? number as AsmgMdBaudKbps : ROBOT_PROFILE.can.bitrateKbps;
+}
+
+function formatNumber(value: number, digits = 1): string {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  return value.toFixed(digits).replace(/\.0+$/, "");
+}
+
+function formatSignedPercent(value: number): string {
+  const rounded = Math.round(Number.isFinite(value) ? value : 0);
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
 function centerPercentToRatio(value: string): number {
   const percent = Math.max(0, Math.min(100, numberFromText(value, 100)));
   return Math.round((percent / 100) * ASMG_MD_CENTER_RATIO_MAX);
@@ -1386,13 +1959,9 @@ function servoLogicalCenter(servo: AsmgMdServoProfile): number {
 function canServoProfileFromConfig(servo: AsmgMdServoProfile, config: ReturnType<typeof readCanConfig>): AsmgMdServoProfile {
   return normalizeAsmgMdServoProfile({
     ...servo,
-    id: readTargetId(config.targetId),
     name: servo.name,
-    minDeg: numberFromText(config.minDeg, servo.minDeg ?? 0),
-    maxDeg: numberFromText(config.maxDeg, servo.maxDeg ?? 360),
-    direction: config.direction === -1 ? -1 : 1,
     bitrateKbps: config.bitrateKbps,
-    canBus: ROBOT_PROFILE.can.bus
+    canBus: servo.canBus ?? ROBOT_PROFILE.can.bus
   });
 }
 

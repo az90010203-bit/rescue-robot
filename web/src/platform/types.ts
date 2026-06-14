@@ -1,6 +1,6 @@
 export type PluginKind = "capability" | "driver" | "transport";
 
-export type CapabilityId = "servo" | "motor" | "camera" | "robot-arm" | "mecanum-drive" | "can-servo-group" | "raspberry-pi" | "firmware" | "gamepad" | "ai-vision" | "gpio" | "sensor";
+export type CapabilityId = "servo" | "motor" | "camera" | "robot-arm" | "tracked-drive" | "mecanum-drive" | "can-servo-group" | "raspberry-pi" | "firmware" | "gamepad" | "ai-vision" | "gpio" | "sensor";
 
 export type DeviceStatus = "online" | "offline" | "standby" | "error";
 

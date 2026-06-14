@@ -286,11 +286,12 @@ static uint32_t dropped_motion_count;
 static int32_t latest_motion_seq = -1;
 static uint32_t last_motion_apply_ms;
 static const char *active_command = "idle";
-static int32_t mecanum_direction[MOTOR_COUNT] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+static int32_t mecanum_direction[4] = { -1, -1, -1, -1 };
 static uint32_t mecanum_closed_loop = 1;
 static uint32_t mecanum_max_rpm = CLOSED_LOOP_MAX_RPM_DEFAULT;
 static uint32_t mecanum_encoder_ticks_per_rev = ENCODER_TICKS_PER_REV_DEFAULT;
-static const uint32_t mecanum_channel_map[4] = { 0, 1, 2, 3 };
+// Wheel order is FL, FR, RL, RR and must match the Web fixed profile: M3, M1, M4, M2.
+static const uint32_t mecanum_channel_map[4] = { 2, 0, 3, 1 };
 static uint32_t system_core_hz = 16000000u;
 static uint32_t debug_enabled;
 static uint32_t can_ready;
@@ -2072,18 +2073,18 @@ static void apply_mecanum_target_motion(const PendingMotion *motion) {
   if (abs_i32(rl_raw) > max_magnitude) max_magnitude = abs_i32(rl_raw);
   if (abs_i32(rr_raw) > max_magnitude) max_magnitude = abs_i32(rr_raw);
   fl = mecanum_speed_percent(fl_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[0]);
-  fr = mecanum_speed_percent(fr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[3]);
-  rl = mecanum_speed_percent(rl_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[1]);
-  rr = mecanum_speed_percent(rr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[2]);
+  fr = mecanum_speed_percent(fr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[1]);
+  rl = mecanum_speed_percent(rl_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[2]);
+  rr = mecanum_speed_percent(rr_raw, max_magnitude, motion->speed_limit_percent, mecanum_direction[3]);
   for (uint32_t index = 0; index < MOTOR_COUNT; ++index) {
     motors[index].closed_loop_enabled = mecanum_closed_loop && motor_pins[index].has_encoder;
     motors[index].closed_loop_max_rpm = mecanum_max_rpm;
     motors[index].encoder_ticks_per_rev = mecanum_encoder_ticks_per_rev;
   }
   apply_motor_speed(mecanum_channel_map[0], fl, motion->stop_mode);
-  apply_motor_speed(mecanum_channel_map[3], fr, motion->stop_mode);
-  apply_motor_speed(mecanum_channel_map[1], rl, motion->stop_mode);
-  apply_motor_speed(mecanum_channel_map[2], rr, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[1], fr, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[2], rl, motion->stop_mode);
+  apply_motor_speed(mecanum_channel_map[3], rr, motion->stop_mode);
   send_mecanum_feedback(motion->seq, motion->forward_milli, motion->strafe_milli, motion->turn_milli, motion->speed_limit_percent, motion->stop_mode, fl, fr, rl, rr);
 }
 
@@ -2323,9 +2324,9 @@ static void handle_mecanum_config(const char *line, int32_t seq) {
     mecanum_encoder_ticks_per_rev = (uint32_t)clamp_i32(value, 1, 100000);
   }
   if (json_int(line, "frontLeftDirection", &value)) mecanum_direction[0] = value < 0 ? -1 : 1;
-  if (json_int(line, "rearLeftDirection", &value)) mecanum_direction[1] = value < 0 ? -1 : 1;
-  if (json_int(line, "rearRightDirection", &value)) mecanum_direction[2] = value < 0 ? -1 : 1;
-  if (json_int(line, "frontRightDirection", &value)) mecanum_direction[3] = value < 0 ? -1 : 1;
+  if (json_int(line, "frontRightDirection", &value)) mecanum_direction[1] = value < 0 ? -1 : 1;
+  if (json_int(line, "rearLeftDirection", &value)) mecanum_direction[2] = value < 0 ? -1 : 1;
+  if (json_int(line, "rearRightDirection", &value)) mecanum_direction[3] = value < 0 ? -1 : 1;
   send_ack(seq, "mecanum.config");
   send_scheduler_feedback(seq, "mecanum.config", 1, "mecanum config updated");
 }

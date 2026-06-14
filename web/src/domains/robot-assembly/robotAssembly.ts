@@ -450,6 +450,9 @@ export function inferRobotAssemblyVisualKind(source: RobotAssemblySource, contex
   if (component.kind === "mecanum-drive") {
     return "mecanum-drive";
   }
+  if (component.kind === "tracked-drive") {
+    return "tracked-base";
+  }
   return isTrackedBaseComponent(component, context.pluginInstances) ? "tracked-base" : "component";
 }
 

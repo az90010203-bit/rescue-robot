@@ -65,7 +65,7 @@ export function useArchitectureRuntime({
     const module =
       capability === "servo"
         ? "servo"
-        : capability === "motor" || capability === "mecanum-drive" || capability === "can-servo-group"
+        : capability === "motor" || capability === "tracked-drive" || capability === "mecanum-drive" || capability === "can-servo-group"
           ? "motor"
           : capability === "robot-arm"
             ? "arm"

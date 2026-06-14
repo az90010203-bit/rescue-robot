@@ -211,6 +211,16 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
     catalogItemId: "catalog.toshiba.tb6618-motor",
     config: { channel: "M4", pwmPin: "PA3", in1Pin: "PA5", in2Pin: "PC5", encoderAPin: "PC4", encoderBPin: "PC3" }
   });
+  const trackLeftMotor = store.createPluginInstance(project.id, {
+    name: "Left Track M5",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "M5" }
+  });
+  const trackRightMotor = store.createPluginInstance(project.id, {
+    name: "Right Track M6",
+    catalogItemId: "catalog.toshiba.tb6618-motor",
+    config: { channel: "M6" }
+  });
   const armServo = store.createPluginInstance(project.id, legacyFeetechPluginPayload("Arm Joint 1", 8));
   const localCamera = store.createPluginInstance(project.id, {
     name: "Desk Camera",
@@ -281,6 +291,32 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
     /four unique motor plugin instances/
   );
   assert.deepEqual(store.deleteComponent(project.id, mecanumComponent.id), { deleted: true });
+
+  const trackedComponent = store.createComponent(project.id, {
+    name: "Tracked Base",
+    kind: "tracked-drive",
+    pluginInstanceIds: [trackLeftMotor.id, trackRightMotor.id],
+    config: {
+      tracks: {
+        leftTrack: trackLeftMotor.id,
+        rightTrack: trackRightMotor.id
+      },
+      directions: { rightTrack: -1 },
+      closedLoop: true,
+      maxRpm: 6000,
+      encoderTicksPerRev: 52
+    }
+  });
+  assert.equal(trackedComponent.kind, "tracked-drive");
+  assert.equal(trackedComponent.config.tracks.leftTrack, trackLeftMotor.id);
+  assert.equal(trackedComponent.config.closedLoop, true);
+  assert.throws(
+    () => store.updateComponent(project.id, trackedComponent.id, {
+      config: { tracks: { leftTrack: trackLeftMotor.id, rightTrack: trackLeftMotor.id } }
+    }),
+    /two unique motor plugin instances/
+  );
+  assert.deepEqual(store.deleteComponent(project.id, trackedComponent.id), { deleted: true });
 
   const canServoGroup = store.createComponent(project.id, {
     name: "CAN Group",
@@ -381,6 +417,8 @@ test("manages catalog, plugin instances, components, robots, and panel layouts",
   assert.deepEqual(store.deletePluginInstance(project.id, armServo.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, localCamera.id), { deleted: true });
   assert.deepEqual(store.deleteComponent(project.id, component.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, trackRightMotor.id), { deleted: true });
+  assert.deepEqual(store.deletePluginInstance(project.id, trackLeftMotor.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, frontRightMotor.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, rearRightMotor.id), { deleted: true });
   assert.deepEqual(store.deletePluginInstance(project.id, rearLeftMotor.id), { deleted: true });

@@ -78,6 +78,7 @@ export function summarizeRobotProjectTemplate(template: RobotProjectTemplate): R
     motor: 0,
     camera: 0,
     "robot-arm": 0,
+    "tracked-drive": 0,
     "mecanum-drive": 0,
     "can-servo-group": 0,
     "raspberry-pi": 0,

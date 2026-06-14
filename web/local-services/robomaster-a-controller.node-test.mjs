@@ -28,9 +28,9 @@ test("RoboMaster A controller owns mecanum defaults and latest-wins motion sched
   assert.match(firmware, /#define MOTOR_COUNT 8u/);
   assert.match(firmware, /#define MOTOR_SUPPORT_MESSAGE "A board firmware supports M1-M8"/);
   assert.match(firmware, /state->closed_loop_enabled = motor_pins\[index\]\.has_encoder \? 1u : 0u;/);
-  assert.match(firmware, /static int32_t mecanum_direction\[MOTOR_COUNT\] = \{ 1, 1, 1, 1, 1, 1, 1, 1 \};/);
+  assert.match(firmware, /static int32_t mecanum_direction\[4\] = \{ -1, -1, -1, -1 \};/);
   assert.match(firmware, /static uint32_t mecanum_closed_loop = 1;/);
-  assert.match(firmware, /static const uint32_t mecanum_channel_map\[4\] = \{ 0, 1, 2, 3 \};/);
+  assert.match(firmware, /static const uint32_t mecanum_channel_map\[4\] = \{ 2, 0, 3, 1 \};/);
   assert.match(firmware, /static void init_pwm_timers\(void\)/);
   assert.match(firmware, /init_pwm_timer\(TIM4_BASE\);/);
   assert.match(firmware, /init_pwm_timer\(TIM5_BASE\);/);

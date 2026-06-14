@@ -1,6 +1,8 @@
 export const zhCN = {
   translation: {
     actions: {
+      calibrateArmZero: "当前姿态设为折叠零位",
+      resetArmTarget: "重置机械臂目标",
       apply: "应用",
       check: "检查",
       configureCan: "配置 CAN",
@@ -23,6 +25,7 @@ export const zhCN = {
       setId: "设置 ID",
       setPid: "设置 PID",
       setBaud: "设置波特率",
+      stopAll: "全部停止",
       torque: "扭矩",
       use: "使用",
       writeBitrate: "写波特率",
@@ -53,6 +56,8 @@ export const zhCN = {
       title: "ASMG-MD CAN 舵机"
     },
     common: {
+      no: "否",
+      yes: "是",
       checking: "检查中",
       manual: "manual",
       score: "score"
@@ -74,6 +79,20 @@ export const zhCN = {
       title: "飞特舵机"
     },
     fields: {
+      angleStep: "角度步进",
+      elbowSign: "肘部方向",
+      forwardSpeed: "前后速度",
+      j1Sign: "J1 方向",
+      j2Sign: "J2 方向",
+      liftSpeed: "升降速度",
+      link1Length: "L1 长度",
+      link2Length: "L2 长度",
+      maxForward: "最大前伸",
+      maxHeight: "最高高度",
+      minForward: "最小前伸",
+      minHeight: "最低高度",
+      trimJ1: "J1 微调",
+      trimJ2: "J2 微调",
       acc: "加速度",
       bitrate: "CAN 波特率",
       centerPercent: "中心比例 %",
@@ -92,6 +111,7 @@ export const zhCN = {
       maxDeg: "最大角",
       minPulse: "最小脉宽",
       minDeg: "最小角",
+      motorSpeed: "电机速度 %",
       newId: "新 ID",
       pidD: "PID D",
       pidI: "PID I",
@@ -108,6 +128,18 @@ export const zhCN = {
       auto: "自动选择",
       axisMapping: "摇杆轴映射",
       buttonMapping: "按键映射",
+      diagnosticsTitle: "USB 手柄自检",
+      diag: {
+        activity: "输入活动",
+        api: "浏览器 API",
+        control: "控制发送",
+        device: "USB 设备",
+        lastTx: "最后 TX",
+        rawAxes: "原始摇杆轴",
+        rawButtons: "原始按钮值",
+        sourceGamepad: "手柄",
+        sourceManual: "主控"
+      },
       input: {
         backward: "后退",
         cameraDown: "相机下",
@@ -136,6 +168,8 @@ export const zhCN = {
       label: "语言"
     },
     logs: {
+      armCalibrated: "已用 ID9/ID10 反馈校准折叠零位",
+      armCalibrationFailed: "机械臂校准失败：{{message}}",
       canFailed: "CAN 操作失败：{{message}}",
       feetechFailed: "飞特操作失败：{{message}}",
       healthComplete: "健康检查完成：{{host}}",
@@ -147,6 +181,10 @@ export const zhCN = {
       priorityReset: "优先级已恢复默认值"
     },
     manual: {
+      armHint: "右摇杆控制手部目标速度：上下是前后，右/左是上升/下降。",
+      armNotCalibrated: "先把当前姿态设为折叠零位，校准前只预览，不下发真机。",
+      armTitle: "二连杆机械臂",
+      rightStick: "右摇杆",
       backward: "后退",
       canFrontTitle: "前方 CAN 组",
       canHint: "CAN 点动使用小角度位置步进。松开按钮后不再下发新目标，舵机会保持最后位置。",
@@ -177,6 +215,13 @@ export const zhCN = {
       turnRight: "右旋"
     },
     metrics: {
+      armForward: "前后目标",
+      armHeight: "高度目标",
+      calibrated: "已校准",
+      j1Target: "J1 目标",
+      j2Target: "J2 目标",
+      reachable: "可达",
+      workspace: "工作区",
       aBoardPort: "A-board 端口",
       aBoardSerial: "A-board 串口",
       activeCommand: "activeCommand",
@@ -262,8 +307,10 @@ export const zhCN = {
     },
     pwm: {
       commandTitle: "PWM 目标",
+      motorControlNote: "每个电机行都有独立速度；点击前进/后退会先配置对应通道，再通过 A-board bridge 下发开环 PWM 速度。",
+      motorControlTitle: "PWM 电机调速",
       motorStatusTitle: "PWM 电机映射",
-      note: "V1 只显示固定 PWM 舵机画像和目标脉宽；实际 PWM 舵机串口/MCU 命令还未接入。",
+      note: "这里显示固定 PWM 舵机画像；M1-M6 电机调速在下方直接下发。",
       title: "PWM 舵机"
     },
     settings: {
@@ -283,8 +330,11 @@ export const zhCN = {
       usbGadgetHostname: "USB 主机名"
     },
     status: {
+      limited: "已限制",
       bridgeOnline: "bridge online",
       closed: "closed",
+      disabled: "关闭",
+      enabled: "启用",
       notChecked: "未检查",
       notReady: "not ready",
       online: "在线",

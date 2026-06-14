@@ -10,8 +10,10 @@ import {
   isCustomGamepadMapping,
   keyboardInputFromPressedKeys,
   loadInputMapping,
+  robotGamepadInputFromGamepad,
   resolveGamepadPreset,
-  saveInputMapping
+  saveInputMapping,
+  selectGamepadByIndex
 } from "@domains/drive/inputMapping";
 
 describe("input mapping storage", () => {
@@ -100,6 +102,39 @@ describe("input mapping readers", () => {
       turn: 0
     });
   });
+
+  it("maps the field gamepad layout to D-pad mecanum, right-stick tracked, and left-stick CAN angle", () => {
+    const gamepad = createGamepad({
+      axes: [0.25, -0.8, -0.5, 0.75],
+      buttons: { 0: true, 12: true, 15: true }
+    });
+
+    expect(robotGamepadInputFromGamepad(gamepad, DEFAULT_INPUT_MAPPING.gamepad)).toMatchObject({
+      mecanum: {
+        forward: 1,
+        strafe: 1,
+        turn: 0,
+        stop: true
+      },
+      tracked: {
+        forward: expect.closeTo(-0.7159, 3),
+        strafe: 0,
+        turn: expect.closeTo(-0.4318, 3),
+        stop: true
+      },
+      canServoAngle: expect.closeTo(0.7727, 3),
+      stop: true
+    });
+  });
+
+  it("falls back to the first online gamepad when the saved index is stale", () => {
+    const first = createGamepad({ index: 0, id: "Current Gamepad" });
+    const second = createGamepad({ index: 2, id: "Other Gamepad" });
+
+    expect(selectGamepadByIndex([first, second], 1)).toBe(first);
+    expect(selectGamepadByIndex([first, second], 2)).toBe(second);
+    expect(selectGamepadByIndex([first, second], "")).toBe(first);
+  });
 });
 
 describe("gamepad presets", () => {
@@ -169,7 +204,7 @@ function createStorage(): Storage {
 }
 
 function createGamepad(
-  options: { axes?: number[]; buttons?: Record<number, boolean>; id?: string; mapping?: string } = {}
+  options: { axes?: number[]; buttons?: Record<number, boolean>; id?: string; index?: number; mapping?: string } = {}
 ): Gamepad {
   const axes = options.axes ?? [0, 0, 0, 0];
   const pressedButtons = options.buttons ?? {};
@@ -185,7 +220,7 @@ function createGamepad(
     connected: true,
     hapticActuators: [],
     id: options.id ?? "Test Gamepad",
-    index: 0,
+    index: options.index ?? 0,
     mapping: options.mapping ?? "standard",
     timestamp: 1
   } as unknown as Gamepad;

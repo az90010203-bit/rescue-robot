@@ -22,6 +22,8 @@ export type PlatformCommandType =
   | "robot-arm.teach.start"
   | "robot-arm.teach.stop"
   | "robot-arm.teach.play"
+  | "tracked-drive.set_velocity"
+  | "tracked-drive.stop"
   | "mecanum-drive.set_velocity"
   | "mecanum-drive.stop"
   | "can-servo-group.set_positions"
@@ -84,6 +86,8 @@ export const PLATFORM_COMMAND_TYPES = new Set<PlatformCommandType>([
   "robot-arm.teach.start",
   "robot-arm.teach.stop",
   "robot-arm.teach.play",
+  "tracked-drive.set_velocity",
+  "tracked-drive.stop",
   "mecanum-drive.set_velocity",
   "mecanum-drive.stop",
   "can-servo-group.set_positions",
@@ -126,6 +130,8 @@ const COMMAND_CAPABILITY: Record<PlatformCommandType, CapabilityId> = {
   "robot-arm.teach.start": "robot-arm",
   "robot-arm.teach.stop": "robot-arm",
   "robot-arm.teach.play": "robot-arm",
+  "tracked-drive.set_velocity": "tracked-drive",
+  "tracked-drive.stop": "tracked-drive",
   "mecanum-drive.set_velocity": "mecanum-drive",
   "mecanum-drive.stop": "mecanum-drive",
   "can-servo-group.set_positions": "can-servo-group",
@@ -153,6 +159,7 @@ const TARGET_CAPABILITY_BY_PREFIX: Array<[string, CapabilityId]> = [
   ["motor:", "motor"],
   ["camera:", "camera"],
   ["robot-arm:", "robot-arm"],
+  ["tracked-drive:", "tracked-drive"],
   ["mecanum-drive:", "mecanum-drive"],
   ["can-servo-group:", "can-servo-group"],
   ["servo-preset:", "servo"],
@@ -236,7 +243,7 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
       return "motor.set_speed targetRpm must be an integer from 1 to 30000";
     }
   }
-  if ((command.type === "motor.set_speed" || command.type === "motor.stop" || command.type === "mecanum-drive.set_velocity" || command.type === "mecanum-drive.stop") && command.payload.stopMode !== undefined && command.payload.stopMode !== "coast" && command.payload.stopMode !== "brake") {
+  if ((command.type === "motor.set_speed" || command.type === "motor.stop" || command.type === "tracked-drive.set_velocity" || command.type === "tracked-drive.stop" || command.type === "mecanum-drive.set_velocity" || command.type === "mecanum-drive.stop") && command.payload.stopMode !== undefined && command.payload.stopMode !== "coast" && command.payload.stopMode !== "brake") {
     return `${command.type} stopMode must be coast or brake`;
   }
   if (command.type === "motor.configure") {
@@ -266,6 +273,20 @@ export function validatePlatformCommand(command: PlatformCommand): string | null
       const value = command.payload.speedLimitPercent;
       if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
         return "mecanum-drive.set_velocity speedLimitPercent must be from 0 to 100";
+      }
+    }
+  }
+  if (command.type === "tracked-drive.set_velocity") {
+    for (const key of ["forward", "turn"]) {
+      const value = command.payload[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < -1 || value > 1) {
+        return `tracked-drive.set_velocity ${key} must be from -1 to 1`;
+      }
+    }
+    if (command.payload.speedLimitPercent !== undefined) {
+      const value = command.payload.speedLimitPercent;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+        return "tracked-drive.set_velocity speedLimitPercent must be from 0 to 100";
       }
     }
   }

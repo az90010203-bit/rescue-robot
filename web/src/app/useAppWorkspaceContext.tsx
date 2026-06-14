@@ -37,6 +37,7 @@ import { useAppStateRefs } from "@app/useAppStateRefs";
 import { servoRealtimeFeedbackFromResponse } from "@app/servoRealtimeFeedback";
 import { useAboardImuPollingRuntime } from "@app/useAboardImuPollingRuntime";
 import { useAiVisionRuntime } from "@domains/ai-vision/useAiVisionRuntime";
+import { useCanServoGamepadRuntime } from "@domains/can-servo/useCanServoGamepadRuntime";
 import {
   DEFAULT_BOOT_SELF_CHECK_GATE,
   pcCommandIsDangerous,
@@ -47,7 +48,7 @@ import { useDiagnosticAgentRuntime } from "@domains/diagnostic-agent/useDiagnost
 import { createArmCanvasRenderer, createPlatformPanelRenderer } from "@app/createWorkspaceRenderers";
 import { createAppPlatformCommandDispatcher } from "@app/appPlatformCommandBridge";
 import { useArchitectureRuntime } from "@workspaces/architecture/useArchitectureRuntime";
-import { DebugModule, FeetechStatusPacket, InboundMessage, MotorDirection, MotorProfile, MotorStopMode, MotorTarget, PcCommand, ServoProfile, DEFAULT_WHEEL_SPEED_LIMIT, applyServoWheelDirection, buildDebugSetCommand, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildMotorTargetCommand, buildPingFrame, buildReadFeedbackFrame, buildServoMoveCommand, buildWheelModeSetupFrames, buildWriteSpeedFrames, clamp, clampServoLogicalAngle, isServoDebugDisabledError, motorDirectionFromSpeed, normalizeMotorChannel, normalizeServoProfile, servoLogicalSpan, servoLogicalToPhysicalAngle, servoPhysicalToLogicalAngleWithReverse, toHex } from "@adapters/hardware/protocol";
+import { DebugModule, FeetechStatusPacket, InboundMessage, MotorDirection, MotorProfile, MotorStopMode, MotorTarget, PcCommand, ServoProfile, DEFAULT_WHEEL_SPEED_LIMIT, applyServoWheelDirection, buildDebugSetCommand, buildMotorConfigCommand, buildMotorSetCommand, buildMotorStopCommand, buildPingFrame, buildReadFeedbackFrame, buildServoMoveCommand, buildWheelModeSetupFrames, buildWriteSpeedFrames, clamp, clampServoLogicalAngle, isServoDebugDisabledError, motorDirectionFromSpeed, normalizeMotorChannel, normalizeServoProfile, servoLogicalSpan, servoLogicalToPhysicalAngle, servoPhysicalToLogicalAngleWithReverse, toHex } from "@adapters/hardware/protocol";
 import { AppConfigSnapshot, AppStateSnapshotV2, createAppConfigSnapshot, createAppStateSnapshotV2, loadOrMigrateAppConfigSnapshot, normalizeAppStateSnapshotV2, saveAppDatabaseSnapshot, PersistedActiveModule, PersistedLogEntry, PersistedServoCommandMap } from "@adapters/persistence/appDatabase";
 import { DataProject, DataTelemetryEntry, CurrentProjectState, appendEvents, appendTelemetry, checkDataService, createProject, endSession, listArmTeachTracks, listComponents, listPluginInstances, listProjects, loadCurrentProjectState, saveProjectState, selectProject, startSession } from "@adapters/data-service/dataService";
 import { createArmTuningProbeSequence } from "@domains/arm/armKinematics";
@@ -277,7 +278,6 @@ export function useAppWorkspaceContext() {
     };
   }, [currentProject?.id, databaseStatus]);
   const driveRuntime = useDriveInput({
-    activeModule,
     addSystemLog,
     components: runtimeArchitectureComponents,
     pluginInstances: runtimeArchitecturePluginInstances,
@@ -313,6 +313,7 @@ export function useAppWorkspaceContext() {
     setSelectedGamepadIndex,
     setSelectedGamepadPreset,
     speedLimitPercent,
+    canServoGamepadAngle,
     updateGamepadAxis,
     updateGamepadButton,
     updateGamepadDeadzone,
@@ -412,7 +413,7 @@ export function useAppWorkspaceContext() {
     uploadRaspberryPiFile
   } = piRemote;
   const drivePreviewCommand = safeDriveCommandPreview(driveTargets, stopMode);
-  const driveCanCommand = motorControllerReady && activeModule === "camera";
+  const driveCanCommand = motorControllerReady;
   const webSerialAvailable = typeof navigator !== "undefined" && Boolean(navigator.serial);
   const basePlatformState = useMemo(
     () =>
@@ -574,6 +575,14 @@ export function useAppWorkspaceContext() {
     }
     return platformCommandsRuntime.dispatchPlatformCommand(command);
   }
+  useCanServoGamepadRuntime({
+    angleInput: canServoGamepadAngle,
+    components: runtimeArchitectureComponents,
+    dispatchPlatformCommand,
+    enabled: motorControllerReady,
+    nextSeq,
+    pluginInstances: runtimeArchitecturePluginInstances
+  });
   function hardwareGateBlocks(_label: string): boolean {
     return false;
   }
@@ -1236,15 +1245,6 @@ export function useAppWorkspaceContext() {
     }
   }
   function normalizeAboardSemanticCommand(command: PcCommand): PcCommand {
-    if (command.type === "motor.set") {
-      return buildMotorTargetCommand(command.seq, {
-        channel: String(command.channel ?? ""),
-        speedPercent: Number(command.speedPercent),
-        stopMode: command.stopMode === "brake" ? "brake" : "coast",
-        closedLoop: typeof command.closedLoop === "boolean" ? command.closedLoop : undefined,
-        targetRpm: typeof command.targetRpm === "number" ? command.targetRpm : undefined
-      });
-    }
     return command;
   }
   async function sendAboardCommandOutcome(command: PcCommand, options: { log?: boolean; timeoutMs?: number; exclusive?: boolean } = {}): Promise<AboardCommandOutcome> {

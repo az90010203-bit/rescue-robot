@@ -11,7 +11,7 @@ const GAMEPAD_AXES: GamepadAxisName[] = ["forward", "strafe", "turn"];
 const GAMEPAD_BUTTONS: GamepadButtonName[] = ["stop", "selectTracked", "selectMecanum", "cameraUp", "cameraDown", "cameraLeft", "cameraRight"];
 
 interface InputMappingSettingsPanelProps {
-  activeGamepad?: GamepadSummary;
+  activeGamepad?: GamepadSummary | null;
   applyGamepadPresetToDraft: () => void;
   gamepads: GamepadSummary[];
   mappingDraft: InputMapping;

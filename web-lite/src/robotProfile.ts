@@ -51,6 +51,34 @@ export interface LiteCanJogProfile {
   speedRaw: number;
 }
 
+export interface LiteArmProfile {
+  j1ServoId: number;
+  j2ServoId: number;
+  link1Length: number;
+  link2Length: number;
+  forwardSpeedPerSecond: number;
+  liftSpeedPerSecond: number;
+  deadzone: number;
+  commandIntervalMs: number;
+  maxAngleStepDeg: number;
+  minForward: number;
+  maxForward: number;
+  minHeight: number;
+  maxHeight: number;
+  minReachMargin: number;
+  maxReachMargin: number;
+  zeroJ1Deg: number;
+  zeroJ2Deg: number;
+  trimJ1Deg: number;
+  trimJ2Deg: number;
+  j1Sign: 1 | -1;
+  j2Sign: 1 | -1;
+  elbowSign: 1 | -1;
+  speedRaw: number;
+  acc: number;
+  calibrated: boolean;
+}
+
 export const ROBOT_PROFILE = {
   name: "Rescue Robot Lite",
   defaultPiHost: "rescue-pi.local",
@@ -75,9 +103,38 @@ export const ROBOT_PROFILE = {
     busBaudRate: 1000000,
     bridgeBaudRate: 115200,
     servos: [
+      { id: 9, name: "J1", minDeg: 180, maxDeg: 360, direction: 1 },
+      { id: 10, name: "J2", minDeg: 90, maxDeg: 270, direction: 1 },
       { id: 22, name: "ID22", minDeg: 0, maxDeg: 360, direction: 1 }
     ] satisfies ServoProfile[]
   },
+  arm: {
+    j1ServoId: 9,
+    j2ServoId: 10,
+    link1Length: 88,
+    link2Length: 88,
+    forwardSpeedPerSecond: 64,
+    liftSpeedPerSecond: 56,
+    deadzone: 0.12,
+    commandIntervalMs: 120,
+    maxAngleStepDeg: 3,
+    minForward: -18,
+    maxForward: 154,
+    minHeight: -88,
+    maxHeight: 126,
+    minReachMargin: 4,
+    maxReachMargin: 4,
+    zeroJ1Deg: 90,
+    zeroJ2Deg: 90,
+    trimJ1Deg: 0,
+    trimJ2Deg: 0,
+    j1Sign: 1,
+    j2Sign: 1,
+    elbowSign: 1,
+    speedRaw: 300,
+    acc: 30,
+    calibrated: false
+  } satisfies LiteArmProfile,
   pwmServos: [
     { id: "pwm-pan", name: "PWM Pan", silk: "S", pin: "PA0", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },
     { id: "pwm-tilt", name: "PWM Tilt", silk: "T", pin: "PA1", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },

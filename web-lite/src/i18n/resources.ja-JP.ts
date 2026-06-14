@@ -1,6 +1,8 @@
 export const jaJP = {
   translation: {
     actions: {
+      calibrateArmZero: "現在姿勢を折り畳みゼロに設定",
+      resetArmTarget: "アーム目標をリセット",
       apply: "適用",
       check: "確認",
       configureCan: "CAN 設定",
@@ -23,6 +25,7 @@ export const jaJP = {
       setId: "ID 設定",
       setPid: "PID 設定",
       setBaud: "ビットレート設定",
+      stopAll: "全停止",
       torque: "トルク",
       use: "使用",
       writeBitrate: "ビットレート書込",
@@ -53,6 +56,8 @@ export const jaJP = {
       title: "ASMG-MD CAN サーボ"
     },
     common: {
+      no: "いいえ",
+      yes: "はい",
       checking: "確認中",
       manual: "manual",
       score: "score"
@@ -74,6 +79,20 @@ export const jaJP = {
       title: "Feetech サーボ"
     },
     fields: {
+      angleStep: "角度ステップ",
+      elbowSign: "肘方向",
+      forwardSpeed: "前後速度",
+      j1Sign: "J1 方向",
+      j2Sign: "J2 方向",
+      liftSpeed: "昇降速度",
+      link1Length: "L1 長さ",
+      link2Length: "L2 長さ",
+      maxForward: "最大前方",
+      maxHeight: "最大高さ",
+      minForward: "最小前方",
+      minHeight: "最小高さ",
+      trimJ1: "J1 微調整",
+      trimJ2: "J2 微調整",
       acc: "加速度",
       bitrate: "CAN ビットレート",
       centerPercent: "中心比率 %",
@@ -92,6 +111,7 @@ export const jaJP = {
       maxDeg: "最大角",
       minPulse: "最小パルス",
       minDeg: "最小角",
+      motorSpeed: "モーター速度 %",
       newId: "新 ID",
       pidD: "PID D",
       pidI: "PID I",
@@ -108,6 +128,18 @@ export const jaJP = {
       auto: "自動選択",
       axisMapping: "軸マッピング",
       buttonMapping: "ボタンマッピング",
+      diagnosticsTitle: "USB ゲームパッド自己診断",
+      diag: {
+        activity: "入力活動",
+        api: "ブラウザー API",
+        control: "制御送信",
+        device: "USB デバイス",
+        lastTx: "最後の TX",
+        rawAxes: "生の軸値",
+        rawButtons: "生のボタン値",
+        sourceGamepad: "ゲームパッド",
+        sourceManual: "手動"
+      },
       input: {
         backward: "後退",
         cameraDown: "カメラ下",
@@ -136,6 +168,8 @@ export const jaJP = {
       label: "言語"
     },
     logs: {
+      armCalibrated: "ID9/ID10 のフィードバックで折り畳みゼロを校正しました",
+      armCalibrationFailed: "アーム校正に失敗しました: {{message}}",
       canFailed: "CAN 操作に失敗しました: {{message}}",
       feetechFailed: "Feetech 操作に失敗しました: {{message}}",
       healthComplete: "ヘルスチェック完了: {{host}}",
@@ -147,6 +181,10 @@ export const jaJP = {
       priorityReset: "優先度を既定値に戻しました"
     },
     manual: {
+      armHint: "右スティックで手先目標速度を操作します。上下は前後、右/左は上昇/下降です。",
+      armNotCalibrated: "実機へ送る前に折り畳みゼロを校正してください。未校正ではプレビューのみです。",
+      armTitle: "2リンクアーム",
+      rightStick: "右スティック",
       backward: "後退",
       canFrontTitle: "前方 CAN ペア",
       canHint: "CAN ジョグは小さな位置ステップで送信します。離すと新しい目標を止め、最後の位置を保持します。",
@@ -177,6 +215,13 @@ export const jaJP = {
       turnRight: "右旋回"
     },
     metrics: {
+      armForward: "前後目標",
+      armHeight: "高さ目標",
+      calibrated: "校正済み",
+      j1Target: "J1 目標",
+      j2Target: "J2 目標",
+      reachable: "到達可",
+      workspace: "作業範囲",
       aBoardPort: "A-board ポート",
       aBoardSerial: "A-board シリアル",
       activeCommand: "activeCommand",
@@ -262,8 +307,10 @@ export const jaJP = {
     },
     pwm: {
       commandTitle: "PWM 目標",
+      motorControlNote: "各モーター行が個別の速度を保持します。前進/後退は対象チャンネルを先に設定してから、A-board bridge で開ループ PWM 速度を送信します。",
+      motorControlTitle: "PWM モーター速度",
       motorStatusTitle: "PWM モーターマッピング",
-      note: "V1 では固定 PWM サーボプロファイルと目標パルスのみを表示します。PWM サーボ用の MCU コマンド経路はまだ接続していません。",
+      note: "固定 PWM サーボプロファイルを表示します。M1-M6 のモーター速度コマンドは下で送信できます。",
       title: "PWM サーボ"
     },
     settings: {
@@ -283,8 +330,11 @@ export const jaJP = {
       usbGadgetHostname: "USB ホスト名"
     },
     status: {
+      limited: "制限中",
       bridgeOnline: "bridge online",
       closed: "closed",
+      disabled: "disabled",
+      enabled: "enabled",
       notChecked: "未確認",
       notReady: "not ready",
       online: "オンライン",

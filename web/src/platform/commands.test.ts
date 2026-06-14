@@ -13,6 +13,8 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("servo.set_id", "servo:22", { newId: 23, confirmSingleServo: true }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 45, stopMode: "brake", closedLoop: true, targetRpm: 1200 }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("tracked-drive.set_velocity", "tracked-drive:base", { forward: 0.4, turn: -0.1, speedLimitPercent: 70, stopMode: "brake" }))).toBeNull();
+    expect(validatePlatformCommand(createPlatformCommand("tracked-drive.stop", "tracked-drive:base", { stopMode: "brake" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 0.4, strafe: 0.2, turn: -0.1, speedLimitPercent: 70, stopMode: "brake" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.stop", "mecanum-drive:base", { stopMode: "brake" }))).toBeNull();
     expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
@@ -43,6 +45,7 @@ describe("platform commands", () => {
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 101 }))).toBe("motor.set_speed speedPercent must be from -100 to 100");
     expect(validatePlatformCommand(createPlatformCommand("motor.set_speed", "motor:M1", { speedPercent: 10, targetRpm: 0 }))).toBe("motor.set_speed targetRpm must be an integer from 1 to 30000");
     expect(validatePlatformCommand(createPlatformCommand("motor.configure", "motor:M1", { pwmPin: "D5", in1Pin: "D4", in2Pin: "D7", encoderTicksPerRev: -1 }))).toBe("motor.configure encoderTicksPerRev must be an integer from 1 to 100000");
+    expect(validatePlatformCommand(createPlatformCommand("tracked-drive.set_velocity", "tracked-drive:base", { forward: 0, turn: -2 }))).toBe("tracked-drive.set_velocity turn must be from -1 to 1");
     expect(validatePlatformCommand(createPlatformCommand("mecanum-drive.set_velocity", "mecanum-drive:base", { forward: 2, strafe: 0, turn: 0 }))).toBe("mecanum-drive.set_velocity forward must be from -1 to 1");
     expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", { positions: { servo1: 90 } }))).toBe("can-servo-group.set_positions requires pcCommands");
     expect(validatePlatformCommand(createPlatformCommand("can-servo-group.set_positions", "can-servo-group:claw", {
@@ -76,6 +79,10 @@ describe("platform commands", () => {
     expect(resolvePlatformCommandTarget(createPlatformCommand("ai-vision.helper.check", "ai-vision:local"))).toEqual({
       deviceId: "ai-vision:local",
       capability: "ai-vision"
+    });
+    expect(resolvePlatformCommandTarget(createPlatformCommand("tracked-drive.stop", "tracked-drive:base"))).toEqual({
+      deviceId: "tracked-drive:base",
+      capability: "tracked-drive"
     });
     expect(resolvePlatformCommandTarget(createPlatformCommand("mecanum-drive.stop", "mecanum-drive:base"))).toEqual({
       deviceId: "mecanum-drive:base",

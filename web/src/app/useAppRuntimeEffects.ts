@@ -218,17 +218,14 @@ export function useAppRuntimeEffects({
   }, [driveTargets, driveTargetsRef]);
 
   useEffect(() => {
-    if (activeModule !== "camera") {
+    if (!driveControllerReady) {
       lastDriveCommandRef.current = "";
       lastDriveSetupSignatureRef.current = "";
     }
-    if (!driveControllerReady) {
-      lastDriveSetupSignatureRef.current = "";
-    }
-  }, [activeModule, driveControllerReady, lastDriveCommandRef]);
+  }, [driveControllerReady, lastDriveCommandRef]);
 
   useEffect(() => {
-    if (activeModule !== "camera" || !driveControllerReady) {
+    if (!driveControllerReady) {
       return;
     }
     const timer = window.setInterval(async () => {
@@ -255,7 +252,7 @@ export function useAppRuntimeEffects({
       }
     }, 120);
     return () => window.clearInterval(timer);
-  }, [activeModule, addSystemLog, driveControllerReady, driveSetupMappings, driveTargetsRef, lastDriveCommandRef, nextSeq, sendAboardMotionBatch, stopMode]);
+  }, [addSystemLog, driveControllerReady, driveSetupMappings, driveTargetsRef, lastDriveCommandRef, nextSeq, sendAboardMotionBatch, stopMode]);
 
   useEffect(() => {
     if (activeModule !== "camera" || !cameraCanCommand || (driveInput.cameraPan === 0 && driveInput.cameraTilt === 0)) {

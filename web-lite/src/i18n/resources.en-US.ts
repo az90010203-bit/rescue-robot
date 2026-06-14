@@ -2,6 +2,7 @@ export const enUS = {
   translation: {
     actions: {
       apply: "Apply",
+      calibrateArmZero: "Set folded zero",
       check: "Check",
       configureCan: "Configure CAN",
       factoryReset: "Factory reset",
@@ -15,6 +16,7 @@ export const enUS = {
       readPosition: "Read position",
       readPositionCurrent: "Read position + current",
       readRawFrames: "Read raw frames",
+      resetArmTarget: "Reset arm target",
       restoreDefaults: "Restore defaults",
       saveCenter: "Save center",
       search: "Search",
@@ -23,6 +25,7 @@ export const enUS = {
       setId: "Set ID",
       setPid: "Set PID",
       setBaud: "Set bitrate",
+      stopAll: "Stop all",
       torque: "Torque",
       use: "Use",
       writeBitrate: "Write bitrate",
@@ -55,6 +58,8 @@ export const enUS = {
     common: {
       checking: "checking",
       manual: "manual",
+      no: "no",
+      yes: "yes",
       score: "score"
     },
     empty: {
@@ -75,6 +80,7 @@ export const enUS = {
     },
     fields: {
       acc: "Acceleration",
+      angleStep: "Angle step",
       bitrate: "CAN bitrate",
       centerPercent: "Center ratio %",
       centerPulse: "Center pulse",
@@ -84,14 +90,26 @@ export const enUS = {
       direction: "Direction",
       directionForward: "Forward",
       directionReverse: "Reverse",
+      elbowSign: "Elbow branch",
+      forwardSpeed: "Forward speed",
       frequency: "Frequency",
       gamepad: "Gamepad",
       gamepadPreset: "Gamepad preset",
       invert: "Invert",
+      j1Sign: "J1 sign",
+      j2Sign: "J2 sign",
+      liftSpeed: "Lift speed",
+      link1Length: "L1 length",
+      link2Length: "L2 length",
+      maxForward: "Max forward",
+      maxHeight: "Max height",
       maxPulse: "Max pulse",
       maxDeg: "Max angle",
+      minForward: "Min forward",
+      minHeight: "Min height",
       minPulse: "Min pulse",
       minDeg: "Min angle",
+      motorSpeed: "Motor speed %",
       newId: "New ID",
       pidD: "PID D",
       pidI: "PID I",
@@ -102,12 +120,26 @@ export const enUS = {
       pwmServo: "PWM servo",
       speedRaw: "Speed raw",
       targetId: "Target ID",
+      trimJ1: "J1 trim",
+      trimJ2: "J2 trim",
       torqueEnabled: "Torque enabled"
     },
     gamepad: {
       auto: "Auto-select",
       axisMapping: "Axis mapping",
       buttonMapping: "Button mapping",
+      diagnosticsTitle: "USB gamepad self-test",
+      diag: {
+        activity: "Input activity",
+        api: "Browser API",
+        control: "Control output",
+        device: "USB device",
+        lastTx: "Last TX",
+        rawAxes: "Raw axes",
+        rawButtons: "Raw buttons",
+        sourceGamepad: "gamepad",
+        sourceManual: "manual"
+      },
       input: {
         backward: "Backward",
         cameraDown: "Camera down",
@@ -136,6 +168,8 @@ export const enUS = {
       label: "Language"
     },
     logs: {
+      armCalibrated: "Arm folded zero calibrated from ID9/ID10 feedback",
+      armCalibrationFailed: "Arm calibration failed: {{message}}",
       canFailed: "CAN operation failed: {{message}}",
       feetechFailed: "Feetech operation failed: {{message}}",
       healthComplete: "Health check complete: {{host}}",
@@ -147,6 +181,9 @@ export const enUS = {
       priorityReset: "Priority values restored to defaults"
     },
     manual: {
+      armHint: "Right stick controls hand target speed: up/down is forward/back, right/left is lift/lower.",
+      armNotCalibrated: "Calibrate folded zero before real arm commands are sent. Preview stays active.",
+      armTitle: "Two-link arm",
       backward: "Backward",
       canFrontTitle: "Front CAN pair",
       canHint: "CAN jog uses small position steps. Releasing the button stops new targets and holds the last position.",
@@ -160,6 +197,7 @@ export const enUS = {
       mecanumHint: "D-pad / hold buttons send mecanum.target. Release sends mecanum.stop.",
       mecanumStop: "Mecanum stop",
       mecanumTitle: "Mecanum drive",
+      rightStick: "Right stick",
       stop: "Stop",
       stopReasonCleanup: "Manual control cleaned up",
       stopReasonGamepadDisabled: "Gamepad control disabled; manual motion stopped",
@@ -180,13 +218,18 @@ export const enUS = {
       aBoardPort: "A-board port",
       aBoardSerial: "A-board serial",
       activeCommand: "activeCommand",
+      armForward: "arm forward",
+      armHeight: "arm height",
       axes: "axes",
       baudRate: "baudRate",
       binaryReady: "binaryReady",
       buttons: "buttons",
+      calibrated: "calibrated",
       connected: "connected",
       currentRaw: "current raw",
       droppedMotion: "droppedMotion",
+      j1Target: "J1 target",
+      j2Target: "J2 target",
       lastError: "lastError",
       motionPending: "motionPending",
       ok: "ok",
@@ -196,11 +239,13 @@ export const enUS = {
       positionRaw: "position raw",
       protocol: "protocol",
       queueDepth: "queueDepth",
+      reachable: "reachable",
       requestCount: "requestCount",
       mapping: "mapping",
       messageCount: "messageCount",
       serialPort: "serialPort",
-      servoId: "servo ID"
+      servoId: "servo ID",
+      workspace: "workspace"
     },
     master: {
       cameraFeeds: "Cameras",
@@ -262,8 +307,10 @@ export const enUS = {
     },
     pwm: {
       commandTitle: "PWM target",
+      motorControlNote: "Each motor row keeps its own speed. Forward/reverse configures that channel first, then sends open-loop PWM speed through the A-board bridge.",
+      motorControlTitle: "PWM motor speed",
       motorStatusTitle: "PWM motor mapping",
-      note: "V1 shows the fixed PWM servo profile and target pulse only; the MCU command path for PWM servos is not wired yet.",
+      note: "The fixed PWM servo profile is shown here. M1-M6 motor speed commands are available below.",
       title: "PWM servo"
     },
     settings: {
@@ -285,6 +332,9 @@ export const enUS = {
     status: {
       bridgeOnline: "bridge online",
       closed: "closed",
+      disabled: "disabled",
+      enabled: "enabled",
+      limited: "limited",
       notChecked: "not checked",
       notReady: "not ready",
       online: "online",

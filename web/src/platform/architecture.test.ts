@@ -194,6 +194,37 @@ describe("three-layer architecture model", () => {
         }
       }
     }, wheelMotors)).toContain("unique");
+    const trackMotors = ["M5", "M6"].map((channel) => createPluginInstanceFromCatalog({ id: `track-${channel}`, name: channel, catalogItem: motorCatalog, config: { channel, pwmPin: `P${channel}`, in1Pin: `A${channel}`, in2Pin: `B${channel}` } }));
+    expect(validateComponentDefinition({
+      id: "tracked",
+      kind: "tracked-drive",
+      name: "Tracked",
+      pluginInstanceIds: trackMotors.map((plugin) => plugin.id),
+      tags: [],
+      config: {
+        tracks: {
+          leftTrack: "track-M5",
+          rightTrack: "track-M6"
+        },
+        directions: {},
+        closedLoop: true,
+        maxRpm: 6000,
+        encoderTicksPerRev: 52
+      }
+    }, [...trackMotors, servo])).toBeNull();
+    expect(validateComponentDefinition({
+      id: "bad-tracked",
+      kind: "tracked-drive",
+      name: "Bad Tracked",
+      pluginInstanceIds: ["track-M5", "track-M6"],
+      tags: [],
+      config: {
+        tracks: {
+          leftTrack: "track-M5",
+          rightTrack: "track-M5"
+        }
+      }
+    }, trackMotors)).toContain("unique");
     const canServos = [1, 2, 3, 4].map((id) => createPluginInstanceFromCatalog({
       id: `can-${id}`,
       name: `CAN ${id}`,

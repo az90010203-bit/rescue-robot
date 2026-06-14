@@ -90,6 +90,77 @@ function createOptions(overrides: Record<string, unknown> = {}) {
 }
 
 describe("app platform A-board semantic bridge", () => {
+  it("expands tracked drive velocity to M5 and M6 motor commands with component config", async () => {
+    const { options, sentBatches } = createOptions({
+      components: [
+        {
+          id: "tracked",
+          kind: "tracked-drive",
+          name: "Tracked Base",
+          config: {
+            closedLoop: true,
+            maxRpm: 6000,
+            encoderTicksPerRev: 52,
+            tracks: { leftTrack: "motor:m5", rightTrack: "motor:m6" },
+            directions: { leftTrack: 1, rightTrack: 1 },
+          },
+        },
+      ],
+      pluginInstances: [
+        motorPlugin("motor:m5", "M5", { pwmPin: "PH10", in1Pin: "PA0", in2Pin: "PA1", enablePin: "PH12", encoderAPin: "PA2", encoderBPin: "PA3" }),
+        motorPlugin("motor:m6", "M6", { pwmPin: "PD12", in1Pin: "PF1", in2Pin: "PE5", enablePin: "PI0", encoderAPin: "PE6", encoderBPin: "PC2" }),
+      ],
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("tracked-drive.set_velocity", "tracked-drive:tracked", {
+      forward: 1,
+      turn: 0,
+      speedLimitPercent: 40,
+      stopMode: "brake",
+    }));
+
+    expect(result.status).toBe("sent");
+    expect(sentBatches).toEqual([
+      [
+        expect.objectContaining({ type: "motor.config", seq: 10, channel: "M5", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 }),
+        expect.objectContaining({ type: "motor.config", seq: 11, channel: "M6", closedLoop: true, maxRpm: 6000, encoderTicksPerRev: 52 }),
+        { type: "motor.set", seq: 12, channel: "M5", speedPercent: 40, stopMode: "brake", closedLoop: true },
+        { type: "motor.set", seq: 13, channel: "M6", speedPercent: 40, stopMode: "brake", closedLoop: true },
+      ],
+    ]);
+  });
+
+  it("expands tracked drive stop to M5 and M6 motor stops", async () => {
+    const { options, sentBatches } = createOptions({
+      components: [
+        {
+          id: "tracked",
+          kind: "tracked-drive",
+          name: "Tracked Base",
+          config: {
+            closedLoop: true,
+            tracks: { leftTrack: "motor:m5", rightTrack: "motor:m6" },
+            directions: { leftTrack: 1, rightTrack: 1 },
+          },
+        },
+      ],
+      pluginInstances: [
+        motorPlugin("motor:m5", "M5", { pwmPin: "PH10", in1Pin: "PA0", in2Pin: "PA1" }),
+        motorPlugin("motor:m6", "M6", { pwmPin: "PD12", in1Pin: "PF1", in2Pin: "PE5" }),
+      ],
+    });
+    const dispatch = createAppPlatformCommandDispatcher(options as never);
+
+    const result = await dispatch(createPlatformCommand("tracked-drive.stop", "tracked-drive:tracked", { stopMode: "brake" }));
+
+    expect(result.status).toBe("sent");
+    expect(sentBatches).toEqual([[
+      { type: "motor.set", seq: 10, channel: "M5", speedPercent: 0, stopMode: "brake", closedLoop: true },
+      { type: "motor.set", seq: 11, channel: "M6", speedPercent: 0, stopMode: "brake", closedLoop: true },
+    ]]);
+  });
+
   it("sends one semantic mecanum target instead of expanding wheel commands", async () => {
     const { options, sentBatches } = createOptions();
     const dispatch = createAppPlatformCommandDispatcher(options as never);
@@ -264,3 +335,19 @@ describe("app platform A-board semantic bridge", () => {
     expect(sentBatches).toEqual([]);
   });
 });
+
+function motorPlugin(id: string, channel: string, config: Record<string, string>) {
+  return {
+    id,
+    name: channel,
+    type: "motor",
+    catalogItemId: null,
+    brand: "WHEELTEC",
+    model: "G513XL",
+    driverId: "driver.tb6618-motor",
+    transportId: "transport.controller-json",
+    capabilities: [{ id: "motor", features: ["pwm_control", "encoder_feedback"] }],
+    config: { channel, ...config },
+    tags: [],
+  };
+}

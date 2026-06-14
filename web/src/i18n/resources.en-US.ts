@@ -500,6 +500,7 @@ export const enUSResource = {
         "motor": "Motor",
         "camera": "Camera",
         "robot-arm": "Robot Arm",
+        "tracked-drive": "Tracked Drive",
         "mecanum-drive": "Mecanum Drive",
         "can-servo-group": "CAN Servo Group",
         "raspberry-pi": "Raspberry Pi",
@@ -751,11 +752,13 @@ export const enUSResource = {
         "kind": {
           "custom": "Custom Component",
           "robotArm": "Robot Arm",
+          "trackedDrive": "Tracked Drive",
           "mecanumDrive": "Mecanum Drive",
           "canServoGroup": "CAN Servo Group"
         },
         "noAvailablePluginInstances": "No available plugin instances",
         "createRobotArm": "Create Robot Arm",
+        "createTrackedDrive": "Create Tracked Drive",
         "createMecanumDrive": "Create Mecanum Drive",
         "createCanServoGroup": "Create CAN Servo Group",
         "createComponent": "Create Component",
@@ -764,6 +767,34 @@ export const enUSResource = {
         "empty": "No components yet",
         "pluginCount": "{{count}} plugins",
         "selectComponent": "Select a component"
+      },
+      "tracked": {
+        "tracks": {
+          "leftTrack": "Left track",
+          "rightTrack": "Right track"
+        },
+        "incomplete": "Incomplete",
+        "ready": "Ready",
+        "closedLoop": "Closed loop",
+        "maxRpm": "Max RPM",
+        "encoderTicksPerRev": "Encoder ticks / rev",
+        "closedLoopDefault": "Enable component closed-loop speed control",
+        "linkedSpeed": "Linked speed",
+        "speedPercent": "Speed",
+        "forward": "Forward",
+        "backward": "Backward",
+        "turnLeft": "Turn left",
+        "turnRight": "Turn right",
+        "stop": "Stop",
+        "channel": "Channel",
+        "motorPins": "PWM / IN",
+        "stbyPin": "STBY",
+        "encoderPins": "Encoder A / B",
+        "rpm": "RPM",
+        "ticks": "Ticks",
+        "targetRpm": "Target",
+        "reverse": "Reverse",
+        "save": "Save tracked drive"
       },
       "mecanum": {
         "wheels": {

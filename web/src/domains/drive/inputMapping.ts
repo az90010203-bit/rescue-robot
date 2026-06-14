@@ -59,7 +59,20 @@ export interface InputMapping {
   gamepad: GamepadMapping;
 }
 
+export interface RobotGamepadInput {
+  mecanum: DriveInputState;
+  tracked: DriveInputState;
+  canServoAngle: number;
+  stop: boolean;
+}
+
 export const INPUT_MAPPING_STORAGE_KEY = "rescue-robot.input-mapping.v1";
+export const ZERO_ROBOT_GAMEPAD_INPUT: RobotGamepadInput = {
+  mecanum: ZERO_DRIVE_INPUT,
+  tracked: ZERO_DRIVE_INPUT,
+  canServoAngle: 0,
+  stop: false
+};
 
 export const DEFAULT_INPUT_MAPPING: InputMapping = {
   keyboard: {
@@ -219,6 +232,13 @@ export function getGamepadPresetMapping(presetId: GamepadPresetId, descriptor?: 
   return cloneGamepadMapping(GAMEPAD_PRESETS[presetId].mapping);
 }
 
+export function selectGamepadByIndex<T extends { index: number }>(gamepads: readonly T[], selectedGamepadIndex: number | ""): T | null {
+  if (selectedGamepadIndex === "") {
+    return gamepads[0] ?? null;
+  }
+  return gamepads.find((gamepad) => gamepad.index === selectedGamepadIndex) ?? gamepads[0] ?? null;
+}
+
 export function resolveGamepadPreset(descriptor?: GamepadDescriptor | null): GamepadPreset {
   if (!descriptor) {
     return GAMEPAD_PRESETS.generic;
@@ -323,6 +343,35 @@ export function gamepadDriveInputFromGamepad(gamepad: Gamepad | null | undefined
   return driveBase === "tracked"
     ? { ...input, strafe: 0 }
     : { ...input, turn: 0 };
+}
+
+export function robotGamepadInputFromGamepad(gamepad: Gamepad | null | undefined, mapping: GamepadMapping): RobotGamepadInput {
+  if (!gamepad) {
+    return ZERO_ROBOT_GAMEPAD_INPUT;
+  }
+
+  const leftX = readAxis(gamepad, { index: 0, invert: false }, mapping.deadzone);
+  const leftY = readAxis(gamepad, { index: 1, invert: true }, mapping.deadzone);
+  const rightX = readAxis(gamepad, { index: 2, invert: false }, mapping.deadzone);
+  const rightY = readAxis(gamepad, { index: 3, invert: true }, mapping.deadzone);
+  const canServoAngle = Math.abs(leftY) >= Math.abs(leftX) ? leftY : leftX;
+
+  return {
+    mecanum: {
+      ...ZERO_DRIVE_INPUT,
+      forward: buttonAxis(gamepad, mapping.buttons.cameraUp, mapping.buttons.cameraDown),
+      strafe: buttonAxis(gamepad, mapping.buttons.cameraRight, mapping.buttons.cameraLeft),
+      stop: isButtonPressed(gamepad, mapping.buttons.stop)
+    },
+    tracked: {
+      ...ZERO_DRIVE_INPUT,
+      forward: rightY,
+      turn: rightX,
+      stop: isButtonPressed(gamepad, mapping.buttons.stop)
+    },
+    canServoAngle,
+    stop: isButtonPressed(gamepad, mapping.buttons.stop)
+  };
 }
 
 export function cloneMapping(mapping: InputMapping): InputMapping {

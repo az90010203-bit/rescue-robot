@@ -6,7 +6,7 @@ import { formatServoAngle, type ActiveModule, type GamepadSummary, type MotorFee
 import { Metric, PanelTitle } from "@shared/ui/AppChrome";
 
 interface FeedbackPanelProps {
-  activeGamepad?: GamepadSummary;
+  activeGamepad?: GamepadSummary | null;
   activeModule: ActiveModule;
   cameraCanCommand: boolean;
   cameraConfig: CameraConfig;
@@ -128,7 +128,7 @@ export function FeedbackPanel({
 }
 
 interface FeedbackMetaContext {
-  activeGamepad?: GamepadSummary;
+  activeGamepad?: GamepadSummary | null;
   cameraStreamUrl: string;
   selectedArmJoint: ArmJointConfig | null;
   selectedMotor: MotorProfile | undefined;
