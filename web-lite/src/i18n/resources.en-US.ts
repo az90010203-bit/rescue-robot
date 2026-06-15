@@ -3,6 +3,7 @@ export const enUS = {
     actions: {
       apply: "Apply",
       calibrateArmZero: "Set folded zero",
+      calibrateWristZero: "Set wrist zero",
       check: "Check",
       configureCan: "Configure CAN",
       factoryReset: "Factory reset",
@@ -95,12 +96,22 @@ export const enUS = {
       frequency: "Frequency",
       gamepad: "Gamepad",
       gamepadPreset: "Gamepad preset",
+      gravityCompensationEnabled: "Gravity compensation",
+      gravityMaxBias: "Gravity max bias",
       invert: "Invert",
+      j1GravityBias: "J1 gravity gain",
+      j1GravitySign: "J1 gravity sign",
       j1Sign: "J1 sign",
+      j2GravityBias: "J2 gravity gain",
+      j2GravitySign: "J2 gravity sign",
       j2Sign: "J2 sign",
       liftSpeed: "Lift speed",
+      link1ComRatio: "L1 COM ratio",
       link1Length: "L1 length",
+      link1Mass: "L1 mass g",
+      link2ComRatio: "L2 COM ratio",
       link2Length: "L2 length",
+      link2Mass: "L2 mass g",
       maxForward: "Max forward",
       maxHeight: "Max height",
       maxPulse: "Max pulse",
@@ -111,6 +122,8 @@ export const enUS = {
       minDeg: "Min angle",
       motorSpeed: "Motor speed %",
       newId: "New ID",
+      endEffectorMass: "End effector mass g",
+      payloadMass: "Payload mass g",
       pidD: "PID D",
       pidI: "PID I",
       pidP: "PID P",
@@ -120,9 +133,17 @@ export const enUS = {
       pwmServo: "PWM servo",
       speedRaw: "Speed raw",
       targetId: "Target ID",
+      toolLength: "Tool length",
+      toolPitchMax: "Tool pitch max",
+      toolPitchMin: "Tool pitch min",
+      toolPitchSpeed: "Tool pitch speed",
       trimJ1: "J1 trim",
       trimJ2: "J2 trim",
-      torqueEnabled: "Torque enabled"
+      torqueEnabled: "Torque enabled",
+      wristRollMax: "Wrist roll max",
+      wristRollMin: "Wrist roll min",
+      wristRollSpeed: "Wrist roll speed",
+      wristSpeedRaw: "Wrist speed raw"
     },
     gamepad: {
       auto: "Auto-select",
@@ -175,14 +196,18 @@ export const enUS = {
       healthComplete: "Health check complete: {{host}}",
       hostApplied: "Applied Pi host: {{host}}",
       manualCommandFailed: "{{label}} failed: {{message}}",
+      imuReadFailed: "IMU read failed: {{message}}",
       noPiCandidate: "No online Pi candidate found",
       piCandidateFound: "Pi candidate found: {{host}}",
       piSearchFailed: "Pi search failed: {{message}}",
-      priorityReset: "Priority values restored to defaults"
+      priorityReset: "Priority values restored to defaults",
+      wristCalibrated: "Wrist zero calibrated from ID21/ID22/ID23 feedback",
+      wristCalibrationFailed: "Wrist calibration failed: {{message}}"
     },
     manual: {
-      armHint: "Right stick controls hand target speed: up/down is forward/back, right/left is lift/lower.",
+      armHint: "Press Y to switch arm mode. Right stick moves forward/back on the locked plane and left/right adjusts plane height; left stick adjusts claw posture.",
       armNotCalibrated: "Calibrate folded zero before real arm commands are sent. Preview stays active.",
+      armStop: "Arm stop",
       armTitle: "Two-link arm",
       backward: "Backward",
       canFrontTitle: "Front CAN pair",
@@ -206,13 +231,105 @@ export const enUS = {
       stopReasonGamepadUnavailable: "Gamepad API unavailable; manual motion stopped",
       stopReasonHostChange: "Pi host changed; manual motion stopped",
       stopReasonWindow: "Window inactive; manual motion stopped",
+      stopReasonEnterArmMode: "Entered arm mode; chassis motion stopped",
+      stopReasonExitArmMode: "Exited arm mode; arm and wrist motion stopped",
       strafeLeft: "Left",
       strafeRight: "Right",
       trackedHint: "Left stick / hold buttons send M5 and M6 motor targets. Release sends motor stops.",
       trackedStop: "Tracked stop",
       trackedTitle: "Tracked drive",
       turnLeft: "Turn left",
-      turnRight: "Turn right"
+      turnRight: "Turn right",
+      wristNotCalibrated: "Calibrate wrist zero before ID21/ID22/ID23 live wrist commands are sent.",
+      wristTitle: "Wrist / claw"
+    },
+    machineClaw: {
+      actions: {
+        close: "Close",
+        emergencyStop: "Claw E-stop",
+        open: "Open",
+        pitchNegative: "Pitch down",
+        pitchPositive: "Pitch up",
+        readFeedback: "Read claw feedback",
+        rotateNegative: "Rotate CCW",
+        rotatePositive: "Rotate CW",
+        stop: "Stop claw",
+        stopClaw: "Stop open/close",
+        stopPitch: "Stop pitch",
+        stopRotation: "Stop rotation"
+      },
+      claw: {
+        title: "Open / close"
+      },
+      errors: {
+        bridgeRequired: "Pi servo bridge is not online.",
+        commandFailed: "Machine claw command failed.",
+        feedbackRequired: "Servo feedback is required before motion can run.",
+        zeroSpeed: "Claw speed is 0; increase it before open/close."
+      },
+      fields: {
+        acc: "acc",
+        clawReverse: "open/close reverse",
+        clawSpeed: "open/close speed",
+        closeTurns: "close turns",
+        openTurns: "open turns",
+        pitchLimitTurns: "pitch limit turns",
+        pitchReverse: "pitch reverse",
+        pitchSpeed: "pitch speed",
+        protectionCurrentMa: "current limit mA",
+        protectionEnabled: "enable protection",
+        protectionLoadPercent: "load limit %",
+        protectionMinRawDelta: "stall raw threshold",
+        protectionStallMs: "stall time ms",
+        protectionTemperatureC: "temperature limit C",
+        rotationLimitTurns: "rotation limit turns",
+        rotationClawReverse: "ID22 follow reverse",
+        rotationClawSpeed: "ID22 follow speed",
+        rotationReverse: "rotation reverse",
+        rotationSpeed: "rotation speed"
+      },
+      metrics: {
+        activeAction: "action",
+        bridge: "Pi servo",
+        lastResponse: "last response",
+        progress: "ID22 turns",
+        protection: "protection"
+      },
+      pitch: {
+        title: "Pitch"
+      },
+      rotation: {
+        title: "Rotation"
+      },
+      status: {
+        clawClose: "closing",
+        clawOpen: "opening",
+        error: "error",
+        idle: "idle",
+        noResponse: "no response",
+        pitchNegative: "pitch down",
+        pitchPositive: "pitch up",
+        rotationNegative: "rotating CCW",
+        rotationPositive: "rotating CW",
+        stopping: "stopping"
+      },
+      protection: {
+        active: "monitoring {{ids}}",
+        currentHigh: "current high",
+        disabled: "disabled",
+        feedbackLost: "feedback lost",
+        idle: "standby",
+        loadHigh: "load high",
+        stalled: "stalled",
+        stopped: "protection stop",
+        subtitle: "current / load / temperature / stall",
+        temperatureHigh: "temperature high",
+        title: "Protection",
+        tripMessage: "ID{{id}} {{reason}}: {{detail}}",
+        turnLimit: "turn limit reached"
+      },
+      subtitle: "Feetech ID21 / ID22 / ID23",
+      title: "End machine claw"
     },
     metrics: {
       aBoardPort: "A-board port",
@@ -228,8 +345,16 @@ export const enUS = {
       connected: "connected",
       currentRaw: "current raw",
       droppedMotion: "droppedMotion",
+      gravityCompensation: "gravity compensation",
+      gyroDps: "gyro dps",
+      imuSample: "IMU sample",
+      imuStatus: "IMU",
       j1Target: "J1 target",
       j2Target: "J2 target",
+      mpuWhoAmI: "MPU / IST",
+      planeLockHeight: "plane lock height",
+      poseLock: "pose lock",
+      rollPitch: "roll / pitch",
       lastError: "lastError",
       motionPending: "motionPending",
       ok: "ok",
@@ -245,6 +370,10 @@ export const enUS = {
       messageCount: "messageCount",
       serialPort: "serialPort",
       servoId: "servo ID",
+      toolPitch: "tool pitch",
+      wristCalibrated: "wrist zero",
+      wristCompensation: "wrist compensation",
+      wristRoll: "wrist roll",
       workspace: "workspace"
     },
     master: {
@@ -260,6 +389,109 @@ export const enUS = {
       label: "Workspace sections",
       pwm: "PWM servo",
       settings: "Settings"
+    },
+    operator: {
+      backup: "backup",
+      deviceStates: {
+        notConnected: "not connected"
+      },
+      devices: {
+        aBoard: "A-board",
+        camera: "Camera",
+        gamepad: "Gamepad",
+        imu: "IMU",
+        piServo: "Pi servo"
+      },
+      gamepad: "Gamepad",
+      handMode: "Hand mode",
+      handModeArm: "Arm",
+      handModeDrive: "Drive",
+      gamepadDiagram: {
+        actions: {
+          armMove: "Arm F/L",
+          armModeReserved: "Arm reserved",
+          armModeStandby: "Y for arm",
+          clawClose: "Close claw",
+          clawOpen: "Open claw",
+          driveLocked: "Drive locked",
+          enterArmMode: "Arm mode",
+          exitArmMode: "Exit arm",
+          frontCanMinus: "Front CAN -",
+          frontCanPlus: "Front CAN +",
+          mecanumBackward: "Mecanum back",
+          mecanumForward: "Mecanum forward",
+          mecanumLeft: "Mecanum left",
+          mecanumRight: "Mecanum right",
+          rearCanMinus: "Rear CAN -",
+          rearCanPlus: "Rear CAN +",
+          planeMove: "Plane forward/height",
+          poseAdjust: "Adjust locked pose",
+          stopManual: "Stop manual",
+          toolPosition: "Tool X/Z",
+          trackedDrive: "Tracked drive",
+          wristPose: "Wrist pitch/roll"
+        },
+        activeCount: "{{count}} active",
+        dpad: "D-pad",
+        idle: "idle",
+        keys: {
+          a: "A button",
+          dpadDown: "D-pad down",
+          dpadLeft: "D-pad left",
+          dpadRight: "D-pad right",
+          dpadUp: "D-pad up",
+          lb: "LB",
+          leftStick: "Left stick",
+          lt: "LT",
+          rb: "RB",
+          rightStick: "Right stick",
+          rt: "RT",
+          y: "Y button"
+        },
+        statusActive: "input active",
+        statusDisabled: "control disabled",
+        statusNoGamepad: "no gamepad",
+        statusReady: "ready",
+        title: "Gamepad diagram"
+      },
+      gamepadWarning: "No gamepad detected. On-screen buttons are backup controls.",
+      lastError: "Last error",
+      lastStop: "Stop reason",
+      lastTx: "Last TX",
+      mode: "Console mode",
+      modeEngineering: "Engineering",
+      modeOperator: "Operator",
+      piConnection: "Pi connection",
+      piHost: "Pi host",
+      reconnect: "Reconnect",
+      required: "required",
+      roles: {
+        arm: "Arm J1/J2",
+        can: "CAN J1-J4",
+        claw: "Claw 21/22/23",
+        imu: "Attitude IMU",
+        mecanum: "Mecanum drive",
+        pwm: "PWM S/T/U/V",
+        tracked: "Tracked drive"
+      },
+      safetyMeta: "whole robot",
+      safetyTitle: "Safety stop",
+      statusRail: "Status rail",
+      stopReasonIdle: "No stop recorded",
+      stopReasonManual: "Operator triggered whole-robot stop",
+      stopWholeRobot: "E-stop all",
+      tuning: "Tuning"
+    },
+    imu: {
+      actions: {
+        read: "Read IMU"
+      },
+      errors: {
+        bridgeRequired: "A-board bridge is not online.",
+        noFeedback: "A-board did not return IMU feedback.",
+        notReady: "IMU is not ready."
+      },
+      title: "IMU attitude"
     },
     nodes: {
       aBoardBridge: "A-board Bridge",
@@ -341,7 +573,8 @@ export const enUS = {
       open: "open",
       ready: "ready",
       reachableSerialClosed: "reachable / serial closed",
-      standby: "standby"
+      standby: "standby",
+      syncing: "syncing"
     }
   }
 } as const;

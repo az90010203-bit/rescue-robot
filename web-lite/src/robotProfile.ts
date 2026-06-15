@@ -58,6 +58,8 @@ export interface LiteArmProfile {
   link2Length: number;
   forwardSpeedPerSecond: number;
   liftSpeedPerSecond: number;
+  toolPitchSpeedDegPerSecond: number;
+  wristRollSpeedDegPerSecond: number;
   deadzone: number;
   commandIntervalMs: number;
   maxAngleStepDeg: number;
@@ -65,26 +67,71 @@ export interface LiteArmProfile {
   maxForward: number;
   minHeight: number;
   maxHeight: number;
+  toolLengthMm: number;
+  toolPitchMinDeg: number;
+  toolPitchMaxDeg: number;
+  wristRollMinDeg: number;
+  wristRollMaxDeg: number;
   minReachMargin: number;
   maxReachMargin: number;
   zeroJ1Deg: number;
   zeroJ2Deg: number;
+  wristZeroRaw21: number;
+  wristZeroRaw22: number;
+  wristZeroRaw23: number;
+  wristZeroPitchLocalDeg: number;
+  wristZeroRollDeg: number;
   trimJ1Deg: number;
   trimJ2Deg: number;
   j1Sign: 1 | -1;
   j2Sign: 1 | -1;
   elbowSign: 1 | -1;
+  pitchDegPerTurn: number;
+  rollDegPerTurn: number;
+  rotationClawFollowRatio: number;
+  wristSpeedRaw: number;
+  gravityCompensationEnabled: boolean;
+  link1MassG: number;
+  link2MassG: number;
+  endEffectorMassG: number;
+  payloadMassG: number;
+  link1ComRatio: number;
+  link2ComRatio: number;
+  j1GravityBiasDegPerNm: number;
+  j2GravityBiasDegPerNm: number;
+  j1GravitySign: 1 | -1;
+  j2GravitySign: 1 | -1;
+  gravityMaxBiasDeg: number;
   speedRaw: number;
   acc: number;
   calibrated: boolean;
+  wristCalibrated: boolean;
+}
+
+export interface LiteOperationRole {
+  id: "arm" | "can" | "claw" | "imu" | "mecanum" | "pwm" | "tracked";
+  labelKey: string;
+  deviceRefs: string[];
+  required: boolean;
 }
 
 export const ROBOT_PROFILE = {
   name: "Rescue Robot Lite",
-  defaultPiHost: "rescue-pi.local",
+  defaultPiHost: "192.168.1.12",
+  operation: {
+    roles: [
+      { id: "mecanum", labelKey: "operator.roles.mecanum", deviceRefs: ["M1", "M2", "M3", "M4"], required: true },
+      { id: "tracked", labelKey: "operator.roles.tracked", deviceRefs: ["M5", "M6"], required: true },
+      { id: "arm", labelKey: "operator.roles.arm", deviceRefs: ["ID9", "ID10"], required: true },
+      { id: "claw", labelKey: "operator.roles.claw", deviceRefs: ["ID21", "ID22", "ID23"], required: true },
+      { id: "imu", labelKey: "operator.roles.imu", deviceRefs: ["MPU6500", "IST8310"], required: true },
+      { id: "can", labelKey: "operator.roles.can", deviceRefs: ["CAN J1", "CAN J2", "CAN J3", "CAN J4"], required: false },
+      { id: "pwm", labelKey: "operator.roles.pwm", deviceRefs: ["S", "T", "U", "V"], required: false }
+    ] satisfies LiteOperationRole[]
+  },
   piCandidates: [
-    { host: "rescue-pi.local", label: "USB hostname", source: "usb-gadget-hostname" },
     { host: "raspberrypi.local", label: "mDNS hostname", source: "mdns" },
+    { host: "rescue-pi.local", label: "USB hostname", source: "usb-gadget-hostname" },
     { host: "10.12.194.1", label: "USB gadget fallback", source: "usb-gadget-fallback" },
     { host: "10.43.0.1", label: "Manual USB fallback", source: "manual-usb-fallback" }
   ] satisfies PiDiscoveryCandidate[],
@@ -105,7 +152,9 @@ export const ROBOT_PROFILE = {
     servos: [
       { id: 9, name: "J1", minDeg: 180, maxDeg: 360, direction: 1 },
       { id: 10, name: "J2", minDeg: 90, maxDeg: 270, direction: 1 },
-      { id: 22, name: "ID22", minDeg: 0, maxDeg: 360, direction: 1 }
+      { id: 21, name: "Claw Pitch L", minDeg: 0, maxDeg: 360, direction: 1 },
+      { id: 22, name: "Claw Open", minDeg: 0, maxDeg: 360, direction: 1 },
+      { id: 23, name: "Claw Pitch R", minDeg: 0, maxDeg: 360, direction: 1 }
     ] satisfies ServoProfile[]
   },
   arm: {
@@ -115,6 +164,8 @@ export const ROBOT_PROFILE = {
     link2Length: 88,
     forwardSpeedPerSecond: 64,
     liftSpeedPerSecond: 56,
+    toolPitchSpeedDegPerSecond: 54,
+    wristRollSpeedDegPerSecond: 90,
     deadzone: 0.12,
     commandIntervalMs: 120,
     maxAngleStepDeg: 3,
@@ -122,18 +173,45 @@ export const ROBOT_PROFILE = {
     maxForward: 154,
     minHeight: -88,
     maxHeight: 126,
+    toolLengthMm: 0,
+    toolPitchMinDeg: -90,
+    toolPitchMaxDeg: 90,
+    wristRollMinDeg: -360,
+    wristRollMaxDeg: 360,
     minReachMargin: 4,
     maxReachMargin: 4,
     zeroJ1Deg: 90,
     zeroJ2Deg: 90,
+    wristZeroRaw21: 0,
+    wristZeroRaw22: 0,
+    wristZeroRaw23: 0,
+    wristZeroPitchLocalDeg: 0,
+    wristZeroRollDeg: 0,
     trimJ1Deg: 0,
     trimJ2Deg: 0,
     j1Sign: 1,
     j2Sign: 1,
     elbowSign: 1,
+    pitchDegPerTurn: 360,
+    rollDegPerTurn: 360,
+    rotationClawFollowRatio: 0.4,
+    wristSpeedRaw: 300,
+    gravityCompensationEnabled: false,
+    link1MassG: 120,
+    link2MassG: 100,
+    endEffectorMassG: 180,
+    payloadMassG: 0,
+    link1ComRatio: 0.5,
+    link2ComRatio: 0.5,
+    j1GravityBiasDegPerNm: 2.5,
+    j2GravityBiasDegPerNm: 1.5,
+    j1GravitySign: 1,
+    j2GravitySign: 1,
+    gravityMaxBiasDeg: 6,
     speedRaw: 300,
     acc: 30,
-    calibrated: false
+    calibrated: false,
+    wristCalibrated: false
   } satisfies LiteArmProfile,
   pwmServos: [
     { id: "pwm-pan", name: "PWM Pan", silk: "S", pin: "PA0", frequencyHz: 50, minPulseUs: 500, centerPulseUs: 1500, maxPulseUs: 2500 },

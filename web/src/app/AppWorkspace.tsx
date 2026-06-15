@@ -29,6 +29,11 @@ const CanServoTestPage = lazy(async () => {
   return { default: module.CanServoTestPage };
 });
 
+const MachineClawTestPage = lazy(async () => {
+  const module = await import("@workspaces/machine-claw/MachineClawTestPage");
+  return { default: module.MachineClawTestPage };
+});
+
 const DrivePage = lazy(async () => {
   const module = await import("@workspaces/drive/DrivePage");
   return { default: module.DrivePage };
@@ -550,6 +555,27 @@ export function AppWorkspace({ ctx }: AppWorkspaceProps) {
                   updateArmJoint={updateArmJoint}
                   updateArmJointNumber={updateArmJointNumber}
                   updateArmJointServo={updateArmJointServo}
+                />
+              </Suspense>
+            ) : activeSection === "tests" && activeTest === "machineClaw" ? (
+              <Suspense fallback={<div className="empty-state">{t("loading.machineClaw")}</div>}>
+                <MachineClawTestPage
+                  config={ctx.machineClawTestConfig}
+                  nextCommandSeq={ctx.nextCommandSeq}
+                  onConfigChange={ctx.updateMachineClawTestConfig}
+                  piServoBridge={{
+                    busy: ctx.piServoBridgeBusy,
+                    connected: ctx.piServoBridgeConnected,
+                    detail: ctx.piServoBridgeDetail,
+                    error: ctx.piServoBridgeError,
+                    label: ctx.piServoBridgeLabel,
+                    tone: ctx.piServoBridgeTone,
+                    check: ctx.checkPiServoSerialBridge,
+                    disconnect: ctx.disconnectPiServoSerialBridge,
+                    start: ctx.startPiServoSerialBridge
+                  }}
+                  sendPiServoBridgeCommand={ctx.sendPiServoBridgeCommand}
+                  t={t}
                 />
               </Suspense>
             ) : activeSection === "tests" && activeTest === "driveCamera" ? (

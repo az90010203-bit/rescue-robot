@@ -47,6 +47,6 @@ export function shouldAutoCheckPiServoBridgeContext(state: PiServoBridgeAutoChec
   return (
     state.activeModule === "servo" ||
     state.activeModule === "arm" ||
-    (state.activeSection === "tests" && (state.activeTest === "servo" || state.activeTest === "arm" || state.activeTest === "arm3d"))
+    (state.activeSection === "tests" && (state.activeTest === "servo" || state.activeTest === "arm" || state.activeTest === "arm3d" || state.activeTest === "machineClaw"))
   );
 }

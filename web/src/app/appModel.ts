@@ -42,7 +42,7 @@ export interface LogEntry {
 export type ActiveModule = "servo" | "arm" | "motor" | "camera" | "mapping";
 export type ArchitectureSection = "plugins" | "components" | "robots";
 export type AppSection = "console" | ArchitectureSection | "tests" | "settings";
-export type TestPanel = "servo" | "motor" | "arm" | "arm3d" | "driveCamera" | "pi" | "canServo";
+export type TestPanel = "servo" | "motor" | "arm" | "arm3d" | "machineClaw" | "driveCamera" | "pi" | "canServo";
 export type ConnectionMode = "servo-bus" | "controller";
 export type ServoControlMode = "position" | "wheel";
 export type ServoMotionDisplayStatus = "idle" | "smoothing" | "paused" | "unreachable";

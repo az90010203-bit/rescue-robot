@@ -2,6 +2,7 @@ export const zhCN = {
   translation: {
     actions: {
       calibrateArmZero: "当前姿态设为折叠零位",
+      calibrateWristZero: "当前手腕设为零位",
       resetArmTarget: "重置机械臂目标",
       apply: "应用",
       check: "检查",
@@ -106,13 +107,25 @@ export const zhCN = {
       frequency: "频率",
       gamepad: "手柄",
       gamepadPreset: "手柄预设",
+      gravityCompensationEnabled: "重力补偿",
+      gravityMaxBias: "补偿最大角",
       invert: "反向",
+      j1GravityBias: "J1 补偿增益",
+      j1GravitySign: "J1 补偿方向",
+      j2GravityBias: "J2 补偿增益",
+      j2GravitySign: "J2 补偿方向",
+      link1ComRatio: "L1 重心比例",
+      link1Mass: "L1 质量 g",
+      link2ComRatio: "L2 重心比例",
+      link2Mass: "L2 质量 g",
       maxPulse: "最大脉宽",
       maxDeg: "最大角",
       minPulse: "最小脉宽",
       minDeg: "最小角",
       motorSpeed: "电机速度 %",
       newId: "新 ID",
+      endEffectorMass: "末端质量 g",
+      payloadMass: "负载质量 g",
       pidD: "PID D",
       pidI: "PID I",
       pidP: "PID P",
@@ -122,7 +135,15 @@ export const zhCN = {
       pwmServo: "PWM 舵机",
       speedRaw: "速度 raw",
       targetId: "目标 ID",
-      torqueEnabled: "启用扭矩"
+      toolLength: "末端长度",
+      toolPitchMax: "俯仰上限",
+      toolPitchMin: "俯仰下限",
+      toolPitchSpeed: "俯仰速度",
+      torqueEnabled: "启用扭矩",
+      wristRollMax: "旋转上限",
+      wristRollMin: "旋转下限",
+      wristRollSpeed: "旋转速度",
+      wristSpeedRaw: "手腕速度 raw"
     },
     gamepad: {
       auto: "自动选择",
@@ -175,14 +196,18 @@ export const zhCN = {
       healthComplete: "健康检查完成：{{host}}",
       hostApplied: "已应用 Pi 主机：{{host}}",
       manualCommandFailed: "{{label}} 失败：{{message}}",
+      imuReadFailed: "IMU 读取失败：{{message}}",
       noPiCandidate: "未发现在线 Pi 候选",
       piCandidateFound: "发现候选 Pi：{{host}}",
       piSearchFailed: "Pi 搜索失败：{{message}}",
-      priorityReset: "优先级已恢复默认值"
+      priorityReset: "优先级已恢复默认值",
+      wristCalibrated: "已用 ID21/ID22/ID23 反馈校准手腕零位",
+      wristCalibrationFailed: "手腕校准失败：{{message}}"
     },
     manual: {
-      armHint: "右摇杆控制手部目标速度：上下是前后，右/左是上升/下降。",
+      armHint: "按 Y 切换机械臂模式。右摇杆前后沿锁定平面移动，左右调整平面高度；左摇杆调整机器爪姿态。",
       armNotCalibrated: "先把当前姿态设为折叠零位，校准前只预览，不下发真机。",
+      armStop: "机械臂停止",
       armTitle: "二连杆机械臂",
       rightStick: "右摇杆",
       backward: "后退",
@@ -206,13 +231,105 @@ export const zhCN = {
       stopReasonGamepadUnavailable: "手柄 API 不可用，手动运动已停止",
       stopReasonHostChange: "Pi 主机已切换，手动运动已停止",
       stopReasonWindow: "窗口失焦，手动运动已停止",
+      stopReasonEnterArmMode: "已进入机械臂模式，底盘运动已停止",
+      stopReasonExitArmMode: "已退出机械臂模式，机械臂和手腕运动已停止",
       strafeLeft: "左移",
       strafeRight: "右移",
       trackedHint: "左摇杆 / 按住按钮发送 M5、M6 电机目标，松开发送 motor.stop。",
       trackedStop: "履带停止",
       trackedTitle: "履带底盘",
       turnLeft: "左旋",
-      turnRight: "右旋"
+      turnRight: "右旋",
+      wristNotCalibrated: "先校准手腕零位，才会向 ID21/ID22/ID23 下发实时手腕命令。",
+      wristTitle: "手腕/机器爪"
+    },
+    machineClaw: {
+      actions: {
+        close: "合爪",
+        emergencyStop: "机器爪急停",
+        open: "开爪",
+        pitchNegative: "俯仰下",
+        pitchPositive: "俯仰上",
+        readFeedback: "读爪反馈",
+        rotateNegative: "反向旋转",
+        rotatePositive: "正向旋转",
+        stop: "停止机器爪",
+        stopClaw: "停止开合",
+        stopPitch: "停止俯仰",
+        stopRotation: "停止旋转"
+      },
+      claw: {
+        title: "开合"
+      },
+      errors: {
+        bridgeRequired: "Pi servo bridge 未在线。",
+        commandFailed: "机器爪命令失败。",
+        feedbackRequired: "动作前需要先读到舵机反馈。",
+        zeroSpeed: "开合速度为 0，先调高速度再开合。"
+      },
+      fields: {
+        acc: "加速度",
+        clawReverse: "开合反向",
+        clawSpeed: "开合速度",
+        closeTurns: "合爪圈数",
+        openTurns: "开爪圈数",
+        pitchLimitTurns: "俯仰限位圈数",
+        pitchReverse: "俯仰反向",
+        pitchSpeed: "俯仰速度",
+        protectionCurrentMa: "电流上限 mA",
+        protectionEnabled: "启用保护",
+        protectionLoadPercent: "负载上限 %",
+        protectionMinRawDelta: "卡滞 raw 阈值",
+        protectionStallMs: "卡滞时间 ms",
+        protectionTemperatureC: "温度上限 C",
+        rotationLimitTurns: "旋转限位圈数",
+        rotationClawReverse: "ID22 跟随反向",
+        rotationClawSpeed: "ID22 跟随速度",
+        rotationReverse: "旋转反向",
+        rotationSpeed: "旋转速度"
+      },
+      metrics: {
+        activeAction: "当前动作",
+        bridge: "Pi servo",
+        lastResponse: "最后响应",
+        progress: "ID22 圈数",
+        protection: "保护"
+      },
+      pitch: {
+        title: "俯仰"
+      },
+      rotation: {
+        title: "旋转"
+      },
+      status: {
+        clawClose: "合爪中",
+        clawOpen: "开爪中",
+        error: "错误",
+        idle: "空闲",
+        noResponse: "暂无响应",
+        pitchNegative: "俯仰下",
+        pitchPositive: "俯仰上",
+        rotationNegative: "反向旋转中",
+        rotationPositive: "正向旋转中",
+        stopping: "停止中"
+      },
+      protection: {
+        active: "监控 {{ids}}",
+        currentHigh: "电流过高",
+        disabled: "已关闭",
+        feedbackLost: "反馈丢失",
+        idle: "待命",
+        loadHigh: "负载过高",
+        stalled: "卡滞",
+        stopped: "保护停止",
+        subtitle: "电流 / 负载 / 温度 / 卡滞",
+        temperatureHigh: "温度过高",
+        title: "保护",
+        tripMessage: "ID{{id}} {{reason}}：{{detail}}",
+        turnLimit: "到达圈数限位"
+      },
+      subtitle: "飞特 ID21 / ID22 / ID23",
+      title: "末端机器爪"
     },
     metrics: {
       armForward: "前后目标",
@@ -220,6 +337,13 @@ export const zhCN = {
       calibrated: "已校准",
       j1Target: "J1 目标",
       j2Target: "J2 目标",
+      gyroDps: "陀螺 dps",
+      imuSample: "IMU 样本",
+      imuStatus: "IMU",
+      mpuWhoAmI: "MPU / IST",
+      planeLockHeight: "平面锁定高度",
+      poseLock: "姿态锁定",
+      rollPitch: "横滚 / 俯仰",
       reachable: "可达",
       workspace: "工作区",
       aBoardPort: "A-board 端口",
@@ -232,6 +356,7 @@ export const zhCN = {
       connected: "connected",
       currentRaw: "current raw",
       droppedMotion: "droppedMotion",
+      gravityCompensation: "重力补偿",
       lastError: "lastError",
       motionPending: "motionPending",
       ok: "ok",
@@ -245,7 +370,11 @@ export const zhCN = {
       mapping: "mapping",
       messageCount: "messageCount",
       serialPort: "serialPort",
-      servoId: "servo ID"
+      servoId: "servo ID",
+      toolPitch: "手腕俯仰",
+      wristCalibrated: "手腕零位",
+      wristCompensation: "手腕补偿",
+      wristRoll: "手腕旋转"
     },
     master: {
       cameraFeeds: "摄像头",
@@ -260,6 +389,109 @@ export const zhCN = {
       label: "工作区分类",
       pwm: "PWM 舵机",
       settings: "设置"
+    },
+    operator: {
+      backup: "备用",
+      deviceStates: {
+        notConnected: "未连接"
+      },
+      devices: {
+        aBoard: "A-board",
+        camera: "摄像头",
+        gamepad: "手柄",
+        imu: "IMU",
+        piServo: "Pi servo"
+      },
+      gamepad: "手柄",
+      handMode: "手柄模式",
+      handModeArm: "机械臂",
+      handModeDrive: "驾驶",
+      gamepadDiagram: {
+        actions: {
+          armMove: "机械臂前后/升降",
+          armModeReserved: "机械臂模式保留",
+          armModeStandby: "Y 进入机械臂",
+          clawClose: "合爪",
+          clawOpen: "开爪",
+          driveLocked: "底盘锁定",
+          enterArmMode: "机械臂模式",
+          exitArmMode: "退出机械臂",
+          frontCanMinus: "前 CAN -",
+          frontCanPlus: "前 CAN +",
+          mecanumBackward: "麦轮后退",
+          mecanumForward: "麦轮前进",
+          mecanumLeft: "麦轮左移",
+          mecanumRight: "麦轮右移",
+          rearCanMinus: "后 CAN -",
+          rearCanPlus: "后 CAN +",
+          planeMove: "平面前后/调高度",
+          poseAdjust: "调整锁定姿态",
+          stopManual: "停止手柄",
+          toolPosition: "末端 X/Z",
+          trackedDrive: "履带底盘",
+          wristPose: "手腕俯仰/旋转"
+        },
+        activeCount: "{{count}} 个触发",
+        dpad: "方向键",
+        idle: "空闲",
+        keys: {
+          a: "A 键",
+          dpadDown: "方向键下",
+          dpadLeft: "方向键左",
+          dpadRight: "方向键右",
+          dpadUp: "方向键上",
+          lb: "LB",
+          leftStick: "左摇杆",
+          lt: "LT",
+          rb: "RB",
+          rightStick: "右摇杆",
+          rt: "RT",
+          y: "Y 键"
+        },
+        statusActive: "正在输入",
+        statusDisabled: "控制未启用",
+        statusNoGamepad: "未检测到手柄",
+        statusReady: "就绪",
+        title: "手柄示意图"
+      },
+      gamepadWarning: "未检测到手柄，页面按钮仅作为备份控制。",
+      lastError: "最近错误",
+      lastStop: "停止原因",
+      lastTx: "最后 TX",
+      mode: "控制台模式",
+      modeEngineering: "工程模式",
+      modeOperator: "操作模式",
+      piConnection: "Pi 连接",
+      piHost: "Pi 主机",
+      reconnect: "重连",
+      required: "必需",
+      roles: {
+        arm: "机械臂 J1/J2",
+        can: "CAN J1-J4",
+        claw: "机器爪 21/22/23",
+        imu: "姿态 IMU",
+        mecanum: "麦轮底盘",
+        pwm: "PWM S/T/U/V",
+        tracked: "履带底盘"
+      },
+      safetyMeta: "全机器人",
+      safetyTitle: "安全停止",
+      statusRail: "状态轨",
+      stopReasonIdle: "暂无停止记录",
+      stopReasonManual: "操作员触发全局急停",
+      stopWholeRobot: "全局急停",
+      tuning: "调节"
+    },
+    imu: {
+      actions: {
+        read: "读取 IMU"
+      },
+      errors: {
+        bridgeRequired: "A-board bridge 未在线。",
+        noFeedback: "A-board 没有返回 IMU 反馈。",
+        notReady: "IMU 未就绪。"
+      },
+      title: "IMU 姿态"
     },
     nodes: {
       aBoardBridge: "A-board Bridge",
@@ -336,12 +568,13 @@ export const zhCN = {
       disabled: "关闭",
       enabled: "启用",
       notChecked: "未检查",
-      notReady: "not ready",
+      notReady: "未就绪",
       online: "在线",
       open: "open",
       ready: "ready",
       reachableSerialClosed: "可达 / 串口关闭",
-      standby: "待命"
+      standby: "待命",
+      syncing: "同步中"
     }
   }
 } as const;

@@ -138,7 +138,8 @@ bool Bus::writePosition(uint8_t id, uint16_t positionRaw, uint16_t speedRaw, int
 }
 
 bool Bus::writeSpeed(uint8_t id, int16_t speedRaw, uint8_t acc, StatusPacket* status) {
-  if (!write(id, kAccAddr, {acc}, nullptr)) {
+  StatusPacket accStatus;
+  if (!write(id, kAccAddr, {acc}, &accStatus) || accStatus.status != 0) {
     return false;
   }
   std::vector<uint8_t> speedData;

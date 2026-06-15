@@ -180,6 +180,7 @@ export const jaJPResource = {
     "loading": {
       "console": "コンソールを読み込み中...",
       "arm3d": "3D アームを読み込み中...",
+      "machineClaw": "マシンクローを読み込み中...",
       "architecture": "三層アーキテクチャ作業領域を読み込み中...",
       "workspaceErrorTitle": "ワークスペースを読み込めませんでした",
       "workspaceErrorHint": "ページを再読み込みするか、別のワークスペースへ切り替えてから再試行してください。"
@@ -208,6 +209,7 @@ export const jaJPResource = {
       "motor": "モーターテスト",
       "arm": "アームテスト",
       "arm3d": "3D アーム",
+      "machineClaw": "マシンクロー",
       "driveCamera": "駆動 / カメラ",
       "canServo": "CAN サーボ",
       "pi": "Raspberry Pi リモート"
@@ -458,6 +460,7 @@ export const jaJPResource = {
       "firmwareUpload": "ローカル書き込み",
       "piRemote": "Raspberry Pi リモート",
       "canServo": "CAN サーボテスト",
+      "machineClaw": "マシンクロー",
       "armJoints": "アーム関節",
       "armControl": "アーム制御",
       "armKinematics": "運動学 / 調整",
@@ -1284,6 +1287,69 @@ export const jaJPResource = {
         "factoryReset": "ID{{id}} 工場出荷設定 ACK",
         "move": "ID{{id}} 位置 {{position}} / 速度 {{speed}}",
         "unknown": "不明フレーム {{data}}"
+      }
+    },
+    "machineClaw": {
+      "pitch": {
+        "title": "ピッチ"
+      },
+      "rotation": {
+        "title": "回転"
+      },
+      "claw": {
+        "title": "開閉"
+      },
+      "actions": {
+        "checkBridge": "ブリッジ確認",
+        "startBridge": "ブリッジ起動",
+        "emergencyStop": "緊急停止",
+        "pitchPositive": "ピッチ +",
+        "pitchNegative": "ピッチ -",
+        "rotatePositive": "回転 +",
+        "rotateNegative": "回転 -",
+        "open": "開く",
+        "close": "閉じる",
+        "stopPitch": "ピッチ停止",
+        "stopRotation": "回転停止",
+        "stopClaw": "開閉停止"
+      },
+      "fields": {
+        "pitchSpeed": "ピッチ速度",
+        "rotationSpeed": "回転速度",
+        "rotationClawSpeed": "ID22 追従速度",
+        "clawSpeed": "開閉速度",
+        "acc": "加速度",
+        "pitchReverse": "ピッチ反転",
+        "rotationReverse": "回転反転",
+        "rotationClawReverse": "ID22 追従反転",
+        "clawReverse": "開閉反転",
+        "openTurns": "開く回転数",
+        "closeTurns": "閉じる回転数"
+      },
+      "metrics": {
+        "bridge": "Pi サーボブリッジ",
+        "bridgeDetail": "ブリッジ詳細",
+        "activeAction": "動作",
+        "progress": "ID22 回転数",
+        "lastResponse": "最終応答"
+      },
+      "status": {
+        "idle": "待機",
+        "pitchPositive": "ピッチ +",
+        "pitchNegative": "ピッチ -",
+        "rotationPositive": "回転 +",
+        "rotationNegative": "回転 -",
+        "clawOpen": "開いています",
+        "clawClose": "閉じています",
+        "stopping": "停止中",
+        "error": "エラー",
+        "noResponse": "応答なし",
+        "noBridgeDetail": "--"
+      },
+      "errors": {
+        "bridgeRequired": "先に Pi サーボブリッジへ接続してください。",
+        "feedbackRequired": "ID22 のフィードバック読取に失敗したため、開閉動作を開始しませんでした。",
+        "commandFailed": "マシンクローコマンドに失敗しました。"
       }
     },
     "imu": {

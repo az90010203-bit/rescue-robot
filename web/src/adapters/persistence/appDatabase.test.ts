@@ -28,6 +28,7 @@ import {
   SERVO_LIBRARY_STORAGE_KEY,
   createDefaultArmConfig
 } from "@adapters/persistence/storage";
+import { DEFAULT_MACHINE_CLAW_TEST_CONFIG } from "@domains/machine-claw/machineClaw";
 
 describe("app database snapshots", () => {
   it("migrates an empty IndexedDB from legacy localStorage values", async () => {
@@ -140,6 +141,7 @@ describe("app database snapshots", () => {
     expect(snapshot.servoSmoothing).toEqual(DEFAULT_SERVO_SMOOTHING_SETTINGS);
     expect(snapshot.armConfig.joints).toHaveLength(1);
     expect(snapshot.armConfig.liveDragEnabled).toBe(false);
+    expect(snapshot.machineClawTest).toEqual(DEFAULT_MACHINE_CLAW_TEST_CONFIG);
     expect(snapshot.motorLinkageGroups).toEqual([]);
     expect(snapshot.inputMapping).toEqual(DEFAULT_INPUT_MAPPING);
     expect(snapshot.lastActiveModule).toBe("servo");
@@ -207,6 +209,39 @@ describe("app database snapshots", () => {
     expect(stored?.servoCommands[22]).toMatchObject({ mode: "wheel", speedRaw: "300", wheelTurnsTarget: "2", wheelSliderDeg: "150" });
     expect(legacyStorage.getItem(SERVO_LIBRARY_STORAGE_KEY)).toContain("ID22");
     expect(legacyStorage.getItem(MOTOR_LINKAGE_GROUPS_STORAGE_KEY)).toBe("[]");
+  });
+
+  it("normalizes and reloads machine claw project settings", async () => {
+    const indexedDb = createIndexedDb();
+    const snapshot = createSnapshot({
+      machineClawTest: {
+        ...DEFAULT_MACHINE_CLAW_TEST_CONFIG,
+        pitchSpeedRaw: 460,
+        rotationSpeedRaw: 520,
+        rotationClawSpeedRaw: 180,
+        clawSpeedRaw: 260,
+        acc: 70,
+        pitchReverse: true,
+        rotationClawReverse: true,
+        openTurns: 2.5,
+        closeTurns: 1.25
+      }
+    });
+
+    await saveAppDatabaseSnapshot(snapshot, indexedDb);
+    const stored = await loadAppDatabaseSnapshot(indexedDb);
+
+    expect(stored?.machineClawTest).toMatchObject({
+      pitchSpeedRaw: 460,
+      rotationSpeedRaw: 520,
+      rotationClawSpeedRaw: 180,
+      clawSpeedRaw: 260,
+      acc: 70,
+      pitchReverse: true,
+      rotationClawReverse: true,
+      openTurns: 2.5,
+      closeTurns: 1.25
+    });
   });
 
   it("fills and clamps wheel slider values for old command snapshots", () => {

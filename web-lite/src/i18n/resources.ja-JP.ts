@@ -2,6 +2,7 @@ export const jaJP = {
   translation: {
     actions: {
       calibrateArmZero: "現在姿勢を折り畳みゼロに設定",
+      calibrateWristZero: "現在の手首をゼロに設定",
       resetArmTarget: "アーム目標をリセット",
       apply: "適用",
       check: "確認",
@@ -106,13 +107,25 @@ export const jaJP = {
       frequency: "周波数",
       gamepad: "ゲームパッド",
       gamepadPreset: "ゲームパッドプリセット",
+      gravityCompensationEnabled: "重力補償",
+      gravityMaxBias: "補償最大角",
       invert: "反転",
+      j1GravityBias: "J1 補償ゲイン",
+      j1GravitySign: "J1 補償方向",
+      j2GravityBias: "J2 補償ゲイン",
+      j2GravitySign: "J2 補償方向",
+      link1ComRatio: "L1 重心比率",
+      link1Mass: "L1 質量 g",
+      link2ComRatio: "L2 重心比率",
+      link2Mass: "L2 質量 g",
       maxPulse: "最大パルス",
       maxDeg: "最大角",
       minPulse: "最小パルス",
       minDeg: "最小角",
       motorSpeed: "モーター速度 %",
       newId: "新 ID",
+      endEffectorMass: "エンド質量 g",
+      payloadMass: "積載質量 g",
       pidD: "PID D",
       pidI: "PID I",
       pidP: "PID P",
@@ -122,7 +135,15 @@ export const jaJP = {
       pwmServo: "PWM サーボ",
       speedRaw: "速度 raw",
       targetId: "ターゲット ID",
-      torqueEnabled: "トルク有効"
+      toolLength: "ツール長",
+      toolPitchMax: "ピッチ上限",
+      toolPitchMin: "ピッチ下限",
+      toolPitchSpeed: "ピッチ速度",
+      torqueEnabled: "トルク有効",
+      wristRollMax: "ロール上限",
+      wristRollMin: "ロール下限",
+      wristRollSpeed: "ロール速度",
+      wristSpeedRaw: "手首速度 raw"
     },
     gamepad: {
       auto: "自動選択",
@@ -175,14 +196,18 @@ export const jaJP = {
       healthComplete: "ヘルスチェック完了: {{host}}",
       hostApplied: "Pi ホストを適用: {{host}}",
       manualCommandFailed: "{{label}} に失敗しました: {{message}}",
+      imuReadFailed: "IMU 読み取り失敗: {{message}}",
       noPiCandidate: "オンラインの Pi 候補は見つかりません",
       piCandidateFound: "Pi 候補を発見: {{host}}",
       piSearchFailed: "Pi 検索に失敗しました: {{message}}",
-      priorityReset: "優先度を既定値に戻しました"
+      priorityReset: "優先度を既定値に戻しました",
+      wristCalibrated: "ID21/ID22/ID23 のフィードバックで手首ゼロを校正しました",
+      wristCalibrationFailed: "手首校正に失敗しました: {{message}}"
     },
     manual: {
-      armHint: "右スティックで手先目標速度を操作します。上下は前後、右/左は上昇/下降です。",
+      armHint: "Y でアームモードを切り替えます。右スティック前後はロック平面上の前後、左右は平面高さ調整、左スティックはクロー姿勢調整です。",
       armNotCalibrated: "実機へ送る前に折り畳みゼロを校正してください。未校正ではプレビューのみです。",
+      armStop: "アーム停止",
       armTitle: "2リンクアーム",
       rightStick: "右スティック",
       backward: "後退",
@@ -206,20 +231,119 @@ export const jaJP = {
       stopReasonGamepadUnavailable: "ゲームパッド API が使えないため手動動作を停止しました",
       stopReasonHostChange: "Pi ホスト変更のため手動動作を停止しました",
       stopReasonWindow: "ウィンドウが非アクティブになり、手動動作を停止しました",
+      stopReasonEnterArmMode: "アームモードに入り、シャーシ動作を停止しました",
+      stopReasonExitArmMode: "アームモードを終了し、アームと手首動作を停止しました",
       strafeLeft: "左移動",
       strafeRight: "右移動",
       trackedHint: "左スティック / 長押しボタンで M5 と M6 の motor.target を送り、離すと motor.stop を送ります。",
       trackedStop: "履帯停止",
       trackedTitle: "履帯駆動",
       turnLeft: "左旋回",
-      turnRight: "右旋回"
+      turnRight: "右旋回",
+      wristNotCalibrated: "ID21/ID22/ID23 へ手首コマンドを送る前に手首ゼロを校正してください。",
+      wristTitle: "手首 / クロー"
+    },
+    machineClaw: {
+      actions: {
+        close: "閉じる",
+        emergencyStop: "クロー緊急停止",
+        open: "開く",
+        pitchNegative: "ピッチ下",
+        pitchPositive: "ピッチ上",
+        readFeedback: "クローFB読取",
+        rotateNegative: "逆回転",
+        rotatePositive: "正回転",
+        stop: "クロー停止",
+        stopClaw: "開閉停止",
+        stopPitch: "ピッチ停止",
+        stopRotation: "回転停止"
+      },
+      claw: {
+        title: "開閉"
+      },
+      errors: {
+        bridgeRequired: "Pi servo bridge がオンラインではありません。",
+        commandFailed: "マシンクローコマンドに失敗しました。",
+        feedbackRequired: "動作前にサーボフィードバックが必要です。",
+        zeroSpeed: "開閉速度が 0 です。速度を上げてから実行してください。"
+      },
+      fields: {
+        acc: "加速度",
+        clawReverse: "開閉反転",
+        clawSpeed: "開閉速度",
+        closeTurns: "閉じる回転数",
+        openTurns: "開く回転数",
+        pitchLimitTurns: "ピッチ限界回転数",
+        pitchReverse: "ピッチ反転",
+        pitchSpeed: "ピッチ速度",
+        protectionCurrentMa: "電流上限 mA",
+        protectionEnabled: "保護を有効化",
+        protectionLoadPercent: "負荷上限 %",
+        protectionMinRawDelta: "停止 raw しきい値",
+        protectionStallMs: "停止判定 ms",
+        protectionTemperatureC: "温度上限 C",
+        rotationLimitTurns: "回転限界回転数",
+        rotationClawReverse: "ID22追従反転",
+        rotationClawSpeed: "ID22追従速度",
+        rotationReverse: "回転反転",
+        rotationSpeed: "回転速度"
+      },
+      metrics: {
+        activeAction: "動作",
+        bridge: "Pi servo",
+        lastResponse: "最終応答",
+        progress: "ID22 回転",
+        protection: "保護"
+      },
+      pitch: {
+        title: "ピッチ"
+      },
+      rotation: {
+        title: "回転"
+      },
+      status: {
+        clawClose: "閉じています",
+        clawOpen: "開いています",
+        error: "エラー",
+        idle: "待機",
+        noResponse: "応答なし",
+        pitchNegative: "ピッチ下",
+        pitchPositive: "ピッチ上",
+        rotationNegative: "逆回転中",
+        rotationPositive: "正回転中",
+        stopping: "停止中"
+      },
+      protection: {
+        active: "{{ids}} 監視中",
+        currentHigh: "電流過大",
+        disabled: "無効",
+        feedbackLost: "フィードバック喪失",
+        idle: "待機",
+        loadHigh: "負荷過大",
+        stalled: "停止検出",
+        stopped: "保護停止",
+        subtitle: "電流 / 負荷 / 温度 / 停止",
+        temperatureHigh: "温度過大",
+        title: "保護",
+        tripMessage: "ID{{id}} {{reason}}: {{detail}}",
+        turnLimit: "回転数限界"
+      },
+      subtitle: "Feetech ID21 / ID22 / ID23",
+      title: "エンドマシンクロー"
     },
     metrics: {
       armForward: "前後目標",
       armHeight: "高さ目標",
       calibrated: "校正済み",
+      gyroDps: "ジャイロ dps",
+      imuSample: "IMU サンプル",
+      imuStatus: "IMU",
       j1Target: "J1 目標",
       j2Target: "J2 目標",
+      mpuWhoAmI: "MPU / IST",
+      planeLockHeight: "平面ロック高さ",
+      poseLock: "姿勢ロック",
+      rollPitch: "ロール / ピッチ",
       reachable: "到達可",
       workspace: "作業範囲",
       aBoardPort: "A-board ポート",
@@ -232,6 +356,7 @@ export const jaJP = {
       connected: "connected",
       currentRaw: "current raw",
       droppedMotion: "droppedMotion",
+      gravityCompensation: "重力補償",
       lastError: "lastError",
       motionPending: "motionPending",
       ok: "ok",
@@ -245,7 +370,11 @@ export const jaJP = {
       mapping: "mapping",
       messageCount: "messageCount",
       serialPort: "serialPort",
-      servoId: "servo ID"
+      servoId: "servo ID",
+      toolPitch: "手首ピッチ",
+      wristCalibrated: "手首ゼロ",
+      wristCompensation: "手首補正",
+      wristRoll: "手首ロール"
     },
     master: {
       cameraFeeds: "カメラ",
@@ -260,6 +389,109 @@ export const jaJP = {
       label: "ワークスペース分類",
       pwm: "PWM サーボ",
       settings: "設定"
+    },
+    operator: {
+      backup: "予備",
+      deviceStates: {
+        notConnected: "未接続"
+      },
+      devices: {
+        aBoard: "A-board",
+        camera: "カメラ",
+        gamepad: "ゲームパッド",
+        imu: "IMU",
+        piServo: "Pi servo"
+      },
+      gamepad: "ゲームパッド",
+      handMode: "操作モード",
+      handModeArm: "アーム",
+      handModeDrive: "走行",
+      gamepadDiagram: {
+        actions: {
+          armMove: "アーム前後/上下",
+          armModeReserved: "アームモード予備",
+          armModeStandby: "Y でアーム",
+          clawClose: "クロー閉",
+          clawOpen: "クロー開",
+          driveLocked: "走行ロック",
+          enterArmMode: "アームモード",
+          exitArmMode: "アーム終了",
+          frontCanMinus: "前 CAN -",
+          frontCanPlus: "前 CAN +",
+          mecanumBackward: "メカナム後退",
+          mecanumForward: "メカナム前進",
+          mecanumLeft: "メカナム左移動",
+          mecanumRight: "メカナム右移動",
+          rearCanMinus: "後 CAN -",
+          rearCanPlus: "後 CAN +",
+          planeMove: "平面前後/高さ",
+          poseAdjust: "ロック姿勢調整",
+          stopManual: "手動停止",
+          toolPosition: "手先 X/Z",
+          trackedDrive: "履帯駆動",
+          wristPose: "手首ピッチ/ロール"
+        },
+        activeCount: "{{count}} 入力中",
+        dpad: "D-pad",
+        idle: "待機",
+        keys: {
+          a: "A ボタン",
+          dpadDown: "D-pad 下",
+          dpadLeft: "D-pad 左",
+          dpadRight: "D-pad 右",
+          dpadUp: "D-pad 上",
+          lb: "LB",
+          leftStick: "左スティック",
+          lt: "LT",
+          rb: "RB",
+          rightStick: "右スティック",
+          rt: "RT",
+          y: "Y ボタン"
+        },
+        statusActive: "入力中",
+        statusDisabled: "制御は無効",
+        statusNoGamepad: "未検出",
+        statusReady: "準備完了",
+        title: "ゲームパッド図"
+      },
+      gamepadWarning: "ゲームパッド未検出です。画面ボタンは予備操作です。",
+      lastError: "最新エラー",
+      lastStop: "停止理由",
+      lastTx: "最後の TX",
+      mode: "コンソールモード",
+      modeEngineering: "工程モード",
+      modeOperator: "操作モード",
+      piConnection: "Pi 接続",
+      piHost: "Pi ホスト",
+      reconnect: "再接続",
+      required: "必須",
+      roles: {
+        arm: "アーム J1/J2",
+        can: "CAN J1-J4",
+        claw: "クロー 21/22/23",
+        imu: "姿勢 IMU",
+        mecanum: "メカナム駆動",
+        pwm: "PWM S/T/U/V",
+        tracked: "履帯駆動"
+      },
+      safetyMeta: "全ロボット",
+      safetyTitle: "安全停止",
+      statusRail: "状態レール",
+      stopReasonIdle: "停止記録なし",
+      stopReasonManual: "操作者が全体停止を実行",
+      stopWholeRobot: "全体停止",
+      tuning: "調整"
+    },
+    imu: {
+      actions: {
+        read: "IMU 読み取り"
+      },
+      errors: {
+        bridgeRequired: "A-board bridge がオンラインではありません。",
+        noFeedback: "A-board から IMU フィードバックが返りません。",
+        notReady: "IMU は未準備です。"
+      },
+      title: "IMU 姿勢"
     },
     nodes: {
       aBoardBridge: "A-board Bridge",
@@ -336,12 +568,13 @@ export const jaJP = {
       disabled: "disabled",
       enabled: "enabled",
       notChecked: "未確認",
-      notReady: "not ready",
+      notReady: "未準備",
       online: "オンライン",
       open: "open",
       ready: "ready",
       reachableSerialClosed: "到達可能 / シリアル停止",
-      standby: "待機"
+      standby: "待機",
+      syncing: "同期中"
     }
   }
 } as const;

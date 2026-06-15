@@ -268,20 +268,213 @@
   max-height: 320px;
 }
 
+.machine-claw-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.machine-claw-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.machine-claw-status-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.machine-claw-status-grid .metric {
+  min-height: 62px;
+}
+
+.machine-claw-toolbar,
+.machine-claw-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.machine-claw-toolbar {
+  max-width: 420px;
+}
+
+.machine-claw-toolbar .icon-button,
+.machine-claw-button-row .icon-button {
+  min-width: 118px;
+  white-space: normal;
+}
+
+.machine-claw-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(260px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.machine-claw-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.machine-claw-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.machine-claw-card-title strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.machine-claw-card-title span {
+  flex: 0 1 auto;
+  max-width: 150px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--steel);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.machine-claw-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.machine-claw-range-field,
+.machine-claw-number-field {
+  min-width: 0;
+}
+
+.machine-claw-range-field div {
+  display: grid;
+  grid-template-columns: minmax(96px, 1fr) 82px;
+  gap: 8px;
+  align-items: center;
+}
+
+.machine-claw-range-field input[type="range"] {
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--blue);
+}
+
+.machine-claw-range-field input[type="number"],
+.machine-claw-number-field input {
+  min-width: 0;
+}
+
+.machine-claw-toggle {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.72);
+  font-weight: 760;
+}
+
+.machine-claw-toggle input {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.machine-claw-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.machine-claw-progress span {
+  color: var(--steel);
+  font-size: 0.76rem;
+  font-weight: 780;
+}
+
+.machine-claw-progress strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
 @media (max-width: 980px) {
   .can-servo-grid,
-  .pi-remote-grid {
+  .pi-remote-grid,
+  .machine-claw-topbar,
+  .machine-claw-grid {
     grid-template-columns: 1fr;
   }
 
   .can-servo-form-grid,
   .can-servo-status-grid,
-  .can-servo-live-feedback {
+  .can-servo-live-feedback,
+  .machine-claw-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .machine-claw-toolbar,
+  .machine-claw-button-row {
+    justify-content: stretch;
+  }
+
+  .machine-claw-toolbar .icon-button,
+  .machine-claw-button-row .icon-button {
+    flex: 1 1 150px;
   }
 
   .pi-discovery-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .machine-claw-field-grid,
+  .machine-claw-range-field div {
+    grid-template-columns: 1fr;
+  }
+
+  .machine-claw-card-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .machine-claw-card-title span {
+    max-width: 100%;
   }
 }
 

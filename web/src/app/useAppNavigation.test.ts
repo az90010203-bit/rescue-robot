@@ -51,6 +51,7 @@ describe("useAppNavigation", () => {
     ["motor", "motor"],
     ["arm", "arm"],
     ["arm3d", "arm"],
+    ["machineClaw", "servo"],
     ["driveCamera", "camera"]
   ] as Array<[TestPanel, ActiveModule]>)("selects %s when opening the tests section", async (activeTest, expectedModule) => {
     const { modules, navigation, sections } = createNavigation({ activeTest });
@@ -73,6 +74,7 @@ describe("useAppNavigation", () => {
   it.each([
     ["arm", "arm"],
     ["arm3d", "arm"],
+    ["machineClaw", "servo"],
     ["driveCamera", "camera"]
   ] as Array<[TestPanel, ActiveModule]>)("routes the %s test tab to its runtime module", async (panel, expectedModule) => {
     const { modules, navigation, sections, tests } = createNavigation();

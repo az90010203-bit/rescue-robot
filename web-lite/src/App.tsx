@@ -1,4 +1,4 @@
-import { Activity, Cable, Camera, Cpu, DatabaseZap, Gamepad2, Gauge, Home, Network, Radar, RotateCw, Save, Send, Settings2, Shield, SlidersHorizontal, Square, Video, Wrench } from "lucide-react";
+import { Activity, ArrowDown, ArrowUp, Cable, Camera, Cpu, DatabaseZap, Gamepad2, Gauge, HandHelping, Home, Network, Play, Radar, RefreshCw, RotateCcw, RotateCw, Save, Send, Settings2, Shield, ShieldAlert, SlidersHorizontal, Square, Video, Wrench } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
@@ -29,12 +29,31 @@ import {
   type AsmgMdParsedFrame,
   type AsmgMdServoProfile
 } from "@adapters/hardware/asmgMdCanServo";
-import { servoPhysicalToLogicalAngle, type InboundMessage, type PcCommand } from "@adapters/hardware/protocol";
+import { buildDebugSetCommand, buildServoSpeedCommand, calculateWheelTurnDelta, isServoDebugDisabledError, servoPhysicalToLogicalAngle, type InboundMessage, type PcCommand } from "@adapters/hardware/protocol";
+import {
+  MACHINE_CLAW_SERVO_IDS,
+  buildMachineClawClawCommand,
+  buildMachineClawPitchCommands,
+  buildMachineClawReadCommand,
+  buildMachineClawRotationCommands,
+  buildMachineClawStopCommands,
+  machineClawActionKey,
+  machineClawClawActionKey,
+  machineClawTargetTurns,
+  normalizeMachineClawConfigPatch,
+  type MachineClawClawDirection,
+  type MachineClawConfigPatch,
+  type MachineClawDirection,
+  type MachineClawRunAction,
+  type MachineClawTestConfig,
+  type MachineClawTurnProgress
+} from "@domains/machine-claw/machineClaw";
 import { LANGUAGE_LABELS, SUPPORTED_LANGUAGES, isLiteLanguage, type LiteLanguage } from "./i18n/languages";
 import { A_BOARD_BRIDGE_PORT, CAMERA_PORTS, PI_SERVO_BRIDGE_PORT, ROBOT_PROFILE, type LiteArmProfile, type PwmServoProfile } from "./robotProfile";
 import { bridgeBaseUrl, buildCommandEnvelope, checkAboardBridgeHealth, checkPiServoBridgeHealth, sendAboardCommand, sendPiServoBridgeCommand, type AboardCommandResult, type BridgeHealth, type PiServoCommandResult } from "./runtime/bridgeClient";
 import {
   ZERO_LITE_GAMEPAD_STATE,
+  buildOperatorGamepadDiagramState,
   buildLiteCanJogCommand,
   buildLiteMecanumStopCommand,
   buildLiteMecanumTargetCommand,
@@ -51,22 +70,61 @@ import {
   liteGamepadStateFromGamepad,
   mecanumInputFromDpad,
   snapshotFromLiteGamepad,
+  stepLiteGamepadControlMode,
   trackedInputFromStick,
   type LiteCanJogDirection,
   type LiteCanJogGroup,
+  type LiteFourAxisArmJoystickInput,
+  type LiteGamepadControlMode,
   type LiteGamepadState,
-  type LiteTrackedInput
+  type LiteTrackedInput,
+  type OperatorGamepadDiagramControl,
+  type OperatorGamepadDiagramControlId,
+  type OperatorGamepadDiagramState
 } from "./runtime/manualControl";
 import { discoverPiHosts, normalizeHost, recommendedPiResult, type PiDiscoveryResult, type PiDiscoverySource } from "./runtime/piDiscoveryLite";
 import { DEFAULT_PRIORITY_SETTINGS, PRIORITY_FIELDS, loadPrioritySettings, normalizePrioritySettings, savePrioritySettings, type PrioritySettings } from "./runtime/priority";
 import {
+  buildOperatorDeviceMatrix,
+  isConsoleViewVisible,
+  resolveConsoleViewForMode,
+  type LiteConsoleMode
+} from "./runtime/operatorConsole";
+import {
+  machineClawPositionRawFromResult,
+  machineClawResponseFromResult,
+  readMachineClawConfig,
+  saveMachineClawConfig
+} from "./runtime/machineClawLite";
+import {
+  createMachineClawProtectionServoRuntime,
+  evaluateMachineClawProtectionFeedback,
+  type MachineClawProtectionReason,
+  type MachineClawProtectionServoRuntime,
+  type MachineClawProtectionTrip
+} from "./runtime/machineClawProtection";
+import { buildLiteImuReadCommand, createLiteImuSnapshot, liteImuFeedbackFromResult, type LiteImuSnapshot } from "./runtime/imuLite";
+import { CameraViewer } from "@domains/camera/CameraViewer";
+import {
+  applyFourAxisArmJoystickStep,
   applyArmJoystickStep,
   armCommandSignature,
   buildLiteArmMoveCommand,
+  buildLiteFourAxisWristPoseHoldSpeedCommand,
+  buildLiteFourAxisWristPoseHoldSpeedTargets,
+  calculateLiteArmGravityCompensation,
   createLiteArmRuntimeState,
+  createLiteFourAxisArmRuntimeState,
+  createLiteFourAxisPoseLock,
   hasArmJoystickMotion,
   normalizeLiteArmProfile,
+  solveFourAxisArmPoseIk,
   solveTwoLinkArmIk,
+  wristSpeedCommandSignature,
+  type LiteFourAxisArmPose,
+  type LiteFourAxisArmRuntimeState,
+  type LiteFourAxisPoseLock,
+  type LiteFourAxisWristPoseFeedback,
   type LiteArmRuntimeState
 } from "./runtime/twoLinkArm";
 
@@ -136,13 +194,112 @@ interface ManualHoldState {
   canRear: LiteCanJogDirection;
 }
 
-const PI_HOST_STORAGE_KEY = "rescue-robot-lite.piHost.v1";
+interface LiteCameraRuntime {
+  failed: boolean;
+  loaded: boolean;
+  webrtcError: string | null;
+  webrtcFallback: boolean;
+}
+
+interface LiteCameraLatency {
+  error: string | null;
+  estimateMs: number | null;
+  rttMs: number | null;
+  updatedAt: number | null;
+}
+
+interface MachineClawMonitorRuntime {
+  completedTurns: number;
+  direction?: MachineClawClawDirection;
+  generation: number;
+  lastRawChangedAtMs: number;
+  polling: boolean;
+  previousRaw: number;
+  source?: "gamepad" | "panel";
+  speedRaw: number;
+  startedAtMs: number;
+  targetTurns: number;
+}
+
+interface MachineClawProtectionMonitorRuntime {
+  generation: number;
+  polling: boolean;
+  servos: MachineClawProtectionServoRuntime[];
+  source: "gamepad" | "panel";
+}
+
+interface MachineClawProtectionStatus {
+  active: boolean;
+  detail: string | null;
+  ids: number[];
+  reason: MachineClawProtectionReason | null;
+  tripped: boolean;
+}
+
+interface MachineClawProtectionTarget {
+  id: number;
+  speedRaw: number;
+}
+
+interface WristPoseFeedbackRuntime extends LiteFourAxisWristPoseFeedback {
+  leftRaw: number;
+  leftSpeedRaw: number;
+  leftTurns: number;
+  polling: boolean;
+  rightRaw: number;
+  rightSpeedRaw: number;
+  rightTurns: number;
+}
+
+const PI_HOST_STORAGE_KEY = "rescue-robot-lite.piHost.v3";
 const CAN_CONFIG_STORAGE_KEY = "rescue-robot-lite.canConfig.v1";
 const CAN_SERVO_PROFILES_STORAGE_KEY = "rescue-robot-lite.canServoProfiles.v1";
 const CAN_GROUP_STORAGE_KEY = "rescue-robot-lite.canGroupAngles.v1";
 const GAMEPAD_STORAGE_KEY = "rescue-robot-lite.gamepad.v1";
 const ARM_CONTROL_STORAGE_KEY = "rescue-robot-lite.armControl.v1";
 const GAMEPAD_DRIVE_RESEND_MS = 200;
+const MACHINE_CLAW_POLL_MS = 180;
+const WRIST_POSE_FEEDBACK_POLL_MS = 180;
+
+const MACHINE_CLAW_ACTION_I18N_KEYS: Record<MachineClawRunAction, string> = {
+  idle: "machineClaw.status.idle",
+  "pitch-positive": "machineClaw.status.pitchPositive",
+  "pitch-negative": "machineClaw.status.pitchNegative",
+  "rotation-positive": "machineClaw.status.rotationPositive",
+  "rotation-negative": "machineClaw.status.rotationNegative",
+  "claw-open": "machineClaw.status.clawOpen",
+  "claw-close": "machineClaw.status.clawClose",
+  stopping: "machineClaw.status.stopping",
+  error: "machineClaw.status.error"
+};
+
+const EMPTY_MACHINE_CLAW_PROGRESS: MachineClawTurnProgress = {
+  completedTurns: 0,
+  targetTurns: 0,
+  running: false
+};
+
+const EMPTY_MACHINE_CLAW_PROTECTION_STATUS: MachineClawProtectionStatus = {
+  active: false,
+  detail: null,
+  ids: [],
+  reason: null,
+  tripped: false
+};
+
+const EMPTY_CAMERA_RUNTIME: LiteCameraRuntime = {
+  failed: false,
+  loaded: false,
+  webrtcError: null,
+  webrtcFallback: false
+};
+
+const EMPTY_CAMERA_LATENCY: LiteCameraLatency = {
+  error: null,
+  estimateMs: null,
+  rttMs: null,
+  updatedAt: null
+};
 
 const baudOptions: AsmgMdBaudKbps[] = [250, 500, 1000];
 const gamepadPresetOptions: Array<Exclude<GamepadPresetId, "auto">> = ["xinput", "playstation", "switchPro", "generic"];
@@ -150,6 +307,7 @@ const gamepadPresetOptions: Array<Exclude<GamepadPresetId, "auto">> = ["xinput",
 export default function App() {
   const { i18n, t } = useTranslation();
   const [activeView, setActiveView] = useState<ViewId>("control");
+  const [consoleMode, setConsoleMode] = useState<LiteConsoleMode>("operator");
   const [piHost, setPiHost] = useState(() => readStoredString(PI_HOST_STORAGE_KEY, ROBOT_PROFILE.defaultPiHost));
   const [manualHost, setManualHost] = useState(piHost);
   const [prioritySettings, setPrioritySettings] = useState<PrioritySettings>(() => loadPrioritySettings());
@@ -165,6 +323,8 @@ export default function App() {
   const [canBusy, setCanBusy] = useState<string | null>(null);
   const [canError, setCanError] = useState<string | null>(null);
   const [lastCanExchange, setLastCanExchange] = useState<CanExchange | null>(null);
+  const [imuSnapshot, setImuSnapshot] = useState<LiteImuSnapshot | null>(null);
+  const [imuError, setImuError] = useState<string | null>(null);
   const [canServoProfiles, setCanServoProfiles] = useState<AsmgMdServoProfile[]>(() => readCanServoProfiles());
   const [canConfig, setCanConfig] = useState(() => readCanConfig());
   const [canGroupAngles, setCanGroupAngles] = useState(() => readCanGroupAngles());
@@ -182,6 +342,10 @@ export default function App() {
   const [pwmPulseUs, setPwmPulseUs] = useState("1500");
   const [pwmMotorSpeeds, setPwmMotorSpeeds] = useState<Record<string, string>>(() => createPwmMotorSpeedStrings());
   const [pwmMotorTargets, setPwmMotorTargets] = useState<Record<string, number>>({});
+  const [cameraRuntimeById, setCameraRuntimeById] = useState<Record<string, LiteCameraRuntime>>({
+    main: EMPTY_CAMERA_RUNTIME,
+    secondary: EMPTY_CAMERA_RUNTIME
+  });
   const [gamepadMapping, setGamepadMapping] = useState<GamepadMapping>(() => readGamepadMapping());
   const [gamepadPreset, setGamepadPreset] = useState<Exclude<GamepadPresetId, "auto">>("xinput");
   const [activeGamepadIndex, setActiveGamepadIndex] = useState<number | null>(null);
@@ -190,21 +354,55 @@ export default function App() {
   const [liteGamepadState, setLiteGamepadState] = useState<LiteGamepadState>(ZERO_LITE_GAMEPAD_STATE);
   const [gamepadActivityAt, setGamepadActivityAt] = useState(0);
   const [gamepadControlEnabled, setGamepadControlEnabled] = useState(false);
+  const [gamepadControlMode, setGamepadControlMode] = useState<LiteGamepadControlMode>("drive");
   const [manualTxStatus, setManualTxStatus] = useState<ManualTxStatus | null>(null);
   const [armProfile, setArmProfile] = useState<LiteArmProfile>(() => readArmProfile());
   const [armState, setArmState] = useState<LiteArmRuntimeState>(() => createLiteArmRuntimeState(readArmProfile(), ROBOT_PROFILE.feetech.servos));
+  const [fourAxisArmState, setFourAxisArmState] = useState<LiteFourAxisArmRuntimeState>(() => createLiteFourAxisArmRuntimeState(readArmProfile(), ROBOT_PROFILE.feetech.servos));
+  const [fourAxisPoseLock, setFourAxisPoseLock] = useState<LiteFourAxisPoseLock>(() => createLiteFourAxisPoseLock(createLiteFourAxisArmRuntimeState(readArmProfile(), ROBOT_PROFILE.feetech.servos).target));
+  const [wristPoseFeedback, setWristPoseFeedback] = useState<LiteFourAxisWristPoseFeedback | null>(null);
+  const [machineClawConfig, setMachineClawConfig] = useState<MachineClawTestConfig>(() => readMachineClawConfig());
+  const [machineClawAction, setMachineClawAction] = useState<MachineClawRunAction>("idle");
+  const [machineClawBusy, setMachineClawBusy] = useState(false);
+  const [machineClawError, setMachineClawError] = useState<string | null>(null);
+  const [machineClawProgress, setMachineClawProgress] = useState<MachineClawTurnProgress>(EMPTY_MACHINE_CLAW_PROGRESS);
+  const [machineClawProtectionStatus, setMachineClawProtectionStatus] = useState<MachineClawProtectionStatus>(EMPTY_MACHINE_CLAW_PROTECTION_STATUS);
+  const [lastMachineClawResponse, setLastMachineClawResponse] = useState<InboundMessage | null>(null);
   const [manualHold, setManualHold] = useState<ManualHoldState>({ mecanum: "", tracked: "", canFront: 0, canRear: 0 });
+  const [lastWholeStopReason, setLastWholeStopReason] = useState("");
   const seqRef = useRef(1);
   const canJogTimersRef = useRef<Record<LiteCanJogGroup, number | null>>({ front: null, rear: null });
   const canJogAnglesRef = useRef<Record<string, number> | null>(null);
   const driveActiveRef = useRef({ mecanum: false, tracked: false });
   const gamepadDriveSendAtRef = useRef({ mecanum: 0, tracked: 0 });
   const gamepadMotionRef = useRef({ mecanum: "", tracked: "", canFront: 0 as LiteCanJogDirection, canRear: 0 as LiteCanJogDirection });
+  const gamepadControlModeRef = useRef<LiteGamepadControlMode>(gamepadControlMode);
+  const gamepadModeYPressedRef = useRef(false);
   const armProfileRef = useRef<LiteArmProfile>(armProfile);
   const armStateRef = useRef<LiteArmRuntimeState>(armState);
+  const fourAxisArmStateRef = useRef<LiteFourAxisArmRuntimeState>(fourAxisArmState);
+  const fourAxisPoseLockRef = useRef<LiteFourAxisPoseLock>(fourAxisPoseLock);
   const armLastTickAtRef = useRef<number | null>(null);
   const armLastSendAtRef = useRef(0);
   const armCommandSignatureRef = useRef("");
+  const wristLastSendAtRef = useRef(0);
+  const wristCommandSignatureRef = useRef("");
+  const wristPoseFeedbackRef = useRef<WristPoseFeedbackRuntime | null>(null);
+  const wristPoseFeedbackTimerRef = useRef<number | null>(null);
+  const imuPollingRef = useRef(false);
+  const gamepadClawDirectionRef = useRef<MachineClawClawDirection | null>(null);
+  const gamepadClawLimitDoneRef = useRef<MachineClawClawDirection | null>(null);
+  const gamepadClawLimitStartingRef = useRef<MachineClawClawDirection | null>(null);
+  const machineClawConfigRef = useRef<MachineClawTestConfig>(machineClawConfig);
+  const machineClawActionRef = useRef<MachineClawRunAction>(machineClawAction);
+  const machineClawMonitorRef = useRef<MachineClawMonitorRuntime | null>(null);
+  const machineClawMonitorTimerRef = useRef<number | null>(null);
+  const machineClawMonitorGenerationRef = useRef(0);
+  const machineClawProtectionMonitorRef = useRef<MachineClawProtectionMonitorRuntime | null>(null);
+  const machineClawProtectionTimerRef = useRef<number | null>(null);
+  const machineClawProtectionGenerationRef = useRef(0);
+  const machineClawProtectionStartingRef = useRef(false);
+  const piServoDebugEnabledRef = useRef(false);
 
   const currentLanguage = useMemo<LiteLanguage>(() => {
     const resolved = i18n.resolvedLanguage ?? i18n.language;
@@ -213,20 +411,100 @@ export default function App() {
   const recommended = recommendedPiResult(discoveryResults);
   const aBoardTone = bridgeTone(aBoardHealth, aBoardError);
   const piServoTone = bridgeTone(piServoHealth, piServoError);
+  const aBoardBridgeConnected = aBoardHealth?.ok === true && aBoardHealth.serialOpen !== false;
   const mainCameraUrl = `http://${piHost}:${CAMERA_PORTS.main}/stream`;
   const secondaryCameraUrl = `http://${piHost}:${CAMERA_PORTS.secondary}/stream`;
+  const mainCameraOfferUrl = `http://${piHost}:${CAMERA_PORTS.main}/offer`;
+  const secondaryCameraOfferUrl = `http://${piHost}:${CAMERA_PORTS.secondary}/offer`;
   const selectedCanServo = canServoProfiles.find((servo) => servo.id === readTargetId(canConfig.targetId)) ?? canServoProfiles[0] ?? normalizeAsmgMdServoProfile(ROBOT_PROFILE.can.servos[0]);
   const selectedCanProfile = useMemo(() => canServoProfileFromConfig(selectedCanServo, canConfig), [canConfig, selectedCanServo]);
   const selectedPwmServo = ROBOT_PROFILE.pwmServos.find((servo) => servo.id === selectedPwmServoId) ?? ROBOT_PROFILE.pwmServos[0];
   const latestParsed = lastCanExchange?.parsed[lastCanExchange.parsed.length - 1] ?? null;
   const activeGamepad = selectPreferredGamepadSummary(gamepads, activeGamepadIndex);
+  const operatorDeviceMatrix = useMemo(() => buildOperatorDeviceMatrix({
+    aBoardError,
+    aBoardHealth,
+    cameraHost: piHost,
+    gamepadConnected: Boolean(activeGamepad),
+    imuDetail: imuSnapshot ? formatImuChipIds(imuSnapshot.feedback) : null,
+    imuError,
+    imuReady: imuSnapshot?.feedback.ready ?? null,
+    piServoError,
+    piServoHealth
+  }), [aBoardError, aBoardHealth, activeGamepad, imuError, imuSnapshot, piHost, piServoError, piServoHealth]);
   const armSolution = useMemo(() => solveTwoLinkArmIk(armState.target, armProfile, ROBOT_PROFILE.feetech.servos), [armProfile, armState.target]);
+  const fourAxisArmSolution = useMemo(() => solveFourAxisArmPoseIk(fourAxisArmState.target, armProfile, ROBOT_PROFILE.feetech.servos), [armProfile, fourAxisArmState.target]);
+  const armGravityCompensation = useMemo(
+    () => calculateLiteArmGravityCompensation(armSolution, armProfile, ROBOT_PROFILE.feetech.servos),
+    [armProfile, armSolution]
+  );
+  const machineClawBridgeConnected = piServoHealth?.serialOpen === true;
+  const machineClawControlsDisabled = !machineClawBridgeConnected || machineClawBusy || Boolean(feetechBusy);
+  const machineClawProgressLabel = formatMachineClawProgress(machineClawProgress);
+  const machineClawActionLabel = t(MACHINE_CLAW_ACTION_I18N_KEYS[machineClawAction]);
+  const lastMachineClawResponseLabel = formatMachineClawResponse(lastMachineClawResponse, t);
+  const machineClawProtectionLabel = machineClawConfig.protectionEnabled || machineClawProtectionStatus.active || machineClawProtectionStatus.tripped
+    ? formatMachineClawProtectionStatus(machineClawProtectionStatus, t)
+    : t("machineClaw.protection.disabled");
+  const machineClawProtectionTone: Tone = machineClawProtectionStatus.tripped
+    ? "warning"
+    : machineClawProtectionStatus.active
+      ? "online"
+      : machineClawConfig.protectionEnabled
+        ? "neutral"
+        : "warning";
+  const operatorCriticalError = aBoardError ?? piServoError ?? imuError ?? machineClawError ?? feetechError ?? canError ?? aBoardHealth?.lastError ?? piServoHealth?.lastError ?? "--";
+  const imuStatusTone: Tone = imuError
+    ? "danger"
+    : imuSnapshot?.feedback.ready === true
+      ? "online"
+      : imuSnapshot?.feedback.ready === false
+        ? "warning"
+        : aBoardBridgeConnected
+          ? "neutral"
+          : "warning";
+  const imuStatusLabel = imuError ?? (imuSnapshot
+    ? imuSnapshot.feedback.ready === false
+      ? t("status.notReady")
+      : t("status.online")
+    : aBoardBridgeConnected ? t("status.syncing") : t("status.notChecked"));
+  const imuRollPitchLabel = imuSnapshot?.attitude
+    ? `${formatNumber(imuSnapshot.attitude.rollDeg)} / ${formatNumber(imuSnapshot.attitude.pitchDeg)}`
+    : "--";
+  const imuGyroLabel = formatVector3(imuSnapshot?.attitude?.gyroDps, 1);
+  const imuSampleLabel = imuSnapshot?.feedback.sampleMs !== undefined
+    ? `${imuSnapshot.feedback.sampleMs} ms`
+    : imuSnapshot
+      ? `${Math.max(0, Math.round(Date.now() - imuSnapshot.receivedAtMs))} ms`
+      : "--";
+  const wristCompensationLabel = !armProfile.wristCalibrated
+    ? t("status.notReady")
+    : gamepadControlMode === "arm"
+      ? t("status.enabled")
+      : t("status.standby");
+  const wristCompensationTone: Tone = !armProfile.wristCalibrated ? "warning" : gamepadControlMode === "arm" ? "online" : "neutral";
+  const wristFeedbackLabel = wristPoseFeedback
+    ? `${formatNumber(wristPoseFeedback.pitchLocalDeg)} / ${formatNumber(wristPoseFeedback.rollDeg)}`
+    : "--";
+  const armGravityCompensationLabel = armGravityCompensation.enabled
+    ? `J1 ${formatNumber(armGravityCompensation.j1AppliedBiasDeg)} / J2 ${formatNumber(armGravityCompensation.j2AppliedBiasDeg)}${armGravityCompensation.limited ? ` ${t("status.limited")}` : ""}`
+    : t("status.disabled");
+  const armGravityCompensationTone: Tone = armGravityCompensation.enabled
+    ? armGravityCompensation.limited ? "warning" : "online"
+    : "neutral";
 
   useEffect(() => {
     document.title = t("app.title");
   }, [t]);
 
   useEffect(() => {
+    piServoDebugEnabledRef.current = false;
+    setCameraRuntimeById({
+      main: EMPTY_CAMERA_RUNTIME,
+      secondary: EMPTY_CAMERA_RUNTIME
+    });
+    setImuSnapshot(null);
+    setImuError(null);
     window.localStorage.setItem(PI_HOST_STORAGE_KEY, piHost);
     setManualHost(piHost);
     void refreshHealth(piHost);
@@ -266,13 +544,34 @@ export default function App() {
   }, [armState]);
 
   useEffect(() => {
+    fourAxisArmStateRef.current = fourAxisArmState;
+  }, [fourAxisArmState]);
+
+  useEffect(() => {
+    fourAxisPoseLockRef.current = fourAxisPoseLock;
+  }, [fourAxisPoseLock]);
+
+  useEffect(() => {
+    gamepadControlModeRef.current = gamepadControlMode;
+  }, [gamepadControlMode]);
+
+  useEffect(() => {
+    machineClawConfigRef.current = machineClawConfig;
+    saveMachineClawConfig(machineClawConfig);
+  }, [machineClawConfig]);
+
+  useEffect(() => {
+    machineClawActionRef.current = machineClawAction;
+  }, [machineClawAction]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       if (!navigator.getGamepads) {
         setGamepads([]);
         setGamepadInput(zeroGamepadInput());
         setLiteGamepadState(ZERO_LITE_GAMEPAD_STATE);
         if (gamepadControlEnabled) {
-          stopAllManualControl(t("manual.stopReasonGamepadUnavailable"));
+          stopAllManualControl(t("manual.stopReasonGamepadUnavailable"), { resetGamepadMode: true });
           setGamepadControlEnabled(false);
         }
         return;
@@ -297,7 +596,7 @@ export default function App() {
         setGamepadActivityAt(Date.now());
       }
       if (!selected && gamepadControlEnabled) {
-        stopAllManualControl(t("manual.stopReasonGamepadDisconnected"));
+        stopAllManualControl(t("manual.stopReasonGamepadDisconnected"), { resetGamepadMode: true });
         setGamepadControlEnabled(false);
         return;
       }
@@ -314,11 +613,11 @@ export default function App() {
 
   useEffect(() => {
     const stopForWindowState = () => {
-      stopAllManualControl(t("manual.stopReasonWindow"));
+      stopAllManualControl(t("manual.stopReasonWindow"), { resetGamepadMode: true });
     };
     const stopForVisibility = () => {
       if (document.hidden) {
-        stopAllManualControl(t("manual.stopReasonWindow"));
+        stopAllManualControl(t("manual.stopReasonWindow"), { resetGamepadMode: true });
       }
     };
     window.addEventListener("blur", stopForWindowState);
@@ -326,9 +625,20 @@ export default function App() {
     return () => {
       window.removeEventListener("blur", stopForWindowState);
       document.removeEventListener("visibilitychange", stopForVisibility);
-      stopAllManualControl(t("manual.stopReasonCleanup"));
+      stopAllManualControl(t("manual.stopReasonCleanup"), { resetGamepadMode: true });
     };
   }, [piHost, prioritySettings, t]);
+
+  useEffect(() => {
+    if (!aBoardBridgeConnected) {
+      return undefined;
+    }
+    void readOperatorImu({ quiet: true });
+    const timer = window.setInterval(() => {
+      void readOperatorImu({ quiet: true });
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [aBoardBridgeConnected, piHost, prioritySettings]);
 
   function addLog(direction: LogEntry["direction"], text: string, level: LogEntry["level"] = "info") {
     setLogs((current) => [{ id: Date.now() + Math.random(), direction, text, level }, ...current].slice(0, 140));
@@ -347,8 +657,8 @@ export default function App() {
     setPiServoError(null);
     try {
       const [aBoard, piServo] = await Promise.allSettled([
-        checkAboardBridgeHealth(targetHost),
-        checkPiServoBridgeHealth(targetHost)
+        checkAboardBridgeHealth(targetHost, { timeoutMs: 2500 }),
+        checkPiServoBridgeHealth(targetHost, { timeoutMs: 2500 })
       ]);
       if (aBoard.status === "fulfilled") {
         setABoardHealth(aBoard.value);
@@ -358,6 +668,9 @@ export default function App() {
       }
       if (piServo.status === "fulfilled") {
         setPiServoHealth(piServo.value);
+        if (piServo.value.serialOpen === true) {
+          void ensurePiServoDebugMode(targetHost, { quiet: true });
+        }
       } else {
         setPiServoHealth(null);
         setPiServoError(errorMessage(piServo.reason, t));
@@ -387,15 +700,48 @@ export default function App() {
     if (!next) {
       return;
     }
-    stopAllManualControl(t("manual.stopReasonHostChange"));
+    stopAllManualControl(t("manual.stopReasonHostChange"), { resetGamepadMode: true });
     setPiHost(next);
     addLog("system", t("logs.hostApplied", { host: next }), "info");
+  }
+
+  function updateCameraRuntime(sourceId: string, patch: Partial<LiteCameraRuntime>) {
+    setCameraRuntimeById((current) => ({
+      ...current,
+      [sourceId]: {
+        ...(current[sourceId] ?? EMPTY_CAMERA_RUNTIME),
+        ...patch
+      }
+    }));
   }
 
   function changeLanguage(value: string) {
     if (isLiteLanguage(value)) {
       void i18n.changeLanguage(value);
     }
+  }
+
+  function changeConsoleMode(mode: LiteConsoleMode) {
+    setConsoleMode(mode);
+    setActiveView((current) => resolveConsoleViewForMode(mode, current));
+  }
+
+  function selectConsoleView(view: ViewId) {
+    if (isConsoleViewVisible(consoleMode, view)) {
+      setActiveView(view);
+    }
+  }
+
+  function reconnectPiHost() {
+    const next = normalizeHost(manualHost);
+    if (!next) {
+      return;
+    }
+    if (next !== piHost) {
+      applyHost(next);
+      return;
+    }
+    void refreshHealth(next);
   }
 
   function updatePriority(key: keyof PrioritySettings, value: string) {
@@ -405,6 +751,41 @@ export default function App() {
   function resetPriorities() {
     setPrioritySettings(DEFAULT_PRIORITY_SETTINGS);
     addLog("system", t("logs.priorityReset"), "info");
+  }
+
+  async function readOperatorImu(options: { quiet?: boolean } = {}) {
+    if (imuPollingRef.current) {
+      return;
+    }
+    if (!aBoardBridgeConnected) {
+      setImuError(t("imu.errors.bridgeRequired"));
+      return;
+    }
+    imuPollingRef.current = true;
+    const command = buildLiteImuReadCommand(nextSeq());
+    try {
+      const result = await sendAboardCommand(piHost, command, prioritySettings, { timeoutMs: 700 });
+      const errorResponse = result.messages.find((message) => message.type === "error");
+      const feedback = liteImuFeedbackFromResult(result);
+      if (result.ok === false || errorResponse?.type === "error" || !feedback) {
+        const message = result.error ?? inboundErrorMessage(errorResponse ?? null) ?? t("imu.errors.noFeedback");
+        setImuError(message);
+        if (!options.quiet) {
+          addLog("system", t("logs.imuReadFailed", { message }), "warn");
+        }
+        return;
+      }
+      setImuSnapshot(createLiteImuSnapshot(feedback));
+      setImuError(feedback.ready === false ? feedback.error ?? t("imu.errors.notReady") : null);
+    } catch (error) {
+      const message = errorMessage(error, t);
+      setImuError(message);
+      if (!options.quiet) {
+        addLog("system", t("logs.imuReadFailed", { message }), "error");
+      }
+    } finally {
+      imuPollingRef.current = false;
+    }
   }
 
   async function runManualAboardCommand(command: PcCommand, label: string, options: { can?: boolean; source?: ManualTxStatus["source"]; timeoutMs?: number } = {}): Promise<boolean> {
@@ -451,7 +832,7 @@ export default function App() {
   }
 
   function sendManualPiServoCommand(command: PcCommand, label: string, options: { timeoutMs?: number; waitMs?: number } = {}) {
-    void sendPiServoBridgeCommand(piHost, command, { waitMs: options.waitMs ?? 220, timeoutMs: options.timeoutMs ?? 900 })
+    void sendPiServoCommandWithDebug(command, { waitMs: options.waitMs ?? 220, timeoutMs: options.timeoutMs ?? 900 }, label)
       .then((result) => {
         setLastFeetechExchange({ label, command, result, at: Date.now() });
         if (result.ok === false || result.messages.some((message) => message.type === "error")) {
@@ -465,6 +846,583 @@ export default function App() {
         setFeetechError(message);
         addLog("system", t("logs.manualCommandFailed", { label, message }), "error");
       });
+  }
+
+  async function ensurePiServoDebugMode(host = piHost, options: { quiet?: boolean } = {}): Promise<boolean> {
+    if (piServoDebugEnabledRef.current) {
+      return true;
+    }
+    const command = buildDebugSetCommand(nextSeq(), "servo", true);
+    try {
+      const result = await sendPiServoBridgeCommand(host, command, { waitMs: 260, timeoutMs: 900 });
+      const failed = result.ok === false || result.messages.some((message) => message.type === "error");
+      setLastFeetechExchange({ label: "debug.set", command, result, at: Date.now() });
+      if (failed) {
+        piServoDebugEnabledRef.current = false;
+        const response = machineClawResponseFromResult(result);
+        const message = result.error ?? inboundErrorMessage(response) ?? t("errors.feetechRejected");
+        setPiServoError(message);
+        if (!options.quiet) {
+          setFeetechError(message);
+        }
+        addLog("system", t("logs.manualCommandFailed", { label: "debug.set", message }), "warn");
+        return false;
+      }
+      piServoDebugEnabledRef.current = true;
+      setPiServoError(null);
+      if (!options.quiet) {
+        addLog("system", "Pi servo debug mode enabled", "info");
+      }
+      return true;
+    } catch (error) {
+      piServoDebugEnabledRef.current = false;
+      const message = errorMessage(error, t);
+      setPiServoError(message);
+      if (!options.quiet) {
+        setFeetechError(message);
+      }
+      addLog("system", t("logs.manualCommandFailed", { label: "debug.set", message }), "error");
+      return false;
+    }
+  }
+
+  async function sendPiServoCommandWithDebug(command: PcCommand, options: { waitMs?: number; timeoutMs?: number } = {}, label: string = command.type): Promise<PiServoCommandResult> {
+    if (command.type !== "debug.set") {
+      await ensurePiServoDebugMode(piHost, { quiet: true });
+    }
+    const requestOptions = {
+      waitMs: options.waitMs ?? 220,
+      timeoutMs: options.timeoutMs ?? 900
+    };
+    let result = await sendPiServoBridgeCommand(piHost, command, requestOptions);
+    if (piServoResultHasDebugDisabled(result)) {
+      piServoDebugEnabledRef.current = false;
+      addLog("system", `${label}: servo debug mode was off; enabling and retrying`, "warn");
+      const enabled = await ensurePiServoDebugMode(piHost, { quiet: true });
+      if (enabled) {
+        result = await sendPiServoBridgeCommand(piHost, command, requestOptions);
+      }
+    }
+    return result;
+  }
+
+  function requireMachineClawBridge() {
+    if (machineClawBridgeConnected) {
+      return true;
+    }
+    setMachineClawError(t("machineClaw.errors.bridgeRequired"));
+    return false;
+  }
+
+  async function runMachineClawPiServoCommand(command: PcCommand, label: string, options: { waitMs?: number; timeoutMs?: number } = {}) {
+    try {
+      const result = await sendPiServoCommandWithDebug(command, {
+        waitMs: options.waitMs ?? 180,
+        timeoutMs: options.timeoutMs ?? 900
+      }, label);
+      const response = machineClawResponseFromResult(result);
+      setLastFeetechExchange({ label, command, result, at: Date.now() });
+      setLastMachineClawResponse(response);
+      if (result.ok === false || result.messages.some((message) => message.type === "error") || response?.type === "error") {
+        const message = result.error ?? inboundErrorMessage(response) ?? t("errors.feetechRejected");
+        setMachineClawError(message);
+        setFeetechError(message);
+        addLog("system", t("logs.manualCommandFailed", { label, message }), "warn");
+        return null;
+      }
+      return result;
+    } catch (error) {
+      const message = errorMessage(error, t);
+      setMachineClawError(message);
+      setFeetechError(message);
+      addLog("system", t("logs.manualCommandFailed", { label, message }), "error");
+      return null;
+    }
+  }
+
+  async function runMachineClawCommandList(commands: PcCommand[], label: string) {
+    for (const command of commands) {
+      const result = await runMachineClawPiServoCommand(command, label);
+      if (!result) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async function sendMachineClawStopCommandsQuiet(ids?: readonly number[]) {
+    const commands = buildMachineClawStopCommands(() => nextSeq(), ids);
+    let stopped = true;
+    for (const command of commands) {
+      try {
+        const result = await sendPiServoCommandWithDebug(command, { waitMs: 120, timeoutMs: 700 }, t("machineClaw.actions.stop"));
+        if (result.ok === false || result.messages.some((message) => message.type === "error")) {
+          stopped = false;
+        }
+      } catch {
+        stopped = false;
+      }
+    }
+    return stopped;
+  }
+
+  function clearMachineClawProtectionMonitor(updateStatus: boolean) {
+    if (machineClawProtectionTimerRef.current !== null) {
+      window.clearInterval(machineClawProtectionTimerRef.current);
+      machineClawProtectionTimerRef.current = null;
+    }
+    machineClawProtectionMonitorRef.current = null;
+    machineClawProtectionGenerationRef.current += 1;
+    if (updateStatus) {
+      setMachineClawProtectionStatus(EMPTY_MACHINE_CLAW_PROTECTION_STATUS);
+    }
+  }
+
+  function startMachineClawProtectionTimer(generation: number) {
+    if (machineClawProtectionTimerRef.current !== null) {
+      window.clearInterval(machineClawProtectionTimerRef.current);
+    }
+    machineClawProtectionTimerRef.current = window.setInterval(() => {
+      void pollMachineClawProtection(generation);
+    }, MACHINE_CLAW_POLL_MS);
+  }
+
+  async function readMachineClawServoFeedback(servoId: number, label: string) {
+    const result = await runMachineClawPiServoCommand(
+      buildMachineClawReadCommand(nextSeq(), servoId),
+      label,
+      { waitMs: 120, timeoutMs: 760 }
+    );
+    return result ? servoFeedbackFromResult(result, servoId) : null;
+  }
+
+  async function startMachineClawProtectionMonitor(
+    targets: readonly MachineClawProtectionTarget[],
+    source: MachineClawProtectionMonitorRuntime["source"],
+    targetTurnsById: ReadonlyMap<number, number> = new Map()
+  ) {
+    const config = machineClawConfigRef.current;
+    const activeTargets = compactMachineClawProtectionTargets(targets).filter((target) => Math.abs(target.speedRaw) > 0);
+    const hasTurnLimits = activeTargets.some((target) => targetTurnsById.has(target.id));
+    if ((!config.protectionEnabled && !hasTurnLimits) || activeTargets.length === 0) {
+      clearMachineClawProtectionMonitor(true);
+      return true;
+    }
+    if (machineClawProtectionStartingRef.current) {
+      return false;
+    }
+
+    machineClawProtectionStartingRef.current = true;
+    clearMachineClawProtectionMonitor(false);
+    const nowMs = Date.now();
+    const servos: MachineClawProtectionServoRuntime[] = [];
+    const label = t("machineClaw.actions.readFeedback");
+    try {
+      for (const target of activeTargets) {
+        const feedback = await readMachineClawServoFeedback(target.id, label);
+        const positionRaw = servoFeedbackPositionRaw(feedback);
+        if (positionRaw === null) {
+          await handleMachineClawProtectionTrip({
+            detail: t("machineClaw.errors.feedbackRequired"),
+            id: target.id,
+            reason: "feedback"
+          }, activeTargets.map((item) => item.id));
+          return false;
+        }
+        servos.push(createMachineClawProtectionServoRuntime(
+          target.id,
+          positionRaw,
+          target.speedRaw,
+          nowMs,
+          targetTurnsById.get(target.id) ?? null
+        ));
+      }
+    } finally {
+      machineClawProtectionStartingRef.current = false;
+    }
+
+    const generation = machineClawProtectionGenerationRef.current + 1;
+    machineClawProtectionGenerationRef.current = generation;
+    machineClawProtectionMonitorRef.current = {
+      generation,
+      polling: false,
+      servos,
+      source
+    };
+    setMachineClawProtectionStatus({
+      active: true,
+      detail: null,
+      ids: servos.map((servo) => servo.id),
+      reason: null,
+      tripped: false
+    });
+    startMachineClawProtectionTimer(generation);
+    return true;
+  }
+
+  function updateMachineClawProtectionTargets(
+    targets: readonly MachineClawProtectionTarget[],
+    source: MachineClawProtectionMonitorRuntime["source"]
+  ) {
+    const activeTargets = compactMachineClawProtectionTargets(targets).filter((target) => Math.abs(target.speedRaw) > 0);
+    if (!machineClawConfigRef.current.protectionEnabled || activeTargets.length === 0) {
+      if (machineClawProtectionMonitorRef.current?.source === source) {
+        clearMachineClawProtectionMonitor(true);
+      }
+      return;
+    }
+
+    const runtime = machineClawProtectionMonitorRef.current;
+    const speedById = new Map(activeTargets.map((target) => [target.id, target.speedRaw]));
+    if (runtime?.source === source) {
+      runtime.servos = runtime.servos
+        .map((servo) => ({ ...servo, speedRaw: speedById.get(servo.id) ?? 0 }))
+        .filter((servo) => Math.abs(servo.speedRaw) > 0);
+      if (runtime.servos.length === 0) {
+        clearMachineClawProtectionMonitor(true);
+        return;
+      }
+      setMachineClawProtectionStatus({
+        active: true,
+        detail: null,
+        ids: runtime.servos.map((servo) => servo.id),
+        reason: null,
+        tripped: false
+      });
+      return;
+    }
+
+    if (!machineClawProtectionStartingRef.current) {
+      void startMachineClawProtectionMonitor(activeTargets, source);
+    }
+  }
+
+  async function pollMachineClawProtection(generation: number) {
+    const runtime = machineClawProtectionMonitorRef.current;
+    if (!runtime || runtime.generation !== generation || runtime.polling) {
+      return;
+    }
+    runtime.polling = true;
+    const nextServos: MachineClawProtectionServoRuntime[] = [];
+    let trip: MachineClawProtectionTrip | null = null;
+    try {
+      for (const servo of runtime.servos) {
+        const feedback = await readMachineClawServoFeedback(servo.id, t("machineClaw.actions.readFeedback"));
+        const evaluated = evaluateMachineClawProtectionFeedback(servo, feedback, machineClawConfigRef.current, Date.now());
+        nextServos.push(evaluated.runtime);
+        if (evaluated.trip) {
+          trip = evaluated.trip;
+          break;
+        }
+      }
+      if (trip) {
+        const stopIds = runtime.servos.map((servo) => servo.id);
+        clearMachineClawProtectionMonitor(false);
+        await handleMachineClawProtectionTrip(trip, stopIds);
+      } else {
+        runtime.servos = nextServos;
+        setMachineClawProtectionStatus({
+          active: true,
+          detail: null,
+          ids: runtime.servos.map((servo) => servo.id),
+          reason: null,
+          tripped: false
+        });
+      }
+    } finally {
+      if (machineClawProtectionMonitorRef.current === runtime) {
+        runtime.polling = false;
+      }
+    }
+  }
+
+  async function handleMachineClawProtectionTrip(trip: MachineClawProtectionTrip, stopIds: readonly number[] = [trip.id]) {
+    if (trip.id === MACHINE_CLAW_SERVO_IDS.claw) {
+      clearMachineClawMonitor(true);
+    }
+    await sendMachineClawStopCommandsQuiet(stopIds);
+    const message = machineClawProtectionTripMessage(trip, t);
+    setMachineClawProtectionStatus({
+      active: false,
+      detail: message,
+      ids: [trip.id],
+      reason: trip.reason,
+      tripped: true
+    });
+    if (trip.reason === "turnLimit") {
+      setMachineClawError(null);
+      setMachineClawAction("idle");
+      addLog("system", message, "info");
+      return;
+    }
+    setMachineClawError(message);
+    setFeetechError(message);
+    setMachineClawAction("error");
+    addLog("system", message, "warn");
+  }
+
+  function clearMachineClawMonitor(updateProgress: boolean) {
+    if (machineClawMonitorTimerRef.current !== null) {
+      window.clearInterval(machineClawMonitorTimerRef.current);
+      machineClawMonitorTimerRef.current = null;
+    }
+    machineClawMonitorRef.current = null;
+    machineClawMonitorGenerationRef.current += 1;
+    if (updateProgress) {
+      setMachineClawProgress((current) => ({ ...current, running: false }));
+    }
+  }
+
+  function startMachineClawMonitor(generation: number) {
+    if (machineClawMonitorTimerRef.current !== null) {
+      window.clearInterval(machineClawMonitorTimerRef.current);
+    }
+    machineClawMonitorTimerRef.current = window.setInterval(() => {
+      void pollMachineClawProgress(generation);
+    }, MACHINE_CLAW_POLL_MS);
+  }
+
+  async function pollMachineClawProgress(generation: number) {
+    const runtime = machineClawMonitorRef.current;
+    if (!runtime || runtime.generation !== generation || runtime.polling) {
+      return;
+    }
+    runtime.polling = true;
+    try {
+      const result = await runMachineClawPiServoCommand(
+        buildMachineClawReadCommand(nextSeq()),
+        t("machineClaw.actions.readFeedback"),
+        { waitMs: 130, timeoutMs: 760 }
+      );
+      const feedback = result ? servoFeedbackFromResult(result, MACHINE_CLAW_SERVO_IDS.claw) : null;
+      const positionRaw = servoFeedbackPositionRaw(feedback);
+      if (positionRaw === null) {
+        clearMachineClawMonitor(true);
+        await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+        setMachineClawError(t("machineClaw.errors.feedbackRequired"));
+        setMachineClawAction("error");
+        return;
+      }
+
+      const protection = evaluateMachineClawProtectionFeedback({
+        completedTurns: runtime.completedTurns,
+        id: MACHINE_CLAW_SERVO_IDS.claw,
+        lastRawChangedAtMs: runtime.lastRawChangedAtMs,
+        previousRaw: runtime.previousRaw,
+        speedRaw: runtime.speedRaw,
+        startedAtMs: runtime.startedAtMs,
+        targetTurns: runtime.targetTurns
+      }, feedback, machineClawConfigRef.current, Date.now());
+      runtime.previousRaw = protection.runtime.previousRaw;
+      runtime.completedTurns = Math.min(runtime.targetTurns, protection.runtime.completedTurns);
+      runtime.lastRawChangedAtMs = protection.runtime.lastRawChangedAtMs;
+      const nextProgress = {
+        completedTurns: runtime.completedTurns,
+        targetTurns: runtime.targetTurns,
+        running: protection.trip === null
+      };
+      setMachineClawProgress(nextProgress);
+
+      if (protection.trip) {
+        clearMachineClawMonitor(false);
+        setMachineClawProgress({ ...nextProgress, running: false });
+        if (protection.trip.reason === "turnLimit") {
+          await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+          if (runtime.source === "gamepad" && runtime.direction) {
+            gamepadClawLimitDoneRef.current = runtime.direction;
+          }
+          setMachineClawAction("idle");
+        } else {
+          await handleMachineClawProtectionTrip(protection.trip, [MACHINE_CLAW_SERVO_IDS.claw]);
+        }
+      }
+    } finally {
+      if (machineClawMonitorRef.current === runtime) {
+        runtime.polling = false;
+      }
+    }
+  }
+
+  function stopMachineClawControl() {
+    clearMachineClawMonitor(true);
+    clearMachineClawProtectionMonitor(true);
+    setMachineClawAction("idle");
+    void sendMachineClawStopCommandsQuiet();
+  }
+
+  async function stopMachineClawIds(ids?: readonly number[]) {
+    if (!requireMachineClawBridge()) {
+      return;
+    }
+    clearMachineClawMonitor(true);
+    clearMachineClawProtectionMonitor(true);
+    setMachineClawBusy(true);
+    setFeetechBusy(t("machineClaw.actions.stop"));
+    setMachineClawError(null);
+    setMachineClawAction("stopping");
+    const stopped = await sendMachineClawStopCommandsQuiet(ids);
+    if (!stopped) {
+      setMachineClawError(t("machineClaw.errors.commandFailed"));
+      setMachineClawAction("error");
+    } else {
+      setMachineClawAction("idle");
+    }
+    setMachineClawBusy(false);
+    setFeetechBusy(null);
+  }
+
+  async function startMachineClawPitch(direction: MachineClawDirection) {
+    if (!requireMachineClawBridge()) {
+      return;
+    }
+    const label = t("machineClaw.pitch.title");
+    setMachineClawBusy(true);
+    setFeetechBusy(label);
+    setMachineClawError(null);
+    setFeetechError(null);
+    setMachineClawAction("stopping");
+    clearMachineClawMonitor(true);
+    clearMachineClawProtectionMonitor(true);
+    await sendMachineClawStopCommandsQuiet();
+    const commands = buildMachineClawPitchCommands(machineClawConfigRef.current, direction, () => nextSeq());
+    const protectedToStart = await startMachineClawProtectionMonitor(
+      machineClawSpeedTargetsFromCommands(commands),
+      "panel",
+      new Map([
+        [MACHINE_CLAW_SERVO_IDS.pitchLeft, machineClawConfigRef.current.pitchLimitTurns],
+        [MACHINE_CLAW_SERVO_IDS.pitchRight, machineClawConfigRef.current.pitchLimitTurns]
+      ])
+    );
+    if (!protectedToStart) {
+      setMachineClawBusy(false);
+      setFeetechBusy(null);
+      return;
+    }
+    const sent = await runMachineClawCommandList(commands, label);
+    if (!sent) {
+      clearMachineClawProtectionMonitor(true);
+    }
+    setMachineClawAction(sent ? machineClawActionKey("pitch", direction) : "error");
+    setMachineClawBusy(false);
+    setFeetechBusy(null);
+  }
+
+  async function startMachineClawRotation(direction: MachineClawDirection) {
+    if (!requireMachineClawBridge()) {
+      return;
+    }
+    const label = t("machineClaw.rotation.title");
+    setMachineClawBusy(true);
+    setFeetechBusy(label);
+    setMachineClawError(null);
+    setFeetechError(null);
+    setMachineClawAction("stopping");
+    clearMachineClawMonitor(true);
+    clearMachineClawProtectionMonitor(true);
+    await sendMachineClawStopCommandsQuiet();
+    const commands = buildMachineClawRotationCommands(machineClawConfigRef.current, direction, () => nextSeq());
+    const protectedToStart = await startMachineClawProtectionMonitor(
+      machineClawSpeedTargetsFromCommands(commands),
+      "panel",
+      new Map([
+        [MACHINE_CLAW_SERVO_IDS.pitchLeft, machineClawConfigRef.current.rotationLimitTurns],
+        [MACHINE_CLAW_SERVO_IDS.claw, machineClawConfigRef.current.rotationLimitTurns],
+        [MACHINE_CLAW_SERVO_IDS.pitchRight, machineClawConfigRef.current.rotationLimitTurns]
+      ])
+    );
+    if (!protectedToStart) {
+      setMachineClawBusy(false);
+      setFeetechBusy(null);
+      return;
+    }
+    const sent = await runMachineClawCommandList(commands, label);
+    if (!sent) {
+      clearMachineClawProtectionMonitor(true);
+    }
+    setMachineClawAction(sent ? machineClawActionKey("rotation", direction) : "error");
+    setMachineClawBusy(false);
+    setFeetechBusy(null);
+  }
+
+  async function startMachineClawClaw(direction: MachineClawClawDirection) {
+    if (!requireMachineClawBridge()) {
+      return;
+    }
+    const label = t(direction === "open" ? "machineClaw.actions.open" : "machineClaw.actions.close");
+    setMachineClawBusy(true);
+    setFeetechBusy(label);
+    setMachineClawError(null);
+    setFeetechError(null);
+    setMachineClawAction("stopping");
+    clearMachineClawMonitor(true);
+    clearMachineClawProtectionMonitor(true);
+    await sendMachineClawStopCommandsQuiet();
+
+    const readResult = await runMachineClawPiServoCommand(buildMachineClawReadCommand(nextSeq()), t("machineClaw.actions.readFeedback"), {
+      waitMs: 180,
+      timeoutMs: 1000
+    });
+    const positionRaw = machineClawPositionRawFromResult(readResult);
+    if (positionRaw === null) {
+      await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+      setMachineClawError(t("machineClaw.errors.feedbackRequired"));
+      setMachineClawAction("error");
+      setMachineClawBusy(false);
+      setFeetechBusy(null);
+      return;
+    }
+
+    const config = machineClawConfigRef.current;
+    const command = buildMachineClawClawCommand(config, direction, () => nextSeq());
+    const speedRaw = machineClawCommandSpeedRaw(command);
+    const targetTurns = machineClawTargetTurns(config, direction);
+    setMachineClawProgress({ completedTurns: 0, targetTurns, running: true });
+
+    if (speedRaw === 0) {
+      await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+      setMachineClawError(t("machineClaw.errors.zeroSpeed"));
+      setMachineClawAction("error");
+      setMachineClawBusy(false);
+      setFeetechBusy(null);
+      return;
+    }
+
+    const result = await runMachineClawPiServoCommand(command, label);
+    if (!result) {
+      await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+      setMachineClawAction("error");
+      setMachineClawBusy(false);
+      setFeetechBusy(null);
+      return;
+    }
+
+    const generation = machineClawMonitorGenerationRef.current + 1;
+    const nowMs = Date.now();
+    machineClawMonitorGenerationRef.current = generation;
+    machineClawMonitorRef.current = {
+      completedTurns: 0,
+      direction,
+      generation,
+      lastRawChangedAtMs: nowMs,
+      polling: false,
+      previousRaw: positionRaw,
+      source: "panel",
+      speedRaw,
+      startedAtMs: nowMs,
+      targetTurns
+    };
+    startMachineClawMonitor(generation);
+    setMachineClawAction(machineClawClawActionKey(direction));
+    setMachineClawBusy(false);
+    setFeetechBusy(null);
+  }
+
+  function updateMachineClawConfig(patch: MachineClawConfigPatch) {
+    setMachineClawConfig((current) => normalizeMachineClawConfigPatch(current, patch));
+  }
+
+  function updateMachineClawNumber(field: keyof MachineClawConfigPatch, value: string) {
+    updateMachineClawConfig({ [field]: Number(value) } as MachineClawConfigPatch);
   }
 
   function pwmMotorSpeedPercent(channel: string) {
@@ -600,7 +1558,7 @@ export default function App() {
     }
   }
 
-  function stopAllManualControl(reason?: string) {
+  function stopAllManualControl(reason?: string, options: { resetGamepadMode?: boolean } = {}) {
     const hadActiveMotion = driveActiveRef.current.mecanum ||
       driveActiveRef.current.tracked ||
       canJogTimersRef.current.front !== null ||
@@ -609,10 +1567,18 @@ export default function App() {
       gamepadMotionRef.current.tracked !== "" ||
       gamepadMotionRef.current.canFront !== 0 ||
       gamepadMotionRef.current.canRear !== 0 ||
-      armCommandSignatureRef.current !== "";
+      armCommandSignatureRef.current !== "" ||
+      machineClawMonitorRef.current !== null ||
+      machineClawProtectionMonitorRef.current !== null ||
+      (machineClawActionRef.current !== "idle" && machineClawActionRef.current !== "error");
+    if (options.resetGamepadMode) {
+      resetGamepadControlMode();
+    }
     stopCanJogLoop("front");
     stopCanJogLoop("rear");
     stopArmJoystickControl();
+    stopFourAxisArmJoystickControl();
+    stopMachineClawControl();
     setManualHold({ mecanum: "", tracked: "", canFront: 0, canRear: 0 });
     gamepadMotionRef.current = { mecanum: "", tracked: "", canFront: 0, canRear: 0 };
     if (driveActiveRef.current.mecanum) {
@@ -624,15 +1590,34 @@ export default function App() {
     driveActiveRef.current = { mecanum: false, tracked: false };
     gamepadDriveSendAtRef.current = { mecanum: 0, tracked: 0 };
     if (reason && hadActiveMotion) {
+      setLastWholeStopReason(reason);
       addLog("system", reason, "warn");
     }
+  }
+
+  function stopWholeRobot(reason = t("operator.stopReasonManual")) {
+    setLastWholeStopReason(reason);
+    stopAllManualControl(undefined, { resetGamepadMode: true });
+    stopArmServosQuiet();
+    void stopAllPwmMotors();
+    addLog("system", reason, "warn");
   }
 
   function toggleGamepadControl(enabled: boolean) {
     setGamepadControlEnabled(enabled);
     if (!enabled) {
-      stopAllManualControl(t("manual.stopReasonGamepadDisabled"));
+      stopAllManualControl(t("manual.stopReasonGamepadDisabled"), { resetGamepadMode: true });
     }
+  }
+
+  function setGamepadMode(mode: LiteGamepadControlMode) {
+    gamepadControlModeRef.current = mode;
+    setGamepadControlMode(mode);
+  }
+
+  function resetGamepadControlMode() {
+    gamepadModeYPressedRef.current = false;
+    setGamepadMode("drive");
   }
 
   function stopArmJoystickControl() {
@@ -641,12 +1626,193 @@ export default function App() {
     armCommandSignatureRef.current = "";
   }
 
+  function stopFourAxisArmJoystickControl() {
+    stopWristPoseFeedbackMonitor(false);
+    if (machineClawProtectionMonitorRef.current?.source === "gamepad") {
+      clearMachineClawProtectionMonitor(true);
+    }
+    wristLastSendAtRef.current = 0;
+    wristCommandSignatureRef.current = "";
+    resetWristPoseCommandSpeeds();
+    gamepadClawDirectionRef.current = null;
+    gamepadClawLimitDoneRef.current = null;
+    gamepadClawLimitStartingRef.current = null;
+  }
+
+  function lockCurrentFourAxisPose() {
+    updateFourAxisPoseLock(fourAxisArmStateRef.current.target);
+  }
+
+  function updateFourAxisPoseLock(target: Pick<LiteFourAxisArmPose, "toolPitchDeg" | "wristRollDeg" | "z">) {
+    const nextLock = createLiteFourAxisPoseLock(target);
+    fourAxisPoseLockRef.current = nextLock;
+    setFourAxisPoseLock(nextLock);
+  }
+
+  function createWristPoseFeedbackRuntime(profile: LiteArmProfile, leftRaw = profile.wristZeroRaw21, rightRaw = profile.wristZeroRaw23): WristPoseFeedbackRuntime {
+    return {
+      leftRaw,
+      leftSpeedRaw: 0,
+      leftTurns: 0,
+      pitchLocalDeg: profile.wristZeroPitchLocalDeg,
+      polling: false,
+      rightRaw,
+      rightSpeedRaw: 0,
+      rightTurns: 0,
+      rollDeg: profile.wristZeroRollDeg
+    };
+  }
+
+  function publishWristPoseFeedback(runtime: WristPoseFeedbackRuntime | null) {
+    wristPoseFeedbackRef.current = runtime;
+    setWristPoseFeedback(runtime ? {
+      pitchLocalDeg: runtime.pitchLocalDeg,
+      rollDeg: runtime.rollDeg
+    } : null);
+  }
+
+  function ensureWristPoseFeedbackRuntime(profile: LiteArmProfile) {
+    if (!wristPoseFeedbackRef.current) {
+      publishWristPoseFeedback(createWristPoseFeedbackRuntime(profile));
+    }
+    return wristPoseFeedbackRef.current;
+  }
+
+  function startWristPoseFeedbackMonitor() {
+    const profile = armProfileRef.current;
+    if (!profile.wristCalibrated) {
+      return;
+    }
+    ensureWristPoseFeedbackRuntime(profile);
+    if (wristPoseFeedbackTimerRef.current === null) {
+      wristPoseFeedbackTimerRef.current = window.setInterval(() => {
+        void pollWristPoseFeedback();
+      }, WRIST_POSE_FEEDBACK_POLL_MS);
+    }
+    void pollWristPoseFeedback();
+  }
+
+  function stopWristPoseFeedbackMonitor(clearFeedback: boolean) {
+    if (wristPoseFeedbackTimerRef.current !== null) {
+      window.clearInterval(wristPoseFeedbackTimerRef.current);
+      wristPoseFeedbackTimerRef.current = null;
+    }
+    if (wristPoseFeedbackRef.current) {
+      wristPoseFeedbackRef.current.polling = false;
+    }
+    if (clearFeedback) {
+      publishWristPoseFeedback(null);
+    }
+  }
+
+  function resetWristPoseCommandSpeeds() {
+    const runtime = wristPoseFeedbackRef.current;
+    if (runtime) {
+      runtime.leftSpeedRaw = 0;
+      runtime.rightSpeedRaw = 0;
+    }
+  }
+
+  function updateWristPoseCommandSpeeds(targets: ReturnType<typeof buildLiteFourAxisWristPoseHoldSpeedTargets>) {
+    const runtime = wristPoseFeedbackRef.current;
+    if (!runtime) {
+      return;
+    }
+    runtime.leftSpeedRaw = targets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.pitchLeft)?.speedRaw ?? 0;
+    runtime.rightSpeedRaw = targets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.pitchRight)?.speedRaw ?? 0;
+  }
+
+  async function pollWristPoseFeedback() {
+    const runtime = wristPoseFeedbackRef.current;
+    if (!runtime || runtime.polling) {
+      return;
+    }
+    const profile = armProfileRef.current;
+    if (!profile.wristCalibrated || !machineClawBridgeConnected) {
+      stopWristPoseFeedbackMonitor(false);
+      return;
+    }
+    runtime.polling = true;
+    try {
+      const label = t("manual.wristTitle");
+      const leftRaw = await readWristServoPositionRaw(MACHINE_CLAW_SERVO_IDS.pitchLeft, label);
+      const rightRaw = await readWristServoPositionRaw(MACHINE_CLAW_SERVO_IDS.pitchRight, label);
+      if (leftRaw === null || rightRaw === null) {
+        stopWristPoseFeedbackMonitor(false);
+        setMachineClawError(t("machineClaw.errors.feedbackRequired"));
+        return;
+      }
+      updateWristPoseFeedbackFromRaw(runtime, leftRaw, rightRaw, profile, machineClawConfigRef.current);
+      publishWristPoseFeedback(runtime);
+    } finally {
+      if (wristPoseFeedbackRef.current === runtime) {
+        runtime.polling = false;
+      }
+    }
+  }
+
+  async function readWristServoPositionRaw(servoId: number, label: string): Promise<number | null> {
+    const command: PcCommand = { type: "servo.read", seq: nextSeq(), id: servoId };
+    try {
+      const result = await sendPiServoCommandWithDebug(command, { waitMs: 100, timeoutMs: 600 }, label);
+      setLastFeetechExchange({ label, command, result, at: Date.now() });
+      if (result.ok === false || result.messages.some((message) => message.type === "error")) {
+        return null;
+      }
+      return servoPositionRawFromResult(result, servoId);
+    } catch {
+      return null;
+    }
+  }
+
+  function updateWristPoseFeedbackFromRaw(
+    runtime: WristPoseFeedbackRuntime,
+    leftRaw: number,
+    rightRaw: number,
+    profile: LiteArmProfile,
+    clawConfig: MachineClawTestConfig
+  ) {
+    const leftDelta = Math.sign(runtime.leftSpeedRaw) * calculateWheelTurnDelta(runtime.leftRaw, leftRaw, runtime.leftSpeedRaw);
+    const rightDelta = Math.sign(runtime.rightSpeedRaw) * calculateWheelTurnDelta(runtime.rightRaw, rightRaw, runtime.rightSpeedRaw);
+    runtime.leftRaw = leftRaw;
+    runtime.rightRaw = rightRaw;
+    runtime.leftTurns += leftDelta;
+    runtime.rightTurns += rightDelta;
+    const pitchSign = clawConfig.pitchReverse ? -1 : 1;
+    const rollSign = clawConfig.rotationReverse ? -1 : 1;
+    runtime.pitchLocalDeg = profile.wristZeroPitchLocalDeg + pitchSign * ((runtime.leftTurns - runtime.rightTurns) / 2) * profile.pitchDegPerTurn;
+    runtime.rollDeg = profile.wristZeroRollDeg + rollSign * ((runtime.leftTurns + runtime.rightTurns) / 2) * profile.rollDegPerTurn;
+  }
+
+  function stopArmServosQuiet() {
+    const profile = armProfileRef.current;
+    sendManualPiServoCommand(buildServoSpeedCommand(nextSeq(), [
+      { id: profile.j1ServoId, name: "J1", speedRaw: 0, acc: profile.acc },
+      { id: profile.j2ServoId, name: "J2", speedRaw: 0, acc: profile.acc }
+    ], false), t("manual.armStop"), { waitMs: 120, timeoutMs: 700 });
+  }
+
   function applyLiteGamepadControl(state: LiteGamepadState) {
+    const modeStep = stepLiteGamepadControlMode(gamepadControlModeRef.current, state, gamepadModeYPressedRef.current);
+    gamepadModeYPressedRef.current = modeStep.previousYPressed;
+    if (modeStep.toggled) {
+      setGamepadMode(modeStep.mode);
+      stopAllManualControl(t(modeStep.mode === "arm" ? "manual.stopReasonEnterArmMode" : "manual.stopReasonExitArmMode"));
+      if (modeStep.mode === "arm") {
+        lockCurrentFourAxisPose();
+        startWristPoseFeedbackMonitor();
+      }
+      return;
+    }
     if (state.stop) {
       stopAllManualControl(t("manual.stopReasonGamepadStop"));
       return;
     }
     const snapshot = snapshotFromLiteGamepad(state);
+    if (gamepadControlModeRef.current === "arm") {
+      applyGamepadFourAxisArmControl(snapshot.armPose);
+      return;
+    }
     const now = Date.now();
     const mecanumSignature = hasMecanumMotion(snapshot.mecanum) ? JSON.stringify(snapshot.mecanum) : "";
     const shouldSendMecanum = Boolean(mecanumSignature) && (
@@ -676,7 +1842,6 @@ export default function App() {
     }
     gamepadMotionRef.current.tracked = trackedSignature;
 
-    applyGamepadArmControl(snapshot.arm);
     applyGamepadCanJog("front", snapshot.canJog.front);
     applyGamepadCanJog("rear", snapshot.canJog.rear);
   }
@@ -698,17 +1863,202 @@ export default function App() {
       return;
     }
 
-    const signature = armCommandSignature(step.solution);
+    const signature = armCommandSignature(step.solution, profile, ROBOT_PROFILE.feetech.servos);
     if (signature === armCommandSignatureRef.current) {
       return;
     }
     armCommandSignatureRef.current = signature;
     armLastSendAtRef.current = now;
     try {
-      sendManualPiServoCommand(buildLiteArmMoveCommand(nextSeq(), step.solution, profile), t("manual.armTitle"));
+      sendManualPiServoCommand(buildLiteArmMoveCommand(nextSeq(), step.solution, profile, ROBOT_PROFILE.feetech.servos), t("manual.armTitle"));
     } catch (error) {
       addLog("system", t("logs.manualCommandFailed", { label: t("manual.armTitle"), message: errorMessage(error, t) }), "warn");
     }
+  }
+
+  function applyGamepadFourAxisArmControl(input: LiteFourAxisArmJoystickInput) {
+    const profile = armProfileRef.current;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const lastTickAt = armLastTickAtRef.current ?? now - profile.commandIntervalMs;
+    armLastTickAtRef.current = now;
+    const step = applyFourAxisArmJoystickStep(fourAxisArmStateRef.current, input, now - lastTickAt, profile, ROBOT_PROFILE.feetech.servos);
+    fourAxisArmStateRef.current = step.state;
+    setFourAxisArmState(step.state);
+    updateFourAxisPoseLock(step.state.target);
+    const nextArmState = {
+      target: step.solution.arm.target,
+      j1LogicalDeg: step.solution.arm.j1LogicalDeg,
+      j2LogicalDeg: step.solution.arm.j2LogicalDeg
+    };
+    armStateRef.current = nextArmState;
+    setArmState(nextArmState);
+
+    if (!step.moving) {
+      stopGamepadWristIfActive();
+      stopArmJoystickControl();
+      return;
+    }
+
+    if (step.armMoving && profile.calibrated && step.solution.arm.reachable && step.solution.arm.withinLimits && now - armLastSendAtRef.current >= profile.commandIntervalMs) {
+      const signature = armCommandSignature(step.solution.arm, profile, ROBOT_PROFILE.feetech.servos);
+      if (signature !== armCommandSignatureRef.current) {
+        armCommandSignatureRef.current = signature;
+        armLastSendAtRef.current = now;
+        try {
+          sendManualPiServoCommand(buildLiteArmMoveCommand(nextSeq(), step.solution.arm, profile, ROBOT_PROFILE.feetech.servos), t("manual.armTitle"));
+        } catch (error) {
+          addLog("system", t("logs.manualCommandFailed", { label: t("manual.armTitle"), message: errorMessage(error, t) }), "warn");
+        }
+      }
+    } else if (!step.armMoving) {
+      stopArmJoystickControl();
+    }
+
+    const clawDirection = input.claw > 0 ? "open" : input.claw < 0 ? "close" : null;
+    const fallbackFeedback = ensureWristPoseFeedbackRuntime(profile) ?? createWristPoseFeedbackRuntime(profile);
+    const baseTargets = buildLiteFourAxisWristPoseHoldSpeedTargets(input, step.solution, fallbackFeedback, profile, machineClawConfigRef.current);
+    const id22SpeedRaw = baseTargets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.claw)?.speedRaw ?? 0;
+    const clawReady = updateGamepadClawLimit(clawDirection, id22SpeedRaw);
+    const commandInput = clawDirection && !clawReady ? { ...input, claw: 0 as LiteCanJogDirection } : input;
+    const targets = commandInput === input
+      ? baseTargets
+      : buildLiteFourAxisWristPoseHoldSpeedTargets(commandInput, step.solution, fallbackFeedback, profile, machineClawConfigRef.current);
+    const wristMoving = targets.some((target) => target.speedRaw !== 0);
+
+    if (!wristMoving) {
+      stopGamepadWristIfActive();
+      return;
+    }
+    if (!profile.wristCalibrated) {
+      setMachineClawError(t("manual.wristNotCalibrated"));
+      stopGamepadWristIfActive();
+      return;
+    }
+    startWristPoseFeedbackMonitor();
+    if (!machineClawBridgeConnected) {
+      setMachineClawError(t("machineClaw.errors.bridgeRequired"));
+      stopGamepadWristIfActive();
+      return;
+    }
+    if (now - wristLastSendAtRef.current < profile.commandIntervalMs) {
+      return;
+    }
+
+    const command = buildLiteFourAxisWristPoseHoldSpeedCommand(nextSeq(), commandInput, step.solution, fallbackFeedback, profile, machineClawConfigRef.current);
+    const signature = wristSpeedCommandSignature(command);
+    if (signature === wristCommandSignatureRef.current && now - wristLastSendAtRef.current < GAMEPAD_DRIVE_RESEND_MS) {
+      return;
+    }
+    wristCommandSignatureRef.current = signature;
+    wristLastSendAtRef.current = now;
+    updateWristPoseCommandSpeeds(targets);
+    if (machineClawMonitorRef.current?.source === "gamepad") {
+      const id22Target = targets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.claw);
+      if (id22Target) {
+        machineClawMonitorRef.current.speedRaw = id22Target.speedRaw;
+      }
+    }
+    updateMachineClawProtectionTargets(targets, "gamepad");
+    setMachineClawAction(actionFromWristTargets(targets, clawDirection));
+    setMachineClawError(null);
+    sendManualPiServoCommand(command, t("manual.wristTitle"), { waitMs: 120, timeoutMs: 700 });
+  }
+
+  function stopGamepadWristIfActive() {
+    if (machineClawMonitorRef.current?.source === "gamepad") {
+      clearMachineClawMonitor(true);
+    }
+    if (machineClawProtectionMonitorRef.current?.source === "gamepad") {
+      clearMachineClawProtectionMonitor(true);
+    }
+    const hadWrist = wristCommandSignatureRef.current !== "" || gamepadClawDirectionRef.current !== null;
+    stopFourAxisArmJoystickControl();
+    if (hadWrist) {
+      void sendMachineClawStopCommandsQuiet();
+      setMachineClawAction("idle");
+    }
+  }
+
+  function updateGamepadClawLimit(direction: MachineClawClawDirection | null, speedRaw: number) {
+    if (!direction) {
+      if (gamepadClawDirectionRef.current !== null && machineClawMonitorRef.current?.source === "gamepad") {
+        clearMachineClawMonitor(true);
+      }
+      gamepadClawDirectionRef.current = null;
+      gamepadClawLimitDoneRef.current = null;
+      gamepadClawLimitStartingRef.current = null;
+      return true;
+    }
+    if (gamepadClawLimitDoneRef.current === direction) {
+      return false;
+    }
+    const activeMonitor = machineClawMonitorRef.current;
+    if (activeMonitor?.source === "gamepad" && activeMonitor.direction === direction) {
+      return true;
+    }
+    if (gamepadClawLimitStartingRef.current === direction) {
+      return false;
+    }
+    if (activeMonitor?.source === "gamepad") {
+      clearMachineClawMonitor(true);
+    }
+    gamepadClawDirectionRef.current = direction;
+    gamepadClawLimitStartingRef.current = direction;
+    void beginGamepadClawLimitMonitor(direction, speedRaw);
+    return false;
+  }
+
+  async function beginGamepadClawLimitMonitor(direction: MachineClawClawDirection, speedRaw: number) {
+    if (!machineClawBridgeConnected) {
+      gamepadClawLimitStartingRef.current = null;
+      setMachineClawError(t("machineClaw.errors.bridgeRequired"));
+      return;
+    }
+    if (speedRaw === 0) {
+      gamepadClawLimitStartingRef.current = null;
+      setMachineClawError(t("machineClaw.errors.zeroSpeed"));
+      return;
+    }
+    const label = t(direction === "open" ? "machineClaw.actions.open" : "machineClaw.actions.close");
+    const readResult = await runMachineClawPiServoCommand(buildMachineClawReadCommand(nextSeq()), t("machineClaw.actions.readFeedback"), {
+      waitMs: 160,
+      timeoutMs: 900
+    });
+    const positionRaw = machineClawPositionRawFromResult(readResult);
+    if (gamepadClawDirectionRef.current !== direction) {
+      gamepadClawLimitStartingRef.current = null;
+      return;
+    }
+    if (positionRaw === null) {
+      gamepadClawLimitStartingRef.current = null;
+      await sendMachineClawStopCommandsQuiet([MACHINE_CLAW_SERVO_IDS.claw]);
+      setMachineClawError(t("machineClaw.errors.feedbackRequired"));
+      setMachineClawAction("error");
+      return;
+    }
+
+    const targetTurns = machineClawTargetTurns(machineClawConfigRef.current, direction);
+    const generation = machineClawMonitorGenerationRef.current + 1;
+    const nowMs = Date.now();
+    machineClawMonitorGenerationRef.current = generation;
+    machineClawMonitorRef.current = {
+      completedTurns: 0,
+      direction,
+      generation,
+      lastRawChangedAtMs: nowMs,
+      polling: false,
+      previousRaw: positionRaw,
+      source: "gamepad",
+      speedRaw,
+      startedAtMs: nowMs,
+      targetTurns
+    };
+    setMachineClawProgress({ completedTurns: 0, targetTurns, running: true });
+    setMachineClawAction(machineClawClawActionKey(direction));
+    setMachineClawError(null);
+    addLog("system", label, "info");
+    gamepadClawLimitStartingRef.current = null;
+    startMachineClawMonitor(generation);
   }
 
   function applyGamepadCanJog(group: LiteCanJogGroup, direction: LiteCanJogDirection) {
@@ -749,15 +2099,20 @@ export default function App() {
     setArmProfile((current) => normalizeLiteArmProfile({ ...current, [field]: numericValue }, ROBOT_PROFILE.arm));
   }
 
-  function updateArmProfileSign(field: "j1Sign" | "j2Sign" | "elbowSign", value: string) {
+  function updateArmProfileSign(field: "j1Sign" | "j2Sign" | "elbowSign" | "j1GravitySign" | "j2GravitySign", value: string) {
     setArmProfile((current) => normalizeLiteArmProfile({ ...current, [field]: Number(value) === -1 ? -1 : 1 }, ROBOT_PROFILE.arm));
   }
 
   function resetArmFoldedTarget() {
     const nextState = createLiteArmRuntimeState(armProfileRef.current, ROBOT_PROFILE.feetech.servos);
+    const nextFourAxisState = createLiteFourAxisArmRuntimeState(armProfileRef.current, ROBOT_PROFILE.feetech.servos);
     armStateRef.current = nextState;
+    fourAxisArmStateRef.current = nextFourAxisState;
     setArmState(nextState);
+    setFourAxisArmState(nextFourAxisState);
+    updateFourAxisPoseLock(nextFourAxisState.target);
     stopArmJoystickControl();
+    stopFourAxisArmJoystickControl();
   }
 
   async function calibrateArmFoldedZero() {
@@ -782,9 +2137,14 @@ export default function App() {
       armProfileRef.current = nextProfile;
       setArmProfile(nextProfile);
       const nextState = createLiteArmRuntimeState(nextProfile, ROBOT_PROFILE.feetech.servos);
+      const nextFourAxisState = createLiteFourAxisArmRuntimeState(nextProfile, ROBOT_PROFILE.feetech.servos);
       armStateRef.current = nextState;
+      fourAxisArmStateRef.current = nextFourAxisState;
       setArmState(nextState);
+      setFourAxisArmState(nextFourAxisState);
+      updateFourAxisPoseLock(nextFourAxisState.target);
       stopArmJoystickControl();
+      stopFourAxisArmJoystickControl();
       addLog("system", t("logs.armCalibrated"), "info");
       await refreshHealth(piHost);
     } catch (error) {
@@ -799,7 +2159,7 @@ export default function App() {
   async function readFeetechPositionDeg(servo: (typeof ROBOT_PROFILE.feetech.servos)[number], label: string): Promise<number> {
     const command: PcCommand = { type: "servo.read", seq: nextSeq(), id: servo.id };
     addLog("tx", JSON.stringify(command), "info");
-    const result = await sendPiServoBridgeCommand(piHost, command, { waitMs: 650, timeoutMs: 1200 });
+    const result = await sendPiServoCommandWithDebug(command, { waitMs: 650, timeoutMs: 1200 }, label);
     addLog("rx", JSON.stringify({ ok: result.ok, protocol: result.protocol, messages: result.messages }), result.ok ? "info" : "warn");
     setLastFeetechExchange({ label, command, result, at: Date.now() });
     if (result.ok === false) {
@@ -813,6 +2173,66 @@ export default function App() {
       throw new Error(`ID${servo.id} feedback missing position`);
     }
     return positionDeg;
+  }
+
+  async function readFeetechPositionRaw(servo: (typeof ROBOT_PROFILE.feetech.servos)[number], label: string): Promise<number> {
+    const command: PcCommand = { type: "servo.read", seq: nextSeq(), id: servo.id };
+    addLog("tx", JSON.stringify(command), "info");
+    const result = await sendPiServoCommandWithDebug(command, { waitMs: 650, timeoutMs: 1200 }, label);
+    addLog("rx", JSON.stringify({ ok: result.ok, protocol: result.protocol, messages: result.messages }), result.ok ? "info" : "warn");
+    setLastFeetechExchange({ label, command, result, at: Date.now() });
+    if (result.ok === false) {
+      throw new Error(result.error ?? t("errors.feetechRejected"));
+    }
+    const feedback = result.messages.find((message): message is ServoFeedbackMessage =>
+      message.type === "servo.feedback" && message.id === servo.id && typeof message.positionRaw === "number"
+    );
+    const positionRaw = feedback?.positionRaw;
+    if (typeof positionRaw !== "number" || !Number.isFinite(positionRaw)) {
+      throw new Error(`ID${servo.id} feedback missing raw position`);
+    }
+    return positionRaw;
+  }
+
+  async function calibrateWristZero() {
+    const label = t("actions.calibrateWristZero");
+    const left = armServoProfile(MACHINE_CLAW_SERVO_IDS.pitchLeft);
+    const claw = armServoProfile(MACHINE_CLAW_SERVO_IDS.claw);
+    const right = armServoProfile(MACHINE_CLAW_SERVO_IDS.pitchRight);
+    if (!left || !claw || !right) {
+      setFeetechError(t("errors.feetechRejected"));
+      return;
+    }
+    setFeetechBusy(label);
+    setMachineClawError(null);
+    setFeetechError(null);
+    try {
+      const wristZeroRaw21 = await readFeetechPositionRaw(left, label);
+      const wristZeroRaw22 = await readFeetechPositionRaw(claw, label);
+      const wristZeroRaw23 = await readFeetechPositionRaw(right, label);
+      const currentWristSolution = solveFourAxisArmPoseIk(fourAxisArmStateRef.current.target, armProfileRef.current, ROBOT_PROFILE.feetech.servos);
+      const nextProfile = normalizeLiteArmProfile({
+        ...armProfileRef.current,
+        wristZeroRaw21,
+        wristZeroRaw22,
+        wristZeroRaw23,
+        wristZeroPitchLocalDeg: currentWristSolution.wristPitchLocalDeg,
+        wristZeroRollDeg: currentWristSolution.target.wristRollDeg,
+        wristCalibrated: true
+      }, ROBOT_PROFILE.arm);
+      armProfileRef.current = nextProfile;
+      setArmProfile(nextProfile);
+      publishWristPoseFeedback(createWristPoseFeedbackRuntime(nextProfile, wristZeroRaw21, wristZeroRaw23));
+      stopFourAxisArmJoystickControl();
+      addLog("system", t("logs.wristCalibrated"), "info");
+    } catch (error) {
+      const message = errorMessage(error, t);
+      setMachineClawError(message);
+      setFeetechError(message);
+      addLog("system", t("logs.wristCalibrationFailed", { message }), "error");
+    } finally {
+      setFeetechBusy(null);
+    }
   }
 
   function armServoProfile(servoId: number) {
@@ -858,7 +2278,7 @@ export default function App() {
     try {
       const command = commandFactory();
       addLog("tx", JSON.stringify(command), "info");
-      const result = await sendPiServoBridgeCommand(piHost, command, { waitMs: 650, timeoutMs: 1200 });
+      const result = await sendPiServoCommandWithDebug(command, { waitMs: 650, timeoutMs: 1200 }, label);
       addLog("rx", JSON.stringify({ ok: result.ok, protocol: result.protocol, messages: result.messages }), result.ok ? "info" : "warn");
       setLastFeetechExchange({ label, command, result, at: Date.now() });
       if (result.ok === false) {
@@ -957,9 +2377,47 @@ export default function App() {
   }
 
   function renderControlView() {
+    const gamepadActivityFresh = gamepadActivityAt > 0 && Date.now() - gamepadActivityAt < 1200;
+    const gamepadDiagramState = buildOperatorGamepadDiagramState(liteGamepadState, {
+      activityFresh: gamepadActivityFresh,
+      connected: Boolean(activeGamepad),
+      enabled: gamepadControlEnabled,
+      mode: gamepadControlMode
+    });
+    const manualTxAgeSeconds = manualTxStatus ? Math.max(0, Math.round((Date.now() - manualTxStatus.at) / 100) / 10) : null;
+    const manualTxValue = manualTxStatus
+      ? `${manualTxStatus.commandType}${manualTxStatus.seq === null ? "" : ` #${manualTxStatus.seq}`} ${manualTxAgeSeconds}s`
+      : "--";
+    const manualTxTone: Tone = manualTxStatus?.state === "error" ? "danger" : manualTxStatus?.state === "sending" ? "warning" : manualTxStatus ? "online" : "neutral";
     return (
-      <section className="view-grid control-view">
-        <section className="panel manual-drive-panel">
+      <section className="control-view">
+        <div className="operator-main-column">
+          <section className="panel control-camera-panel">
+            <PanelTitle icon={<Video size={18} />} title={t("master.cameraFeeds")} meta={piHost} />
+            <div className={`camera-feed-grid ${consoleMode === "operator" ? "single" : ""}`}>
+              <CameraFeed
+                label={t("camera.main")}
+                mode="webrtc"
+                offerUrl={mainCameraOfferUrl}
+                onRuntimeChange={(patch) => updateCameraRuntime("main", patch)}
+                runtime={cameraRuntimeById.main ?? EMPTY_CAMERA_RUNTIME}
+                streamUrl={mainCameraUrl}
+              />
+              {consoleMode === "engineering" && (
+                <CameraFeed
+                  label={t("camera.secondary")}
+                  mode="mjpeg"
+                  offerUrl={secondaryCameraOfferUrl}
+                  onRuntimeChange={(patch) => updateCameraRuntime("secondary", patch)}
+                  runtime={cameraRuntimeById.secondary ?? EMPTY_CAMERA_RUNTIME}
+                  streamUrl={secondaryCameraUrl}
+                />
+              )}
+            </div>
+          </section>
+
+          <div className="operator-drive-grid">
+            <section className="panel manual-drive-panel">
           <PanelTitle icon={<Gauge size={18} />} title={t("manual.mecanumTitle")} meta={`M3 / M1 / M4 / M2 · ${ROBOT_PROFILE.drive.speedLimitPercent}%`} />
           <div className="manual-pad">
             <span />
@@ -972,10 +2430,10 @@ export default function App() {
             <HoldButton active={manualHold.mecanum === "backward"} onHoldEnd={stopMecanumHold} onHoldStart={() => startMecanumHold("backward")}>{t("manual.backward")}</HoldButton>
             <span />
           </div>
-          <p className="inline-note">{t("manual.mecanumHint")}</p>
-        </section>
+          {consoleMode === "engineering" && <p className="inline-note">{t("manual.mecanumHint")}</p>}
+            </section>
 
-        <section className="panel manual-tracked-panel">
+            <section className="panel manual-tracked-panel">
           <PanelTitle icon={<Activity size={18} />} title={t("manual.trackedTitle")} meta={`${ROBOT_PROFILE.drive.tracked.left} / ${ROBOT_PROFILE.drive.tracked.right}`} />
           <div className="manual-pad">
             <span />
@@ -988,22 +2446,32 @@ export default function App() {
             <HoldButton active={manualHold.tracked === "backward"} onHoldEnd={stopTrackedHold} onHoldStart={() => startTrackedHold("backward")}>{t("manual.backward")}</HoldButton>
             <span />
           </div>
-          <p className="inline-note">{t("manual.trackedHint")}</p>
-        </section>
+          {consoleMode === "engineering" && <p className="inline-note">{t("manual.trackedHint")}</p>}
+            </section>
+          </div>
 
-        <section className="panel manual-arm-panel">
+          <section className="panel manual-arm-panel">
           <PanelTitle icon={<Wrench size={18} />} title={t("manual.armTitle")} meta={`ID${armProfile.j1ServoId} / ID${armProfile.j2ServoId}`} />
           <div className="metric-grid">
-            <Metric label={t("metrics.armForward")} value={formatNumber(armSolution.target.x)} />
-            <Metric label={t("metrics.armHeight")} value={formatNumber(armSolution.target.z)} />
+            <Metric label={t("metrics.armForward")} value={formatNumber(fourAxisArmSolution.target.x)} />
+            <Metric label={t("metrics.armHeight")} value={formatNumber(fourAxisArmSolution.target.z)} />
+            <Metric label={t("metrics.toolPitch")} value={formatNumber(fourAxisArmSolution.target.toolPitchDeg)} />
+            <Metric label={t("metrics.wristRoll")} value={formatNumber(fourAxisArmSolution.target.wristRollDeg)} />
+            <Metric label={t("metrics.planeLockHeight")} value={formatNumber(fourAxisPoseLock.z)} tone={gamepadControlMode === "arm" ? "online" : "neutral"} />
+            <Metric label={t("metrics.poseLock")} value={`${formatNumber(fourAxisPoseLock.toolPitchDeg)} / ${formatNumber(fourAxisPoseLock.wristRollDeg)}`} tone={gamepadControlMode === "arm" ? "online" : "neutral"} />
+            <Metric label={t("metrics.wristCompensation")} value={armProfile.wristCalibrated && wristPoseFeedback ? `${wristCompensationLabel} ${wristFeedbackLabel}` : wristCompensationLabel} tone={wristCompensationTone} />
+            <Metric label={t("metrics.gravityCompensation")} value={armGravityCompensationLabel} tone={armGravityCompensationTone} />
             <Metric label={t("metrics.j1Target")} value={`${formatNumber(armState.j1LogicalDeg)} / ${formatNumber(armSolution.j1PhysicalDeg)}`} />
             <Metric label={t("metrics.j2Target")} value={`${formatNumber(armState.j2LogicalDeg)} / ${formatNumber(armSolution.j2PhysicalDeg)}`} />
             <Metric label={t("metrics.calibrated")} value={armProfile.calibrated ? t("common.yes") : t("common.no")} tone={armProfile.calibrated ? "online" : "warning"} />
+            <Metric label={t("metrics.wristCalibrated")} value={armProfile.wristCalibrated ? t("common.yes") : t("common.no")} tone={armProfile.wristCalibrated ? "online" : "warning"} />
             <Metric label={t("metrics.workspace")} value={armSolution.limitedByWorkspace ? t("status.limited") : t("status.ready")} tone={armSolution.limitedByWorkspace ? "warning" : "online"} />
             <Metric label={t("metrics.reachable")} value={armSolution.withinLimits ? t("common.yes") : t("common.no")} tone={armSolution.withinLimits ? "online" : "danger"} />
             <Metric label={t("metrics.piServoSerial")} value={piServoHealth?.serialOpen ? t("status.open") : t("status.closed")} tone={piServoTone} />
           </div>
-          <div className="form-grid arm-tuning-grid">
+          <details className="operator-tuning-details" open={consoleMode === "engineering"}>
+            <summary>{t("operator.tuning")}</summary>
+            <div className="form-grid arm-tuning-grid">
             <label>{t("fields.link1Length")}<input value={armProfile.link1Length} onChange={(event) => updateArmProfileNumber("link1Length", event.target.value)} /></label>
             <label>{t("fields.link2Length")}<input value={armProfile.link2Length} onChange={(event) => updateArmProfileNumber("link2Length", event.target.value)} /></label>
             <label>{t("fields.trimJ1")}<input value={armProfile.trimJ1Deg} onChange={(event) => updateArmProfileNumber("trimJ1Deg", event.target.value)} /></label>
@@ -1014,21 +2482,141 @@ export default function App() {
             <label>{t("fields.angleStep")}<input value={armProfile.maxAngleStepDeg} onChange={(event) => updateArmProfileNumber("maxAngleStepDeg", event.target.value)} /></label>
             <label>{t("fields.forwardSpeed")}<input value={armProfile.forwardSpeedPerSecond} onChange={(event) => updateArmProfileNumber("forwardSpeedPerSecond", event.target.value)} /></label>
             <label>{t("fields.liftSpeed")}<input value={armProfile.liftSpeedPerSecond} onChange={(event) => updateArmProfileNumber("liftSpeedPerSecond", event.target.value)} /></label>
+            <label>{t("fields.toolPitchSpeed")}<input value={armProfile.toolPitchSpeedDegPerSecond} onChange={(event) => updateArmProfileNumber("toolPitchSpeedDegPerSecond", event.target.value)} /></label>
+            <label>{t("fields.wristRollSpeed")}<input value={armProfile.wristRollSpeedDegPerSecond} onChange={(event) => updateArmProfileNumber("wristRollSpeedDegPerSecond", event.target.value)} /></label>
+            <label>{t("fields.toolLength")}<input value={armProfile.toolLengthMm} onChange={(event) => updateArmProfileNumber("toolLengthMm", event.target.value)} /></label>
+            <label>{t("fields.toolPitchMin")}<input value={armProfile.toolPitchMinDeg} onChange={(event) => updateArmProfileNumber("toolPitchMinDeg", event.target.value)} /></label>
+            <label>{t("fields.toolPitchMax")}<input value={armProfile.toolPitchMaxDeg} onChange={(event) => updateArmProfileNumber("toolPitchMaxDeg", event.target.value)} /></label>
+            <label>{t("fields.wristRollMin")}<input value={armProfile.wristRollMinDeg} onChange={(event) => updateArmProfileNumber("wristRollMinDeg", event.target.value)} /></label>
+            <label>{t("fields.wristRollMax")}<input value={armProfile.wristRollMaxDeg} onChange={(event) => updateArmProfileNumber("wristRollMaxDeg", event.target.value)} /></label>
+            <label>{t("fields.wristSpeedRaw")}<input value={armProfile.wristSpeedRaw} onChange={(event) => updateArmProfileNumber("wristSpeedRaw", event.target.value)} /></label>
+            {consoleMode === "engineering" && <>
+            <label>{t("fields.gravityCompensationEnabled")}<input checked={armProfile.gravityCompensationEnabled} onChange={(event) => setArmProfile((current) => normalizeLiteArmProfile({ ...current, gravityCompensationEnabled: event.target.checked }, ROBOT_PROFILE.arm))} type="checkbox" /></label>
+            <label>{t("fields.link1Mass")}<input value={armProfile.link1MassG} onChange={(event) => updateArmProfileNumber("link1MassG", event.target.value)} /></label>
+            <label>{t("fields.link2Mass")}<input value={armProfile.link2MassG} onChange={(event) => updateArmProfileNumber("link2MassG", event.target.value)} /></label>
+            <label>{t("fields.endEffectorMass")}<input value={armProfile.endEffectorMassG} onChange={(event) => updateArmProfileNumber("endEffectorMassG", event.target.value)} /></label>
+            <label>{t("fields.payloadMass")}<input value={armProfile.payloadMassG} onChange={(event) => updateArmProfileNumber("payloadMassG", event.target.value)} /></label>
+            <label>{t("fields.link1ComRatio")}<input value={armProfile.link1ComRatio} onChange={(event) => updateArmProfileNumber("link1ComRatio", event.target.value)} /></label>
+            <label>{t("fields.link2ComRatio")}<input value={armProfile.link2ComRatio} onChange={(event) => updateArmProfileNumber("link2ComRatio", event.target.value)} /></label>
+            <label>{t("fields.j1GravityBias")}<input value={armProfile.j1GravityBiasDegPerNm} onChange={(event) => updateArmProfileNumber("j1GravityBiasDegPerNm", event.target.value)} /></label>
+            <label>{t("fields.j2GravityBias")}<input value={armProfile.j2GravityBiasDegPerNm} onChange={(event) => updateArmProfileNumber("j2GravityBiasDegPerNm", event.target.value)} /></label>
+            <label>{t("fields.j1GravitySign")}<select value={armProfile.j1GravitySign} onChange={(event) => updateArmProfileSign("j1GravitySign", event.target.value)}><option value={1}>+1</option><option value={-1}>-1</option></select></label>
+            <label>{t("fields.j2GravitySign")}<select value={armProfile.j2GravitySign} onChange={(event) => updateArmProfileSign("j2GravitySign", event.target.value)}><option value={1}>+1</option><option value={-1}>-1</option></select></label>
+            <label>{t("fields.gravityMaxBias")}<input value={armProfile.gravityMaxBiasDeg} onChange={(event) => updateArmProfileNumber("gravityMaxBiasDeg", event.target.value)} /></label>
+            </>}
             <label>{t("fields.minForward")}<input value={armProfile.minForward} onChange={(event) => updateArmProfileNumber("minForward", event.target.value)} /></label>
             <label>{t("fields.maxForward")}<input value={armProfile.maxForward} onChange={(event) => updateArmProfileNumber("maxForward", event.target.value)} /></label>
             <label>{t("fields.minHeight")}<input value={armProfile.minHeight} onChange={(event) => updateArmProfileNumber("minHeight", event.target.value)} /></label>
             <label>{t("fields.maxHeight")}<input value={armProfile.maxHeight} onChange={(event) => updateArmProfileNumber("maxHeight", event.target.value)} /></label>
             <label>{t("fields.speedRaw")}<input value={armProfile.speedRaw} onChange={(event) => updateArmProfileNumber("speedRaw", event.target.value)} /></label>
             <label>{t("fields.acc")}<input value={armProfile.acc} onChange={(event) => updateArmProfileNumber("acc", event.target.value)} /></label>
-          </div>
+            </div>
+          </details>
           <div className="toolbar-row">
             <button className="icon-button primary" disabled={Boolean(feetechBusy)} onClick={() => void calibrateArmFoldedZero()} type="button"><Radar size={17} /><span>{t("actions.calibrateArmZero")}</span></button>
+            <button className="icon-button primary" disabled={Boolean(feetechBusy) || !machineClawBridgeConnected} onClick={() => void calibrateWristZero()} type="button"><HandHelping size={17} /><span>{t("actions.calibrateWristZero")}</span></button>
             <button className="icon-button" onClick={resetArmFoldedTarget} type="button"><RotateCw size={17} /><span>{t("actions.resetArmTarget")}</span></button>
           </div>
-          <p className="inline-note">{armProfile.calibrated ? t("manual.armHint") : t("manual.armNotCalibrated")}</p>
+          {(consoleMode === "engineering" || !armProfile.calibrated || !armProfile.wristCalibrated) && <p className="inline-note">{!armProfile.calibrated ? t("manual.armNotCalibrated") : !armProfile.wristCalibrated ? t("manual.wristNotCalibrated") : t("manual.armHint")}</p>}
+
+          <div className="arm-machine-claw" aria-label={t("machineClaw.title")}>
+            <div className="arm-machine-claw-heading">
+              <div>
+                <strong><HandHelping size={17} />{t("machineClaw.title")}</strong>
+                <span>{t("machineClaw.subtitle")}</span>
+              </div>
+              <div className="toolbar-row">
+                <button className="icon-button" disabled={healthBusy} onClick={() => void refreshHealth(piHost)} type="button"><RefreshCw size={16} /><span>{t("actions.check")}</span></button>
+                <button className="icon-button danger" disabled={!machineClawBridgeConnected || machineClawBusy} onClick={() => void stopMachineClawIds()} type="button"><ShieldAlert size={16} /><span>{t("machineClaw.actions.emergencyStop")}</span></button>
+              </div>
+            </div>
+            <div className="metric-grid machine-claw-lite-metrics">
+              <Metric label={t("machineClaw.metrics.bridge")} value={piServoHealth?.serialOpen ? t("status.bridgeOnline") : piServoError ?? t("status.standby")} tone={piServoTone} />
+              <Metric label={t("machineClaw.metrics.activeAction")} value={machineClawActionLabel} tone={machineClawActionTone(machineClawAction)} />
+              <Metric label={t("machineClaw.metrics.progress")} value={machineClawProgressLabel} tone={machineClawProgress.running ? "warning" : "neutral"} />
+              <Metric label={t("machineClaw.metrics.protection")} value={machineClawProtectionLabel} tone={machineClawProtectionTone} />
+              <Metric label={t("machineClaw.metrics.lastResponse")} value={lastMachineClawResponseLabel} tone={lastMachineClawResponse?.type === "error" ? "danger" : "neutral"} code />
+            </div>
+            {machineClawError && <p className="form-error">{machineClawError}</p>}
+            <div className="machine-claw-lite-grid">
+              <div className="machine-claw-lite-group">
+                <div className="machine-claw-lite-group-title">
+                  <strong>{t("machineClaw.pitch.title")}</strong>
+                  <span>ID21 / ID23</span>
+                </div>
+                {consoleMode === "engineering" && <div className="machine-claw-lite-fields">
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.pitchSpeed")} max={1000} min={0} onChange={(value) => updateMachineClawNumber("pitchSpeedRaw", value)} value={machineClawConfig.pitchSpeedRaw} />
+                  <MachineClawNumberField disabled={machineClawBusy} label={t("machineClaw.fields.pitchLimitTurns")} min={0.01} onChange={(value) => updateMachineClawNumber("pitchLimitTurns", value)} step={0.01} value={machineClawConfig.pitchLimitTurns} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.acc")} max={254} min={0} onChange={(value) => updateMachineClawNumber("acc", value)} value={machineClawConfig.acc} />
+                  <MachineClawToggleField checked={machineClawConfig.pitchReverse} disabled={machineClawBusy} label={t("machineClaw.fields.pitchReverse")} onChange={(checked) => updateMachineClawConfig({ pitchReverse: checked })} />
+                </div>}
+                <div className="toolbar-row">
+                  <button className="icon-button primary" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawPitch("positive")} type="button"><ArrowUp size={16} /><span>{t("machineClaw.actions.pitchPositive")}</span></button>
+                  <button className="icon-button" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawPitch("negative")} type="button"><ArrowDown size={16} /><span>{t("machineClaw.actions.pitchNegative")}</span></button>
+                  <button className="icon-button" disabled={!machineClawBridgeConnected || machineClawBusy} onClick={() => void stopMachineClawIds([MACHINE_CLAW_SERVO_IDS.pitchLeft, MACHINE_CLAW_SERVO_IDS.pitchRight])} type="button"><Square size={15} /><span>{t("machineClaw.actions.stopPitch")}</span></button>
+                </div>
+              </div>
+
+              <div className="machine-claw-lite-group">
+                <div className="machine-claw-lite-group-title">
+                  <strong>{t("machineClaw.rotation.title")}</strong>
+                  <span>ID21 / ID23 / ID22</span>
+                </div>
+                {consoleMode === "engineering" && <div className="machine-claw-lite-fields">
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.rotationSpeed")} max={1000} min={0} onChange={(value) => updateMachineClawNumber("rotationSpeedRaw", value)} value={machineClawConfig.rotationSpeedRaw} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.rotationClawSpeed")} max={1000} min={0} onChange={(value) => updateMachineClawNumber("rotationClawSpeedRaw", value)} value={machineClawConfig.rotationClawSpeedRaw} />
+                  <MachineClawNumberField disabled={machineClawBusy} label={t("machineClaw.fields.rotationLimitTurns")} min={0.01} onChange={(value) => updateMachineClawNumber("rotationLimitTurns", value)} step={0.01} value={machineClawConfig.rotationLimitTurns} />
+                  <MachineClawToggleField checked={machineClawConfig.rotationReverse} disabled={machineClawBusy} label={t("machineClaw.fields.rotationReverse")} onChange={(checked) => updateMachineClawConfig({ rotationReverse: checked })} />
+                  <MachineClawToggleField checked={machineClawConfig.rotationClawReverse} disabled={machineClawBusy} label={t("machineClaw.fields.rotationClawReverse")} onChange={(checked) => updateMachineClawConfig({ rotationClawReverse: checked })} />
+                </div>}
+                <div className="toolbar-row">
+                  <button className="icon-button primary" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawRotation("positive")} type="button"><RotateCw size={16} /><span>{t("machineClaw.actions.rotatePositive")}</span></button>
+                  <button className="icon-button" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawRotation("negative")} type="button"><RotateCcw size={16} /><span>{t("machineClaw.actions.rotateNegative")}</span></button>
+                  <button className="icon-button" disabled={!machineClawBridgeConnected || machineClawBusy} onClick={() => void stopMachineClawIds([MACHINE_CLAW_SERVO_IDS.pitchLeft, MACHINE_CLAW_SERVO_IDS.claw, MACHINE_CLAW_SERVO_IDS.pitchRight])} type="button"><Square size={15} /><span>{t("machineClaw.actions.stopRotation")}</span></button>
+                </div>
+              </div>
+
+              <div className="machine-claw-lite-group">
+                <div className="machine-claw-lite-group-title">
+                  <strong>{t("machineClaw.claw.title")}</strong>
+                  <span>ID22</span>
+                </div>
+                {consoleMode === "engineering" && <div className="machine-claw-lite-fields">
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.clawSpeed")} max={1000} min={0} onChange={(value) => updateMachineClawNumber("clawSpeedRaw", value)} value={machineClawConfig.clawSpeedRaw} />
+                  <MachineClawNumberField disabled={machineClawBusy} label={t("machineClaw.fields.openTurns")} min={0.01} onChange={(value) => updateMachineClawNumber("openTurns", value)} step={0.01} value={machineClawConfig.openTurns} />
+                  <MachineClawNumberField disabled={machineClawBusy} label={t("machineClaw.fields.closeTurns")} min={0.01} onChange={(value) => updateMachineClawNumber("closeTurns", value)} step={0.01} value={machineClawConfig.closeTurns} />
+                  <MachineClawToggleField checked={machineClawConfig.clawReverse} disabled={machineClawBusy} label={t("machineClaw.fields.clawReverse")} onChange={(checked) => updateMachineClawConfig({ clawReverse: checked })} />
+                </div>}
+                <div className="machine-claw-lite-progress">
+                  <span>{t("machineClaw.metrics.progress")}</span>
+                  <strong>{machineClawProgressLabel}</strong>
+                </div>
+                <div className="toolbar-row">
+                  <button className="icon-button primary" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawClaw("open")} type="button"><ArrowUp size={16} /><span>{t("machineClaw.actions.open")}</span></button>
+                  <button className="icon-button" disabled={machineClawControlsDisabled} onClick={() => void startMachineClawClaw("close")} type="button"><ArrowDown size={16} /><span>{t("machineClaw.actions.close")}</span></button>
+                  <button className="icon-button" disabled={!machineClawBridgeConnected || machineClawBusy} onClick={() => void stopMachineClawIds([MACHINE_CLAW_SERVO_IDS.claw])} type="button"><Square size={15} /><span>{t("machineClaw.actions.stopClaw")}</span></button>
+                </div>
+              </div>
+
+              {consoleMode === "engineering" && <div className="machine-claw-lite-group machine-claw-lite-protection">
+                <div className="machine-claw-lite-group-title">
+                  <strong>{t("machineClaw.protection.title")}</strong>
+                  <span>{t("machineClaw.protection.subtitle")}</span>
+                </div>
+                <div className="machine-claw-lite-fields">
+                  <MachineClawToggleField checked={machineClawConfig.protectionEnabled} disabled={machineClawBusy} label={t("machineClaw.fields.protectionEnabled")} onChange={(checked) => updateMachineClawConfig({ protectionEnabled: checked })} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.protectionCurrentMa")} max={5000} min={0} onChange={(value) => updateMachineClawNumber("protectionCurrentMa", value)} value={machineClawConfig.protectionCurrentMa} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.protectionLoadPercent")} max={100} min={0} onChange={(value) => updateMachineClawNumber("protectionLoadPercent", value)} value={machineClawConfig.protectionLoadPercent} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.protectionTemperatureC")} max={100} min={0} onChange={(value) => updateMachineClawNumber("protectionTemperatureC", value)} value={machineClawConfig.protectionTemperatureC} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.protectionStallMs")} max={3000} min={120} onChange={(value) => updateMachineClawNumber("protectionStallMs", value)} value={machineClawConfig.protectionStallMs} />
+                  <MachineClawRangeField disabled={machineClawBusy} label={t("machineClaw.fields.protectionMinRawDelta")} max={64} min={0} onChange={(value) => updateMachineClawNumber("protectionMinRawDelta", value)} value={machineClawConfig.protectionMinRawDelta} />
+                </div>
+              </div>}
+            </div>
+          </div>
         </section>
 
-        <section className="panel manual-can-panel">
+        {consoleMode === "engineering" && <section className="panel manual-can-panel">
           <PanelTitle icon={<DatabaseZap size={18} />} title={t("manual.canJogTitle")} meta={`${ROBOT_PROFILE.canJog.stepDeg} deg / ${ROBOT_PROFILE.canJog.intervalMs} ms`} />
           <div className="can-jog-grid">
             <div className="can-jog-row">
@@ -1049,17 +2637,65 @@ export default function App() {
             </div>
           </div>
           <p className="inline-note">{t("manual.canHint")}</p>
-        </section>
+        </section>}
 
-        <section className="panel control-camera-panel">
-          <PanelTitle icon={<Video size={18} />} title={t("master.cameraFeeds")} meta={piHost} />
-          <div className="camera-feed-grid">
-            <CameraFeed label={t("camera.main")} url={mainCameraUrl} />
-            <CameraFeed label={t("camera.secondary")} url={secondaryCameraUrl} />
-          </div>
-        </section>
+        </div>
 
-        <section className="panel realtime-panel">
+        <aside className="operator-side-column">
+          <section className="panel operator-pi-panel">
+            <PanelTitle icon={<Radar size={18} />} title={t("operator.piConnection")} meta={piHost} />
+            <div className="operator-pi-row">
+              <input aria-label={t("operator.piHost")} value={manualHost} onChange={(event) => setManualHost(event.target.value)} onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  reconnectPiHost();
+                }
+              }} placeholder={t("placeholders.piHost")} />
+              <button className="icon-button primary" onClick={() => applyHost(manualHost)} type="button"><Save size={16} /><span>{t("actions.apply")}</span></button>
+              <button className="icon-button" disabled={healthBusy} onClick={reconnectPiHost} type="button"><RefreshCw size={16} /><span>{healthBusy ? t("common.checking") : t("operator.reconnect")}</span></button>
+            </div>
+            <div className="operator-pi-status">
+              <Metric label="A-board" value={bridgeStatusText(aBoardHealth, aBoardError, t)} tone={aBoardTone} />
+              <Metric label="Pi servo" value={piServoHealth?.serialOpen ? t("status.bridgeOnline") : piServoError ?? t("status.standby")} tone={piServoTone} />
+            </div>
+          </section>
+
+          <section className="panel operator-imu-panel">
+            <PanelTitle icon={<Activity size={18} />} title={t("imu.title")} meta={imuStatusLabel} />
+            <div className="metric-grid imu-metric-grid">
+              <Metric label={t("metrics.imuStatus")} value={imuStatusLabel} tone={imuStatusTone} />
+              <Metric label={t("metrics.rollPitch")} value={imuRollPitchLabel} tone={imuSnapshot?.attitude ? "online" : "neutral"} />
+              <Metric label={t("metrics.gyroDps")} value={imuGyroLabel} code />
+              <Metric label={t("metrics.mpuWhoAmI")} value={formatImuChipIds(imuSnapshot?.feedback)} code />
+              <Metric label={t("metrics.imuSample")} value={imuSampleLabel} />
+            </div>
+            <div className="toolbar-row">
+              <button className="icon-button" disabled={!aBoardBridgeConnected} onClick={() => void readOperatorImu()} type="button"><RefreshCw size={16} /><span>{t("imu.actions.read")}</span></button>
+            </div>
+            {imuError && <p className="form-error">{imuError}</p>}
+          </section>
+
+          <section className="panel operator-stop-panel">
+            <PanelTitle icon={<ShieldAlert size={18} />} title={t("operator.safetyTitle")} meta={t("operator.safetyMeta")} />
+            <button className="operator-stop-button" onClick={() => stopWholeRobot()} type="button">
+              <ShieldAlert size={24} />
+              <span>{t("operator.stopWholeRobot")}</span>
+              <small>{lastWholeStopReason || t("operator.stopReasonIdle")}</small>
+            </button>
+            <div className="operator-safety-metrics">
+            <Metric label={t("operator.gamepad")} value={activeGamepad ? `#${activeGamepad.index}` : t("gamepad.noGamepad")} tone={activeGamepad ? "online" : "warning"} />
+              <Metric label={t("operator.handMode")} value={t(gamepadControlMode === "arm" ? "operator.handModeArm" : "operator.handModeDrive")} tone={gamepadControlMode === "arm" ? "warning" : "online"} />
+              <Metric label={t("operator.lastTx")} value={manualTxStatus?.error ?? manualTxValue} tone={manualTxTone} code />
+              <Metric label={t("machineClaw.metrics.activeAction")} value={machineClawActionLabel} tone={machineClawActionTone(machineClawAction)} />
+            </div>
+            {!activeGamepad && <p className="operator-warning"><Gamepad2 size={14} />{t("operator.gamepadWarning")}</p>}
+          </section>
+
+          {consoleMode === "operator" && <section className="panel operator-gamepad-panel">
+            <PanelTitle icon={<Gamepad2 size={18} />} title={t("operator.gamepadDiagram.title")} meta={t(gamepadDiagramState.statusKey)} />
+            <OperatorGamepadDiagram state={gamepadDiagramState} t={t} />
+          </section>}
+
+          <section className="panel realtime-panel">
           <PanelTitle icon={<Gauge size={18} />} title={t("master.realtime")} meta={aBoardHealth?.uptimeSec ? `${Math.round(aBoardHealth.uptimeSec)}s` : "--"} />
           <div className="metric-grid">
             <Metric label={t("metrics.queueDepth")} value={aBoardHealth?.queueDepth} />
@@ -1071,22 +2707,53 @@ export default function App() {
           </div>
         </section>
 
-        <section className="panel device-panel">
-          <PanelTitle icon={<Network size={18} />} title={t("master.deviceStatus")} meta={`${A_BOARD_BRIDGE_PORT} / ${PI_SERVO_BRIDGE_PORT}`} />
-          <div className="device-status-grid">
-            <ArchitectureNode icon={<Activity size={18} />} label={t("nodes.pcWebLite")} status="127.0.0.1:5174" tone="online" />
-            <ArchitectureNode icon={<Radar size={18} />} label={t("nodes.raspberryPi")} status={piHost} tone={aBoardTone === "online" || piServoTone === "online" ? "online" : "warning"} />
-            <ArchitectureNode icon={<Cable size={18} />} label={t("nodes.aBoardBridge")} status={bridgeStatusText(aBoardHealth, aBoardError, t)} tone={aBoardTone} />
-            <ArchitectureNode icon={<Cpu size={18} />} label={t("nodes.mcuUart")} status={aBoardHealth?.serialPort ?? "/dev/ttyAMA5"} tone={aBoardHealth?.serialOpen ? "online" : "neutral"} />
-            <ArchitectureNode icon={<DatabaseZap size={18} />} label={t("nodes.canBus")} status={aBoardHealth?.canServoReady === false ? t("status.notReady") : t("status.ready")} tone={aBoardHealth?.canServoReady === false ? "warning" : "online"} />
-            <ArchitectureNode icon={<Wrench size={18} />} label={t("nodes.feetechBus")} status={piServoHealth?.serialPort ?? "/dev/serial0"} tone={piServoTone} />
+        <section className="panel operator-status-panel">
+          <PanelTitle icon={<Activity size={18} />} title={t("operator.statusRail")} meta={consoleMode === "operator" ? t("operator.modeOperator") : t("operator.modeEngineering")} />
+          <div className="metric-grid">
+            <Metric label={t("metrics.queueDepth")} value={aBoardHealth?.queueDepth} />
+            <Metric label={t("metrics.requestCount")} value={aBoardHealth?.requestCount} />
+            <Metric label={t("operator.handMode")} value={t(gamepadControlMode === "arm" ? "operator.handModeArm" : "operator.handModeDrive")} tone={gamepadControlMode === "arm" ? "warning" : "online"} />
+            <Metric label={t("metrics.imuStatus")} value={imuStatusLabel} tone={imuStatusTone} />
+            <Metric label={t("metrics.rollPitch")} value={imuRollPitchLabel} tone={imuSnapshot?.attitude ? "online" : "neutral"} />
+            <Metric label={t("operator.lastStop")} value={lastWholeStopReason || t("status.ready")} tone={lastWholeStopReason ? "warning" : "neutral"} />
+            <Metric label={t("operator.lastError")} value={operatorCriticalError} tone={operatorCriticalError === "--" ? "neutral" : "danger"} code />
+            <Metric label={t("metrics.calibrated")} value={armProfile.calibrated ? t("common.yes") : t("common.no")} tone={armProfile.calibrated ? "online" : "warning"} />
+            <Metric label={t("machineClaw.metrics.progress")} value={machineClawProgressLabel} tone={machineClawProgress.running ? "warning" : "neutral"} />
           </div>
         </section>
 
-        <section className="panel log-panel">
+        <section className="panel device-panel operator-device-panel">
+          <PanelTitle icon={<Network size={18} />} title={t("master.deviceStatus")} meta={`${A_BOARD_BRIDGE_PORT} / ${PI_SERVO_BRIDGE_PORT}`} />
+          {consoleMode === "engineering" ? (
+            <div className="device-status-grid">
+              <ArchitectureNode icon={<Activity size={18} />} label={t("nodes.pcWebLite")} status="127.0.0.1:5174" tone="online" />
+              <ArchitectureNode icon={<Radar size={18} />} label={t("nodes.raspberryPi")} status={piHost} tone={aBoardTone === "online" || piServoTone === "online" ? "online" : "warning"} />
+              <ArchitectureNode icon={<Cable size={18} />} label={t("nodes.aBoardBridge")} status={bridgeStatusText(aBoardHealth, aBoardError, t)} tone={aBoardTone} />
+              <ArchitectureNode icon={<Cpu size={18} />} label={t("nodes.mcuUart")} status={aBoardHealth?.serialPort ?? "/dev/ttyAMA5"} tone={aBoardHealth?.serialOpen ? "online" : "neutral"} />
+              <ArchitectureNode icon={<DatabaseZap size={18} />} label={t("nodes.canBus")} status={aBoardHealth?.canServoReady === false ? t("status.notReady") : t("status.ready")} tone={aBoardHealth?.canServoReady === false ? "warning" : "online"} />
+              <ArchitectureNode icon={<Wrench size={18} />} label={t("nodes.feetechBus")} status={piServoHealth?.serialPort ?? "/dev/serial0"} tone={piServoTone} />
+            </div>
+          ) : (
+            <>
+              <div className="operator-device-grid">
+                {operatorDeviceMatrix.map((item) => (
+                  <OperatorDeviceTile badge={t(item.required ? "operator.required" : "operator.backup")} detail={operatorDeviceDetail(item.detail, t)} key={item.id} label={t(`operator.devices.${item.id}`)} tone={item.tone} />
+                ))}
+              </div>
+              <div className="operator-role-grid">
+                {ROBOT_PROFILE.operation.roles.map((role) => (
+                  <OperatorRoleTile devices={role.deviceRefs} key={role.id} label={t(role.labelKey)} required={role.required} />
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        {consoleMode === "engineering" && <section className="panel log-panel">
           <PanelTitle icon={<Activity size={18} />} title={t("panels.eventLog")} meta={`${logs.length}`} />
           <LogList logs={logs} t={t} />
-        </section>
+        </section>}
+        </aside>
       </section>
     );
   }
@@ -1345,6 +3012,7 @@ export default function App() {
       { label: "LT", active: liteGamepadState.lt },
       { label: "RB", active: liteGamepadState.rb },
       { label: "RT", active: liteGamepadState.rt },
+      { label: "Y", active: liteGamepadState.y },
       { label: "A", active: liteGamepadState.stop }
     ];
     return (
@@ -1532,6 +3200,19 @@ export default function App() {
           <StatusPill label="Pi" value={piHost} tone={aBoardTone === "online" || piServoTone === "online" ? "online" : "warning"} />
           <StatusPill label="A-board" value={aBoardHealth?.serialOpen ? t("status.bridgeOnline") : aBoardError ?? t("common.checking")} tone={aBoardTone} />
           <StatusPill label="Pi servo" value={piServoHealth?.serialOpen ? t("status.bridgeOnline") : piServoError ?? t("status.standby")} tone={piServoTone} />
+          <StatusPill label="IMU" value={imuStatusLabel} tone={imuStatusTone} />
+          <StatusPill label={t("operator.gamepad")} value={activeGamepad ? `#${activeGamepad.index}` : t("status.notReady")} tone={activeGamepad ? "online" : "warning"} />
+          <StatusPill label={t("operator.handMode")} value={t(gamepadControlMode === "arm" ? "operator.handModeArm" : "operator.handModeDrive")} tone={gamepadControlMode === "arm" ? "warning" : "online"} />
+          <StatusPill label={t("operator.lastStop")} value={lastWholeStopReason || t("status.ready")} tone={lastWholeStopReason ? "warning" : "neutral"} />
+          <StatusPill label={t("operator.lastError")} value={operatorCriticalError} tone={operatorCriticalError === "--" ? "neutral" : "danger"} />
+          <div className="mode-switch" role="group" aria-label={t("operator.mode")}>
+            <button className={consoleMode === "operator" ? "active" : ""} onClick={() => changeConsoleMode("operator")} type="button">{t("operator.modeOperator")}</button>
+            <button className={consoleMode === "engineering" ? "active" : ""} onClick={() => changeConsoleMode("engineering")} type="button">{t("operator.modeEngineering")}</button>
+          </div>
+          <button className="topbar-estop" onClick={() => stopWholeRobot()} type="button">
+            <ShieldAlert size={17} />
+            <span>{t("operator.stopWholeRobot")}</span>
+          </button>
           <label className="language-control">
             <span>{t("language.label")}</span>
             <select aria-label={t("language.label")} value={currentLanguage} onChange={(event) => changeLanguage(event.target.value)}>
@@ -1542,8 +3223,8 @@ export default function App() {
       </header>
 
       <nav className="view-tabs" aria-label={t("nav.label")}>
-        {navItems.map((item) => (
-          <button className={item.id === activeView ? "active" : ""} key={item.id} onClick={() => setActiveView(item.id)} type="button">
+        {navItems.filter((item) => isConsoleViewVisible(consoleMode, item.id)).map((item) => (
+          <button className={item.id === activeView ? "active" : ""} key={item.id} onClick={() => selectConsoleView(item.id)} type="button">
             {item.icon}<span>{item.label}</span>
           </button>
         ))}
@@ -1588,6 +3269,109 @@ function ArchitectureNode({ icon, label, status, tone }: { icon: ReactNode; labe
   );
 }
 
+function OperatorDeviceTile({ badge, detail, label, tone }: { badge: string; detail: string; label: string; tone: Tone }) {
+  return (
+    <div className={`operator-device-tile ${tone}`}>
+      <span className="status-led" />
+      <div>
+        <strong>{label}</strong>
+        <small>{badge}</small>
+      </div>
+      <code>{detail}</code>
+    </div>
+  );
+}
+
+function OperatorRoleTile({ devices, label, required }: { devices: string[]; label: string; required: boolean }) {
+  return (
+    <div className={`operator-role-tile ${required ? "required" : "backup"}`}>
+      <strong>{label}</strong>
+      <code>{devices.join(" / ")}</code>
+    </div>
+  );
+}
+
+function OperatorGamepadDiagram({ state, t }: { state: OperatorGamepadDiagramState; t: TFunction }) {
+  const control = (id: OperatorGamepadDiagramControlId) => operatorGamepadDiagramControl(state, id);
+  return (
+    <div className={`gamepad-diagram ${state.tone} ${state.enabled ? "" : "disabled"}`} aria-live="polite">
+      <div className="gamepad-diagram-summary">
+        <span className="status-led" />
+        <strong>{t(state.statusKey)}</strong>
+        <span>{state.active ? t("operator.gamepadDiagram.activeCount", { count: state.activeCount }) : t("operator.gamepadDiagram.idle")}</span>
+      </div>
+      <div className="gamepad-diagram-shoulders">
+        <GamepadDiagramKey control={control("lt")} t={t} />
+        <GamepadDiagramKey control={control("lb")} t={t} />
+        <GamepadDiagramKey control={control("rb")} t={t} />
+        <GamepadDiagramKey control={control("rt")} t={t} />
+      </div>
+      <div className="gamepad-diagram-body">
+        <div className="gamepad-diagram-dpad" aria-label={t("manual.dpad")}>
+          <span />
+          <GamepadDiagramKey control={control("dpadUp")} t={t} />
+          <span />
+          <GamepadDiagramKey control={control("dpadLeft")} t={t} />
+          <div className="gamepad-diagram-center">{t("operator.gamepadDiagram.dpad")}</div>
+          <GamepadDiagramKey control={control("dpadRight")} t={t} />
+          <span />
+          <GamepadDiagramKey control={control("dpadDown")} t={t} />
+          <span />
+        </div>
+        <GamepadDiagramStick control={control("leftStick")} t={t} />
+        <GamepadDiagramStick control={control("rightStick")} t={t} />
+        <div className="gamepad-diagram-face">
+          <GamepadDiagramKey control={control("y")} t={t} />
+          <GamepadDiagramKey control={control("a")} t={t} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GamepadDiagramKey({ control, t }: { control: OperatorGamepadDiagramControl; t: TFunction }) {
+  return (
+    <div className={`gamepad-diagram-key ${control.active ? "active" : ""}`} aria-label={`${t(control.labelKey)} ${t(control.actionKey)} ${control.value}`}>
+      <strong>{control.shortLabel}</strong>
+      <span>{t(control.actionKey)}</span>
+      <em>{control.value}</em>
+    </div>
+  );
+}
+
+function GamepadDiagramStick({ control, t }: { control: OperatorGamepadDiagramControl; t: TFunction }) {
+  const x = Math.round((control.x ?? 0) * 16);
+  const y = Math.round((control.y ?? 0) * -16);
+  return (
+    <div className={`gamepad-diagram-stick ${control.active ? "active" : ""}`} aria-label={`${t(control.labelKey)} ${t(control.actionKey)} ${control.value}`}>
+      <div className="gamepad-stick-pad">
+        <span className="gamepad-stick-knob" style={{ transform: `translate(${x}px, ${y}px)` }} />
+      </div>
+      <div>
+        <strong>{t(control.labelKey)}</strong>
+        <span>{t(control.actionKey)}</span>
+        <code>{control.value}</code>
+      </div>
+    </div>
+  );
+}
+
+function operatorGamepadDiagramControl(state: OperatorGamepadDiagramState, id: OperatorGamepadDiagramControlId): OperatorGamepadDiagramControl {
+  const control = state.controls.find((item) => item.id === id);
+  if (control) {
+    return control;
+  }
+  return {
+    actionKey: "operator.gamepadDiagram.idle",
+    active: false,
+    group: "face",
+    id,
+    labelKey: "operator.gamepadDiagram.idle",
+    shortLabel: "--",
+    value: "0"
+  };
+}
+
 function Metric({ code = false, label, tone = "neutral", value }: { code?: boolean; label: string; tone?: Tone; value: unknown }) {
   const display = value === undefined || value === null || value === "" ? "--" : String(value);
   return (
@@ -1598,16 +3382,205 @@ function Metric({ code = false, label, tone = "neutral", value }: { code?: boole
   );
 }
 
-function CameraFeed({ label, url }: { label: string; url: string }) {
+function operatorDeviceDetail(detail: string, t: TFunction) {
+  if (detail === "connected") {
+    return t("status.online");
+  }
+  if (detail === "not connected") {
+    return t("operator.deviceStates.notConnected");
+  }
+  if (detail === "not checked") {
+    return t("status.notChecked");
+  }
+  return detail;
+}
+
+function MachineClawRangeField({ disabled, label, max, min, onChange, value }: {
+  disabled: boolean;
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: string) => void;
+  value: number;
+}) {
   return (
-    <div className="camera-feed">
-      <img alt={label} src={url} />
+    <label className="machine-claw-lite-range">
+      <span>{label}</span>
       <div>
+        <input disabled={disabled} max={max} min={min} onChange={(event) => onChange(event.target.value)} type="range" value={value} />
+        <input disabled={disabled} max={max} min={min} onChange={(event) => onChange(event.target.value)} type="number" value={value} />
+      </div>
+    </label>
+  );
+}
+
+function MachineClawNumberField({ disabled, label, min, onChange, step, value }: {
+  disabled: boolean;
+  label: string;
+  min: number;
+  onChange: (value: string) => void;
+  step: number;
+  value: number;
+}) {
+  return (
+    <label className="machine-claw-lite-number">
+      <span>{label}</span>
+      <input disabled={disabled} min={min} onChange={(event) => onChange(event.target.value)} step={step} type="number" value={value} />
+    </label>
+  );
+}
+
+function MachineClawToggleField({ checked, disabled, label, onChange }: { checked: boolean; disabled: boolean; label: string; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="machine-claw-lite-toggle">
+      <input checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} type="checkbox" />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function CameraFeed({ label, mode, offerUrl, onRuntimeChange, runtime, streamUrl }: {
+  label: string;
+  mode: "mjpeg" | "webrtc";
+  offerUrl: string;
+  onRuntimeChange: (patch: Partial<LiteCameraRuntime>) => void;
+  runtime: LiteCameraRuntime;
+  streamUrl: string;
+}) {
+  const [latency, setLatency] = useState<LiteCameraLatency>(EMPTY_CAMERA_LATENCY);
+  const modeLabel = mode === "webrtc" && !runtime.webrtcFallback ? "WebRTC" : mode === "webrtc" ? "MJPEG fallback" : "MJPEG";
+  const statusLabel = runtime.failed ? "error" : runtime.loaded ? modeLabel : "loading";
+  const latencyLabel = latency.estimateMs === null ? "-- ms" : `${latency.estimateMs} ms`;
+  const latencyTone = cameraLatencyTone(latency);
+
+  useEffect(() => {
+    if (!streamUrl) {
+      setLatency(EMPTY_CAMERA_LATENCY);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const latencyUrl = buildLiteCameraLatencyUrl(streamUrl);
+
+    async function pollLatency() {
+      const startedAt = performance.now();
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 800);
+      try {
+        const response = await fetch(latencyUrl, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json() as unknown;
+        const rttMs = Math.max(0, Math.round(performance.now() - startedAt));
+        const frameAgeMs = readFiniteNumberField(payload, "frameAgeMs") ??
+          estimateFrameAgeFromTimestamps(payload);
+        const estimateMs = frameAgeMs === null
+          ? rttMs
+          : Math.max(0, Math.round(frameAgeMs + rttMs / 2));
+        if (!cancelled) {
+          setLatency({ error: null, estimateMs, rttMs, updatedAt: Date.now() });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLatency({
+            error: error instanceof Error && error.message ? error.message : "latency unavailable",
+            estimateMs: null,
+            rttMs: null,
+            updatedAt: Date.now()
+          });
+        }
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    void pollLatency();
+    const timer = window.setInterval(() => {
+      void pollLatency();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [streamUrl]);
+
+  return (
+    <div className={`camera-feed ${runtime.loaded ? "online" : ""} ${runtime.failed ? "error" : ""}`}>
+      <CameraViewer
+        alt={label}
+        failed={runtime.failed}
+        forceMjpeg={runtime.webrtcFallback}
+        mode={mode}
+        offerUrl={offerUrl}
+        onError={() => onRuntimeChange({ failed: true, loaded: false })}
+        onLoad={() => onRuntimeChange({ failed: false, loaded: true })}
+        onWebrtcFallback={(error) => onRuntimeChange({ failed: false, loaded: false, webrtcError: error, webrtcFallback: true })}
+        placeholder={
+          <div className="camera-feed-placeholder">
+            <Camera size={34} />
+            <span>{label}</span>
+          </div>
+        }
+        streamUrl={streamUrl}
+      />
+      <div className={`camera-latency-badge ${latencyTone}`} title={latency.error ?? `RTT ${latency.rttMs ?? "--"} ms`}>
+        <Activity size={13} />
+        <span>{latencyLabel}</span>
+      </div>
+      <div className="camera-feed-meta">
         <strong>{label}</strong>
-        <code>{url}</code>
+        <span className={runtime.failed ? "camera-feed-status error" : runtime.loaded ? "camera-feed-status online" : "camera-feed-status"}>{statusLabel}</span>
+        <code>{runtime.webrtcError && runtime.webrtcFallback ? runtime.webrtcError : streamUrl}</code>
       </div>
     </div>
   );
+}
+
+function buildLiteCameraLatencyUrl(streamUrl: string): string {
+  try {
+    const url = new URL(streamUrl);
+    url.pathname = "/latency";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function cameraLatencyTone(latency: LiteCameraLatency): "danger" | "neutral" | "online" | "warning" {
+  if (latency.error) {
+    return "danger";
+  }
+  if (latency.estimateMs === null) {
+    return "neutral";
+  }
+  if (latency.estimateMs > 350) {
+    return "danger";
+  }
+  if (latency.estimateMs > 160) {
+    return "warning";
+  }
+  return "online";
+}
+
+function readFiniteNumberField(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const number = Number((value as Record<string, unknown>)[key]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function estimateFrameAgeFromTimestamps(value: unknown): number | null {
+  const serverNowMs = readFiniteNumberField(value, "serverNowMs");
+  const frameTimestampMs = readFiniteNumberField(value, "frameTimestampMs");
+  if (serverNowMs === null || frameTimestampMs === null) {
+    return null;
+  }
+  return Math.max(0, serverNowMs - frameTimestampMs);
 }
 
 function ServoInfoCard({ active, onClick, rows, subtitle, title }: { active?: boolean; onClick?: () => void; rows: Array<[string, string]>; subtitle: string; title: string }) {
@@ -1942,6 +3915,27 @@ function formatNumber(value: number, digits = 1): string {
   return value.toFixed(digits).replace(/\.0+$/, "");
 }
 
+function formatVector3(value: { x: number; y: number; z: number } | null | undefined, digits = 0): string {
+  if (!value || !Number.isFinite(value.x) || !Number.isFinite(value.y) || !Number.isFinite(value.z)) {
+    return "--";
+  }
+  return `${formatNumber(value.x, digits)} / ${formatNumber(value.y, digits)} / ${formatNumber(value.z, digits)}`;
+}
+
+function formatHexByte(value: number | null | undefined): string {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  return `0x${Math.round(value!).toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+function formatImuChipIds(feedback: LiteImuSnapshot["feedback"] | null | undefined): string {
+  if (!feedback) {
+    return "--";
+  }
+  return `${formatHexByte(feedback.mpuWhoAmI)} / ${formatHexByte(feedback.istWhoAmI)}`;
+}
+
 function formatSignedPercent(value: number): string {
   const rounded = Math.round(Number.isFinite(value) ? value : 0);
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
@@ -1963,6 +3957,138 @@ function canServoProfileFromConfig(servo: AsmgMdServoProfile, config: ReturnType
     bitrateKbps: config.bitrateKbps,
     canBus: servo.canBus ?? ROBOT_PROFILE.can.bus
   });
+}
+
+function machineClawSpeedTargetsFromCommands(commands: readonly PcCommand[]): MachineClawProtectionTarget[] {
+  return commands.flatMap((command) => {
+    if (command.type !== "servo.speed" || !Array.isArray(command.targets)) {
+      return [];
+    }
+    return command.targets.flatMap((target) => {
+      const maybeTarget = target as Partial<MachineClawProtectionTarget>;
+      return typeof maybeTarget.id === "number" && typeof maybeTarget.speedRaw === "number"
+        ? [{ id: maybeTarget.id, speedRaw: maybeTarget.speedRaw }]
+        : [];
+    });
+  });
+}
+
+function compactMachineClawProtectionTargets(targets: readonly MachineClawProtectionTarget[]): MachineClawProtectionTarget[] {
+  const byId = new Map<number, number>();
+  for (const target of targets) {
+    byId.set(target.id, target.speedRaw);
+  }
+  return Array.from(byId, ([id, speedRaw]) => ({ id, speedRaw }));
+}
+
+function servoFeedbackFromResult(result: PiServoCommandResult, servoId: number): ServoFeedbackMessage | null {
+  const messages = result.response ? [result.response, ...result.messages] : result.messages;
+  return messages.find((message): message is ServoFeedbackMessage =>
+    message.type === "servo.feedback" &&
+    message.id === servoId
+  ) ?? null;
+}
+
+function servoFeedbackPositionRaw(feedback: ServoFeedbackMessage | null | undefined): number | null {
+  return typeof feedback?.positionRaw === "number" && Number.isFinite(feedback.positionRaw) ? feedback.positionRaw : null;
+}
+
+function formatMachineClawProtectionStatus(status: MachineClawProtectionStatus, t: TFunction): string {
+  if (status.tripped) {
+    return status.detail ?? t("machineClaw.protection.stopped");
+  }
+  if (status.active) {
+    return t("machineClaw.protection.active", { ids: status.ids.map((id) => `ID${id}`).join(" / ") });
+  }
+  return t("machineClaw.protection.idle");
+}
+
+function machineClawProtectionTripMessage(trip: MachineClawProtectionTrip, t: TFunction): string {
+  const reasonKeyByType: Record<MachineClawProtectionReason, string> = {
+    current: "machineClaw.protection.currentHigh",
+    feedback: "machineClaw.protection.feedbackLost",
+    load: "machineClaw.protection.loadHigh",
+    stall: "machineClaw.protection.stalled",
+    temperature: "machineClaw.protection.temperatureHigh",
+    turnLimit: "machineClaw.protection.turnLimit"
+  };
+  return t("machineClaw.protection.tripMessage", {
+    detail: trip.detail,
+    id: trip.id,
+    reason: t(reasonKeyByType[trip.reason])
+  });
+}
+
+function machineClawActionTone(action: MachineClawRunAction): Tone {
+  if (action === "error") return "danger";
+  if (action === "stopping") return "warning";
+  if (action === "idle") return "neutral";
+  return "online";
+}
+
+function actionFromWristTargets(
+  targets: ReturnType<typeof buildLiteFourAxisWristPoseHoldSpeedTargets>,
+  clawDirection: MachineClawClawDirection | null
+): MachineClawRunAction {
+  if (clawDirection) {
+    return machineClawClawActionKey(clawDirection);
+  }
+  const leftSpeed = targets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.pitchLeft)?.speedRaw ?? 0;
+  const rightSpeed = targets.find((target) => target.id === MACHINE_CLAW_SERVO_IDS.pitchRight)?.speedRaw ?? 0;
+  const pitchComponent = (leftSpeed - rightSpeed) / 2;
+  const rollComponent = (leftSpeed + rightSpeed) / 2;
+  if (Math.abs(rollComponent) > Math.abs(pitchComponent)) {
+    return machineClawActionKey("rotation", rollComponent > 0 ? "positive" : "negative");
+  }
+  return machineClawActionKey("pitch", pitchComponent > 0 ? "positive" : "negative");
+}
+
+function formatMachineClawProgress(progress: MachineClawTurnProgress): string {
+  if (!progress.running && progress.targetTurns <= 0) {
+    return "--";
+  }
+  return `${progress.completedTurns.toFixed(2)} / ${progress.targetTurns.toFixed(2)}`;
+}
+
+function formatMachineClawResponse(response: InboundMessage | null, t: TFunction): string {
+  if (!response) {
+    return t("machineClaw.status.noResponse");
+  }
+  if (response.type === "ack") {
+    return `ack #${response.seq}`;
+  }
+  if (response.type === "error") {
+    return `${response.code ?? "error"} #${response.seq}`;
+  }
+  if (response.type === "servo.feedback") {
+    return `ID${response.id} raw ${response.positionRaw ?? "--"}`;
+  }
+  return `${response.type} #${response.seq ?? "--"}`;
+}
+
+function machineClawCommandSpeedRaw(command: PcCommand): number {
+  const target = Array.isArray(command.targets) ? command.targets[0] as { speedRaw?: number } | undefined : undefined;
+  return typeof target?.speedRaw === "number" ? target.speedRaw : 0;
+}
+
+function inboundErrorMessage(response: InboundMessage | null): string | null {
+  return response?.type === "error" && typeof response.message === "string" ? response.message : null;
+}
+
+function servoPositionRawFromResult(result: PiServoCommandResult, servoId: number): number | null {
+  const messages = result.response ? [result.response, ...result.messages] : result.messages;
+  const feedback = messages.find((message): message is ServoFeedbackMessage =>
+    message.type === "servo.feedback" &&
+    message.id === servoId &&
+    typeof message.positionRaw === "number" &&
+    Number.isFinite(message.positionRaw)
+  );
+  return feedback?.positionRaw ?? null;
+}
+
+function piServoResultHasDebugDisabled(result: PiServoCommandResult): boolean {
+  const messages = result.response ? [result.response, ...result.messages] : result.messages;
+  return messages.some(isServoDebugDisabledError);
 }
 
 function bridgeTone(health: BridgeHealth | null, error: string | null): Tone {

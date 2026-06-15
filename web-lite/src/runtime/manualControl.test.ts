@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ROBOT_PROFILE } from "../robotProfile";
 import {
+  ZERO_LITE_GAMEPAD_STATE,
+  buildOperatorGamepadDiagramState,
   buildLiteCanJogCommand,
   buildLiteMecanumStopCommand,
   buildLiteMecanumTargetCommand,
@@ -14,6 +16,7 @@ import {
   liteGamepadStateFromGamepad,
   mecanumInputFromDpad,
   snapshotFromLiteGamepad,
+  stepLiteGamepadControlMode,
   trackedInputFromStick
 } from "./manualControl";
 
@@ -156,14 +159,139 @@ describe("web-lite manual control runtime", () => {
       rightX: 0.6,
       rightY: 0.7,
       lb: true,
-      lt: true
+      lt: true,
+      y: false
     });
     expect(snapshotFromLiteGamepad(state)).toMatchObject({
       mecanum: { forward: 1, strafe: 0, turn: 0 },
       tracked: { forward: 0.8, turn: 0.4 },
       arm: { forward: 0.7, lift: 0.6 },
+      armPose: { x: 0.7, z: 0.6, toolPitch: 0.8, wristRoll: 0.4 },
       canJog: { front: 0, rear: 0 }
     });
+  });
+
+  it("toggles arm mode only on the rising edge of the Y button", () => {
+    const firstPress = stepLiteGamepadControlMode("drive", { y: true }, false);
+    const held = stepLiteGamepadControlMode(firstPress.mode, { y: true }, firstPress.previousYPressed);
+    const released = stepLiteGamepadControlMode(held.mode, { y: false }, held.previousYPressed);
+    const secondPress = stepLiteGamepadControlMode(released.mode, { y: true }, released.previousYPressed);
+
+    expect(firstPress).toEqual({ mode: "arm", previousYPressed: true, toggled: true });
+    expect(held).toEqual({ mode: "arm", previousYPressed: true, toggled: false });
+    expect(released).toEqual({ mode: "arm", previousYPressed: false, toggled: false });
+    expect(secondPress).toEqual({ mode: "drive", previousYPressed: true, toggled: true });
+  });
+
+  it("builds the operator gamepad diagram from the fixed control mapping", () => {
+    const diagram = buildOperatorGamepadDiagramState({
+      ...ZERO_LITE_GAMEPAD_STATE,
+      dpadUp: true,
+      leftX: -0.4,
+      leftY: 0.7,
+      rb: true,
+      rt: true,
+      stop: true,
+      y: true
+    }, { activityFresh: true, connected: true, enabled: true, mode: "drive" });
+
+    expect(diagram).toMatchObject({
+      active: true,
+      activeCount: 6,
+      statusKey: "operator.gamepadDiagram.statusActive",
+      tone: "online"
+    });
+    expect(diagram.controls.find((control) => control.id === "dpadUp")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.mecanumForward",
+      shortLabel: "UP"
+    });
+    expect(diagram.controls.find((control) => control.id === "leftStick")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.trackedDrive",
+      value: "-0.40 / 0.70",
+      x: -0.4,
+      y: 0.7
+    });
+    expect(diagram.controls.find((control) => control.id === "rb")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.rearCanPlus"
+    });
+    expect(diagram.controls.find((control) => control.id === "rt")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.rearCanMinus"
+    });
+    expect(diagram.controls.find((control) => control.id === "a")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.stopManual"
+    });
+    expect(diagram.controls.find((control) => control.id === "y")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.enterArmMode"
+    });
+  });
+
+  it("switches the operator gamepad diagram semantics in arm mode", () => {
+    const diagram = buildOperatorGamepadDiagramState({
+      ...ZERO_LITE_GAMEPAD_STATE,
+      dpadRight: true,
+      leftX: 0.4,
+      leftY: -0.5,
+      rightX: 0.2,
+      rightY: 0.8,
+      rt: true
+    }, { connected: true, enabled: true, mode: "arm" });
+
+    expect(diagram.mode).toBe("arm");
+    expect(diagram.controls.find((control) => control.id === "dpadRight")).toMatchObject({
+      active: false,
+      actionKey: "operator.gamepadDiagram.actions.driveLocked"
+    });
+    expect(diagram.controls.find((control) => control.id === "leftStick")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.poseAdjust"
+    });
+    expect(diagram.controls.find((control) => control.id === "rightStick")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.planeMove"
+    });
+    expect(diagram.controls.find((control) => control.id === "rt")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.clawOpen"
+    });
+    expect(diagram.controls.find((control) => control.id === "y")).toMatchObject({
+      active: true,
+      actionKey: "operator.gamepadDiagram.actions.exitArmMode"
+    });
+  });
+
+  it("does not light operator gamepad controls while disconnected or disabled", () => {
+    const pressedState = {
+      ...ZERO_LITE_GAMEPAD_STATE,
+      dpadRight: true,
+      leftX: 0.8,
+      leftY: 0.5,
+      lb: true,
+      stop: true
+    };
+    const disconnected = buildOperatorGamepadDiagramState(pressedState, { connected: false, enabled: true });
+    const disabled = buildOperatorGamepadDiagramState(pressedState, { connected: true, enabled: false });
+
+    expect(disconnected).toMatchObject({
+      active: false,
+      activeCount: 0,
+      statusKey: "operator.gamepadDiagram.statusNoGamepad",
+      tone: "warning"
+    });
+    expect(disconnected.controls.every((control) => !control.active)).toBe(true);
+    expect(disconnected.controls.find((control) => control.id === "leftStick")?.value).toBe("--");
+    expect(disabled).toMatchObject({
+      active: false,
+      activeCount: 0,
+      statusKey: "operator.gamepadDiagram.statusDisabled",
+      tone: "warning"
+    });
+    expect(disabled.controls.every((control) => !control.active)).toBe(true);
   });
 
   it("accepts common generic USB gamepads that expose D-pad and triggers as axes", () => {

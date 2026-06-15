@@ -47,6 +47,7 @@ export function useAppPersistenceActions(options: UseAppPersistenceActionsOption
     inputMapping,
     linkageWheelDirectionByGroup,
     logs,
+    machineClawTestConfig,
     motorDraft,
     motorFeedback,
     motorLinkageGroups,
@@ -83,6 +84,7 @@ export function useAppPersistenceActions(options: UseAppPersistenceActionsOption
     setLastMotorError,
     setLinkageWheelDirectionByGroup,
     setLogs,
+    setMachineClawTestConfig,
     setMappingDraft,
     setMotorDraft,
     setMotorFeedback,
@@ -124,6 +126,7 @@ export function useAppPersistenceActions(options: UseAppPersistenceActionsOption
     setMotorLinkageGroups(snapshot.motorLinkageGroups);
     setArmConfig(snapshot.armConfig);
     setArmTeachTracks(normalizeArmTeachTracks(snapshot.armTeachTracks, snapshot.armConfig));
+    setMachineClawTestConfig(snapshot.machineClawTest);
     setCameraConfig(snapshot.cameraConfig);
     setInputMapping(snapshot.inputMapping);
     setMappingDraft(cloneMapping(snapshot.inputMapping));
@@ -178,6 +181,7 @@ export function useAppPersistenceActions(options: UseAppPersistenceActionsOption
       motorLinkageGroups,
       armConfig,
       armTeachTracks,
+      machineClawTest: machineClawTestConfig,
       cameraConfig,
       inputMapping,
       language: currentLanguage,

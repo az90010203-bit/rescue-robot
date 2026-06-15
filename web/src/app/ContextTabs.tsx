@@ -1,4 +1,4 @@
-import { Box, Cable, Camera, CircuitBoard, Cpu, Keyboard, Settings, SlidersHorizontal, Terminal, Unplug, Usb } from "lucide-react";
+import { Box, Cable, Camera, CircuitBoard, Cpu, HandHelping, Keyboard, Settings, SlidersHorizontal, Terminal, Unplug, Usb } from "lucide-react";
 import type { TFunction } from "i18next";
 import { isServoBusModule, type ActiveModule, type AppSection, type TestPanel } from "@app/appModel";
 
@@ -77,6 +77,10 @@ export function ContextTabs({
             <button className={activeTest === "arm3d" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("arm3d")} type="button">
               <Box size={17} />
               <span>{t("testTabs.arm3d")}</span>
+            </button>
+            <button className={activeTest === "machineClaw" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("machineClaw")} type="button">
+              <HandHelping size={17} />
+              <span>{t("testTabs.machineClaw")}</span>
             </button>
             <button className={activeTest === "driveCamera" ? "module-tab active" : "module-tab"} onClick={() => selectTestPanel("driveCamera")} type="button">
               <Camera size={17} />

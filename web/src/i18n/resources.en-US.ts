@@ -180,6 +180,7 @@ export const enUSResource = {
     "loading": {
       "console": "Loading console...",
       "arm3d": "Loading 3D arm...",
+      "machineClaw": "Loading machine claw...",
       "architecture": "Loading architecture workspace...",
       "workspaceErrorTitle": "Workspace did not load",
       "workspaceErrorHint": "Reload the page or switch sections to retry this workspace."
@@ -208,6 +209,7 @@ export const enUSResource = {
       "motor": "Motor Test",
       "arm": "Arm Test",
       "arm3d": "3D Arm",
+      "machineClaw": "Machine Claw",
       "driveCamera": "Drive / Camera",
       "canServo": "CAN Servo",
       "pi": "Raspberry Pi Remote"
@@ -458,6 +460,7 @@ export const enUSResource = {
       "firmwareUpload": "Local Firmware Upload",
       "piRemote": "Raspberry Pi Remote",
       "canServo": "CAN Servo Test",
+      "machineClaw": "Machine Claw",
       "armJoints": "Arm Joints",
       "armControl": "Arm Control",
       "armKinematics": "Kinematics / Tuning",
@@ -1284,6 +1287,69 @@ export const enUSResource = {
         "factoryReset": "ID{{id}} factory reset ack",
         "move": "ID{{id}} position {{position}} / speed {{speed}}",
         "unknown": "Unknown {{data}}"
+      }
+    },
+    "machineClaw": {
+      "pitch": {
+        "title": "Pitch"
+      },
+      "rotation": {
+        "title": "Rotation"
+      },
+      "claw": {
+        "title": "Open / Close"
+      },
+      "actions": {
+        "checkBridge": "Check Bridge",
+        "startBridge": "Start Bridge",
+        "emergencyStop": "Emergency Stop",
+        "pitchPositive": "Pitch +",
+        "pitchNegative": "Pitch -",
+        "rotatePositive": "Rotate +",
+        "rotateNegative": "Rotate -",
+        "open": "Open",
+        "close": "Close",
+        "stopPitch": "Stop Pitch",
+        "stopRotation": "Stop Rotation",
+        "stopClaw": "Stop Claw"
+      },
+      "fields": {
+        "pitchSpeed": "Pitch speed",
+        "rotationSpeed": "Rotation speed",
+        "rotationClawSpeed": "ID22 follow speed",
+        "clawSpeed": "Claw speed",
+        "acc": "Acceleration",
+        "pitchReverse": "Reverse pitch",
+        "rotationReverse": "Reverse rotation",
+        "rotationClawReverse": "Reverse ID22 follow",
+        "clawReverse": "Reverse open / close",
+        "openTurns": "Open turns",
+        "closeTurns": "Close turns"
+      },
+      "metrics": {
+        "bridge": "Pi Servo Bridge",
+        "bridgeDetail": "Bridge Detail",
+        "activeAction": "Action",
+        "progress": "ID22 Turns",
+        "lastResponse": "Last Response"
+      },
+      "status": {
+        "idle": "Idle",
+        "pitchPositive": "Pitch +",
+        "pitchNegative": "Pitch -",
+        "rotationPositive": "Rotate +",
+        "rotationNegative": "Rotate -",
+        "clawOpen": "Opening",
+        "clawClose": "Closing",
+        "stopping": "Stopping",
+        "error": "Error",
+        "noResponse": "No response",
+        "noBridgeDetail": "--"
+      },
+      "errors": {
+        "bridgeRequired": "Connect the Pi servo bridge first.",
+        "feedbackRequired": "ID22 feedback read failed, so open/close was not started.",
+        "commandFailed": "Machine claw command failed."
       }
     },
     "imu": {

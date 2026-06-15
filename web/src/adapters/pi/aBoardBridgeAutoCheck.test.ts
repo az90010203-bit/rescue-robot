@@ -56,7 +56,7 @@ describe("bridge auto-recover", () => {
 });
 
 describe("Pi servo bridge auto-check context", () => {
-  it.each(["servo", "arm", "arm3d"] as const)("checks in the %s test panel", (activeTest) => {
+  it.each(["servo", "arm", "arm3d", "machineClaw"] as const)("checks in the %s test panel", (activeTest) => {
     expect(shouldAutoCheckPiServoBridgeContext({ activeModule: "camera", activeSection: "tests", activeTest })).toBe(true);
   });
 

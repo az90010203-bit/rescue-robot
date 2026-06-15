@@ -180,6 +180,7 @@ export const zhCNResource = {
     "loading": {
       "console": "正在加载主控台...",
       "arm3d": "正在加载 3D 机械臂...",
+      "machineClaw": "正在加载机器爪...",
       "architecture": "正在加载三层架构工作区...",
       "workspaceErrorTitle": "工作区加载失败",
       "workspaceErrorHint": "可以刷新页面，或切换到其他工作区后再回来重试。"
@@ -208,6 +209,7 @@ export const zhCNResource = {
       "motor": "电机测试",
       "arm": "机械臂测试",
       "arm3d": "3D 机械臂",
+      "machineClaw": "机器爪",
       "driveCamera": "底盘 / 摄像头",
       "canServo": "CAN 舵机",
       "pi": "树莓派远程"
@@ -458,6 +460,7 @@ export const zhCNResource = {
       "firmwareUpload": "本机刷写",
       "piRemote": "树莓派远程",
       "canServo": "CAN 舵机测试",
+      "machineClaw": "机器爪",
       "armJoints": "机械臂关节",
       "armControl": "机械臂控制",
       "armKinematics": "运动学 / 调参",
@@ -1284,6 +1287,69 @@ export const zhCNResource = {
         "factoryReset": "ID{{id}} 恢复出厂确认",
         "move": "ID{{id}} 位置 {{position}} / 速度 {{speed}}",
         "unknown": "未知帧 {{data}}"
+      }
+    },
+    "machineClaw": {
+      "pitch": {
+        "title": "俯仰"
+      },
+      "rotation": {
+        "title": "旋转"
+      },
+      "claw": {
+        "title": "开合"
+      },
+      "actions": {
+        "checkBridge": "检测桥",
+        "startBridge": "启动桥",
+        "emergencyStop": "急停",
+        "pitchPositive": "俯仰 +",
+        "pitchNegative": "俯仰 -",
+        "rotatePositive": "旋转 +",
+        "rotateNegative": "旋转 -",
+        "open": "开爪",
+        "close": "合爪",
+        "stopPitch": "停俯仰",
+        "stopRotation": "停旋转",
+        "stopClaw": "停开合"
+      },
+      "fields": {
+        "pitchSpeed": "俯仰速度",
+        "rotationSpeed": "旋转速度",
+        "rotationClawSpeed": "ID22 跟随速度",
+        "clawSpeed": "开合速度",
+        "acc": "加速度",
+        "pitchReverse": "俯仰反向",
+        "rotationReverse": "旋转反向",
+        "rotationClawReverse": "ID22 跟随反向",
+        "clawReverse": "开合反向",
+        "openTurns": "开爪圈数",
+        "closeTurns": "合爪圈数"
+      },
+      "metrics": {
+        "bridge": "Pi 舵机桥",
+        "bridgeDetail": "桥详情",
+        "activeAction": "当前动作",
+        "progress": "ID22 圈数",
+        "lastResponse": "最后响应"
+      },
+      "status": {
+        "idle": "空闲",
+        "pitchPositive": "俯仰 +",
+        "pitchNegative": "俯仰 -",
+        "rotationPositive": "旋转 +",
+        "rotationNegative": "旋转 -",
+        "clawOpen": "开爪中",
+        "clawClose": "合爪中",
+        "stopping": "停止中",
+        "error": "错误",
+        "noResponse": "无响应",
+        "noBridgeDetail": "--"
+      },
+      "errors": {
+        "bridgeRequired": "请先连接 Pi 舵机桥。",
+        "feedbackRequired": "ID22 反馈读取失败，未启动开合动作。",
+        "commandFailed": "机器爪命令失败。"
       }
     },
     "imu": {

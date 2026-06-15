@@ -1,6 +1,7 @@
 import { SupportedLanguage, defaultLanguage, getInitialLanguage, isSupportedLanguage, saveLanguagePreference } from "../../i18n/languages";
 import { InputMapping, loadInputMapping, normalizeInputMapping, saveInputMapping } from "@domains/drive/inputMapping";
 import { ArmTeachTrack, normalizeArmTeachTracks } from "@domains/arm/armTeach";
+import { MachineClawTestConfig, normalizeMachineClawTestConfig } from "@domains/machine-claw/machineClaw";
 import { ServoSafetyPreset } from "@domains/servo/servoSafety";
 import { ServoSmoothPreset } from "@domains/servo/servoMotion";
 import { WHEEL_SLIDER_CENTER_DEG, WHEEL_SLIDER_MAX_DEG, WHEEL_SLIDER_MIN_DEG, normalizeWheelMaxSpeedRaw } from "@domains/servo/servoWheelSlider";
@@ -73,6 +74,7 @@ export interface AppConfigSnapshot {
   motorLinkageGroups: MotorLinkageGroup[];
   armConfig: ArmConfig;
   armTeachTracks: ArmTeachTrack[];
+  machineClawTest: MachineClawTestConfig;
   cameraConfig: CameraConfig;
   inputMapping: InputMapping;
   language: SupportedLanguage;
@@ -183,6 +185,7 @@ export function normalizeAppConfigSnapshot(value: unknown): AppConfigSnapshot {
     motorLinkageGroups: normalizeMotorLinkageGroups(draft.motorLinkageGroups, motors),
     armConfig,
     armTeachTracks: normalizeArmTeachTracks(draft.armTeachTracks, armConfig),
+    machineClawTest: normalizeMachineClawTestConfig(draft.machineClawTest),
     cameraConfig: normalizeCameraConfigValue(draft.cameraConfig),
     inputMapping: normalizeInputMapping(draft.inputMapping),
     language: typeof draft.language === "string" && isSupportedLanguage(draft.language) ? draft.language : defaultLanguage,
@@ -191,7 +194,13 @@ export function normalizeAppConfigSnapshot(value: unknown): AppConfigSnapshot {
   };
 }
 
-export function createAppConfigSnapshot(value: Omit<AppConfigSnapshot, "version" | "updatedAt" | "armTeachTracks"> & { armTeachTracks?: ArmTeachTrack[]; updatedAt?: number }): AppConfigSnapshot {
+export function createAppConfigSnapshot(
+  value: Omit<AppConfigSnapshot, "version" | "updatedAt" | "armTeachTracks" | "machineClawTest"> & {
+    armTeachTracks?: ArmTeachTrack[];
+    machineClawTest?: MachineClawTestConfig;
+    updatedAt?: number;
+  }
+): AppConfigSnapshot {
   return normalizeAppConfigSnapshot({
     ...value,
     version: 1,

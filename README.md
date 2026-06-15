@@ -51,6 +51,7 @@ flowchart LR
     Console --> DashboardToolbar[主控台紧凑项目与布局工具条]
     Console --> TestControls[功能测试串口连接 / 调试入口]
     AppRuntime --> Workspaces[workspaces/* console / architecture / drive / pi / can-servo]
+    Workspaces --> MachineClawTest[机器爪功能测试 / Feetech ID21 22 23]
     AppRuntime --> DomainModules[domains/* camera / arm / servo / motor / drive / robot-assembly]
     DomainModules --> DiagnosticAgent[diagnostic-agent local intent / issue / action rules]
     DomainModules --> ArmKinematics[armKinematics FK / CCD IK / 自动调参建议]
@@ -112,6 +113,7 @@ flowchart LR
     ArchitectureModel --> DeviceModel
     Executor --> WebSerial[WebSerial]
     Executor --> PiServoBridge[Pi servo HTTP bridge :17354 / semantic command]
+    MachineClawTest --> PiServoBridge
     PiServoBridge --> Esp32Feetech[COBS + CRC16 ESP32 Feetech direct controller]
     WebSerial --> Feetech[Feetech TTL 总线]
     Esp32Feetech --> Feetech
@@ -157,6 +159,7 @@ flowchart LR
 - A-board runtime control is semantic on the PC/Pi path: the web app sends `motor.target`, tracked-drive M5/M6 `motor.set`, `mecanum.target`, and `can_servo.*` intent to the Pi bridge. The bridge defaults to `A_BOARD_SERIAL_PROTOCOL=auto`, probes `system.protocol`, then uses V1 COBS + CRC16 short binary UART frames when the Type A firmware supports them, with newline JSON fallback for bring-up and old firmware.
 - Gamepad field mapping for the combined chassis rig is module-independent once the A-board bridge is online: D-pad drives the mecanum base forward/back/left/right, the right stick drives the M5/M6 tracked base forward/back/turn, and the left stick nudges the primary CAN servo group angle with live `can_servo.group_move` commands.
 - CAN servo group moves are now batched as one `can_servo.group_move` semantic command instead of one UART command per servo; the Type A firmware queues the group as one latest-wins motion and emits one terminal `can_servo.feedback`.
+- 功能测试新增机器爪页，固定使用 Feetech 舵机 ID21/ID23 做俯仰与旋转、ID22 做开合和旋转跟随；页面直接向 Pi 舵机桥发送 `servo.speed` / `servo.read` 语义命令，速度、方向和 ID22 开合圈数限位随当前项目保存。
 - AI Vision is an external local helper shell: the web app sends `streamUrl`, `sourceId`, and platform state to `web/local-services/ai-vision-helper.py`, which pulls MJPEG frames and returns normalized `competition_mannequin` detections or captured samples.
 - Diagnostic copilot v1 is a local rule-based side panel: it reads `DeviceStateSnapshot`, logs, camera sources, and current servo/motor lists, then can automatically dispatch only low-risk diagnostic `PlatformCommand` checks while leaving motion, write, upload, and arbitrary Pi commands as manual/confirmation-only suggestions.
 - Display formatting helpers live in `web/src/shared/formatters.ts` for dashboard, platform state, and app metric formatting.
@@ -172,7 +175,7 @@ flowchart LR
 
 - `web/src/App.tsx`：极薄入口，直接导出 `web/src/app/AppShell.tsx`。
 - `web/src/app/*`：控制台外壳、导航、持久化、串口/平台/反馈运行时和工作区组合逻辑。
-- `web/src/workspaces/*`：页面级工作区，包含主控 dashboard、架构三层页、驾驶页、树莓派远程页和 CAN 舵机测试页；串口连接与调试开关属于功能测试上下文，由测试页分段栏承载，不再作为全局常驻操作。
+- `web/src/workspaces/*`：页面级工作区，包含主控 dashboard、架构三层页、驾驶页、树莓派远程页、CAN 舵机测试页和机器爪测试页；串口连接与调试开关属于功能测试上下文，由测试页分段栏承载，不再作为全局常驻操作。
 - `web/src/domains/*`：按业务领域收拢的摄像头、机械臂、舵机、电机、底盘、机器人装配和插件自动检测模块；机械臂面板包含 2D FK/IK 与调参建议 UI。
 - `web/src/workspaces/architecture/ThreeLayerWorkspace.tsx`：插件库、组件库和机器人运行面板，由架构页按需加载，按入口 `layer` 分别渲染；创建插件、组件和机器人使用折叠创建向导，收起态变为 56px 左侧 rail，让右侧库和运行面板横向扩展；组件页可创建 M5/M6 双履带 `tracked-drive`、四轮 `mecanum-drive`、机械臂和 CAN 舵机组；插件页按设备类型、品牌、代码库顺序创建真实插件实例，插件库使用格子布局并支持删除未占用实例，点开舵机/电机实例会显示从功能测试迁入的单实例调试面板；Feetech 舵机详情包含限位、复位、逻辑中位和带确认的物理 ID 写入。
 - `web/src/domains/robot-assembly/RobotAssemblyWorkspace.tsx`：机器人装配画布、素材栏、检查器、动作按钮和 Blockly 图形化程序面板；桌面布局为左侧素材栏、右上画布、右下检查器，素材栏可一键收缩为组件、插件、硬件图标栏，收起后画布和检查器同步横向扩展；检查器内嵌的舵机/电机等插件调试面板按可用宽度自适应端口映射、预览格和操作按钮，避免把工作区撑出横向滚动；可见文案通过 `robotText` 兜底，避免 `robotAssembly.*` key 泄漏，并将结构检查里的内部 ID 和英文校验消息压缩成更适合操作员阅读的提示；图形化程序保存为 `RobotProgram`，首版固定在 PC/浏览器端编译成 `WorkflowDefinition` 后执行。
@@ -209,6 +212,7 @@ flowchart LR
 - 固件刷写：本机 `firmware-helper.mjs` 调用 PlatformIO 编译和上传。
 - Pi image bridge provisioning: `pi-image/install-rescue-pi.sh` installs the two persistent Pi bridge services during image build or first boot. Runtime bridge checks and commands go directly to `http://<pi-host>:17353` and `http://<pi-host>:17354`; the Pi remote panel's upgrade/repair buttons use `pi-helper` SSH only as a manual recovery path.
 - Pi servo semantic runtime path: PC/Web sends `servo.ping`, `servo.read`, `servo.torque`, `servo.mode`, `servo.move`, `servo.speed`, and confirmed `servo.set_id` intent to `pi-servo-serial-bridge.service`; the bridge probes `system.protocol`, then uses V1 `version + seq + targetId + opcode + flags + payload + crc16` COBS frames over `/dev/serial0`, with JSON fallback for bring-up and old ESP32 firmware.
+- 机器爪测试默认固定 ID21/ID23 为俯仰/旋转对，ID22 为开合爪：俯仰时 21/23 反向轮模式转动，旋转时 21/23 同向且 22 用独立速度跟随，开合时 22 通过 `servo.read.positionRaw` 多圈计数达到项目配置限位后自动 `servo.speed=0`。
 - A-board semantic runtime path: PC/Web sends high-level `PlatformCommand` intent, `appPlatformCommandBridge.ts` converts wheel/servo/motor actions to A-board semantic JSON, `a-board-serial-bridge.service` translates supported realtime commands to V1 `version + seq + targetId + opcode + flags + payload + crc16` frames over `/dev/ttyAMA5`, and the Type A firmware performs closed-loop motor control, tracked M5/M6 two-motor drive, mecanum mixing, CAN-servo frame generation, and latest-wins motion dropping. Unsupported or unsafe commands stay on newline JSON.
 - 树莓派 helper：本机 `pi-helper.mjs` 通过 SSH/SFTP 执行上传、运行和摄像头相关命令；树莓派远程面板可手动保存完整远程配置，避免每次重新输入；无屏找回优先扫描 `rescue-pi.local`、`10.12.194.1` 和 `10.43.0.1`，并可通过 SSH 配置 USB-C gadget 直连。
 

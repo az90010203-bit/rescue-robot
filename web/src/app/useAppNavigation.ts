@@ -57,6 +57,9 @@ export function useAppNavigation({
     if (panel === "arm" || panel === "arm3d") {
       return "arm";
     }
+    if (panel === "machineClaw") {
+      return "servo";
+    }
     if (panel === "driveCamera") {
       return "camera";
     }

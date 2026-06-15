@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { WebSerialClient } from "@adapters/web-serial/serial";
 import type { ArmTeachTrack } from "@domains/arm/armTeach";
+import { DEFAULT_MACHINE_CLAW_TEST_CONFIG, type MachineClawTestConfig } from "@domains/machine-claw/machineClaw";
 import type { ServoSmoothPreset } from "@domains/servo/servoMotion";
 import type { ServoSafetyPreset } from "@domains/servo/servoSafety";
 import type { DataProject } from "@adapters/data-service/dataService";
@@ -57,6 +58,7 @@ export function useAppStateRefs() {
   const [armTeachSampleCount, setArmTeachSampleCount] = useState(0);
   const [armTeachLastSampleStatus, setArmTeachLastSampleStatus] = useState("idle");
   const [armTeachUnsavedTrack, setArmTeachUnsavedTrack] = useState<ArmTeachTrack | null>(null);
+  const [machineClawTestConfig, setMachineClawTestConfig] = useState<MachineClawTestConfig>(() => DEFAULT_MACHINE_CLAW_TEST_CONFIG);
   const [servoLinkageGroups, setServoLinkageGroups] = useState<ServoLinkageGroup[]>([]);
   const [motors, setMotors] = useState<MotorProfile[]>(() => DEFAULT_MOTORS);
   const [motorLinkageGroups, setMotorLinkageGroups] = useState<MotorLinkageGroup[]>([]);
@@ -150,7 +152,7 @@ export function useAppStateRefs() {
     servos, setServos, armConfig, setArmConfig, armTeachTracks, setArmTeachTracks, selectedArmTeachTrackId, setSelectedArmTeachTrackId,
     armTeachStatus, setArmTeachStatus, armTeachDraftName, setArmTeachDraftName, armTeachDraftNotes, setArmTeachDraftNotes,
     armTeachElapsedMs, setArmTeachElapsedMs, armTeachSampleCount, setArmTeachSampleCount, armTeachLastSampleStatus, setArmTeachLastSampleStatus,
-    armTeachUnsavedTrack, setArmTeachUnsavedTrack, servoLinkageGroups, setServoLinkageGroups, motors, setMotors, motorLinkageGroups,
+    armTeachUnsavedTrack, setArmTeachUnsavedTrack, machineClawTestConfig, setMachineClawTestConfig, servoLinkageGroups, setServoLinkageGroups, motors, setMotors, motorLinkageGroups,
     setMotorLinkageGroups, cameraConfig, setCameraConfig, servoDraft, setServoDraft, motorDraft, setMotorDraft, servoLibraryError,
     setServoLibraryError, motorLibraryError, setMotorLibraryError, motorConfigError, setMotorConfigError, cameraConfigError,
     setCameraConfigError, cameraStreamLoaded, setCameraStreamLoaded, cameraStreamFailed, setCameraStreamFailed, debugEnabled,

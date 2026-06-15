@@ -38,6 +38,16 @@ export interface LiteArmJoystickInput {
   lift: number;
 }
 
+export type LiteGamepadControlMode = "arm" | "drive";
+
+export interface LiteFourAxisArmJoystickInput {
+  claw: LiteCanJogDirection;
+  toolPitch: number;
+  wristRoll: number;
+  x: number;
+  z: number;
+}
+
 export interface LiteGamepadState {
   dpadUp: boolean;
   dpadDown: boolean;
@@ -52,6 +62,47 @@ export interface LiteGamepadState {
   rb: boolean;
   rt: boolean;
   stop: boolean;
+  y: boolean;
+}
+
+export type OperatorGamepadDiagramTone = "neutral" | "online" | "warning";
+export type OperatorGamepadDiagramControlGroup = "dpad" | "face" | "shoulder" | "stick";
+export type OperatorGamepadDiagramControlId =
+  | "a"
+  | "dpadDown"
+  | "dpadLeft"
+  | "dpadRight"
+  | "dpadUp"
+  | "lb"
+  | "leftStick"
+  | "lt"
+  | "rb"
+  | "rightStick"
+  | "rt"
+  | "y";
+
+export interface OperatorGamepadDiagramControl {
+  actionKey: string;
+  active: boolean;
+  group: OperatorGamepadDiagramControlGroup;
+  id: OperatorGamepadDiagramControlId;
+  labelKey: string;
+  shortLabel: string;
+  value: string;
+  x?: number;
+  y?: number;
+}
+
+export interface OperatorGamepadDiagramState {
+  active: boolean;
+  activeCount: number;
+  activityFresh: boolean;
+  connected: boolean;
+  controls: OperatorGamepadDiagramControl[];
+  enabled: boolean;
+  mode: LiteGamepadControlMode;
+  statusKey: string;
+  tone: OperatorGamepadDiagramTone;
 }
 
 export interface ManualControlSnapshot {
@@ -62,10 +113,12 @@ export interface ManualControlSnapshot {
   };
   tracked: LiteTrackedInput;
   arm: LiteArmJoystickInput;
+  armPose: LiteFourAxisArmJoystickInput;
   canJog: {
     front: LiteCanJogDirection;
     rear: LiteCanJogDirection;
   };
+  modeToggle: boolean;
   stop: boolean;
 }
 
@@ -82,8 +135,160 @@ export const ZERO_LITE_GAMEPAD_STATE: LiteGamepadState = {
   lt: false,
   rb: false,
   rt: false,
-  stop: false
+  stop: false,
+  y: false
 };
+
+export function buildOperatorGamepadDiagramState(
+  state: LiteGamepadState,
+  options: { activityFresh?: boolean; connected: boolean; enabled: boolean; mode?: LiteGamepadControlMode }
+): OperatorGamepadDiagramState {
+  const connected = Boolean(options.connected);
+  const enabled = Boolean(options.enabled);
+  const activityFresh = Boolean(options.activityFresh);
+  const mode = options.mode ?? "drive";
+  const canShowInput = connected && enabled;
+  const readActive = (active: boolean) => canShowInput && active;
+  const readAxis = (value: number) => canShowInput ? value : 0;
+  const driveMode = mode === "drive";
+  const armMode = mode === "arm";
+  const leftX = readAxis(state.leftX);
+  const leftY = readAxis(state.leftY);
+  const rightX = readAxis(state.rightX);
+  const rightY = readAxis(state.rightY);
+  const controls: OperatorGamepadDiagramControl[] = [
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.mecanumForward" : "operator.gamepadDiagram.actions.driveLocked",
+      active: driveMode && readActive(state.dpadUp),
+      group: "dpad",
+      id: "dpadUp",
+      labelKey: "operator.gamepadDiagram.keys.dpadUp",
+      shortLabel: "UP",
+      value: driveMode && readActive(state.dpadUp) ? "1" : "0"
+    },
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.mecanumLeft" : "operator.gamepadDiagram.actions.driveLocked",
+      active: driveMode && readActive(state.dpadLeft),
+      group: "dpad",
+      id: "dpadLeft",
+      labelKey: "operator.gamepadDiagram.keys.dpadLeft",
+      shortLabel: "L",
+      value: driveMode && readActive(state.dpadLeft) ? "1" : "0"
+    },
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.mecanumRight" : "operator.gamepadDiagram.actions.driveLocked",
+      active: driveMode && readActive(state.dpadRight),
+      group: "dpad",
+      id: "dpadRight",
+      labelKey: "operator.gamepadDiagram.keys.dpadRight",
+      shortLabel: "R",
+      value: driveMode && readActive(state.dpadRight) ? "1" : "0"
+    },
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.mecanumBackward" : "operator.gamepadDiagram.actions.driveLocked",
+      active: driveMode && readActive(state.dpadDown),
+      group: "dpad",
+      id: "dpadDown",
+      labelKey: "operator.gamepadDiagram.keys.dpadDown",
+      shortLabel: "DN",
+      value: driveMode && readActive(state.dpadDown) ? "1" : "0"
+    },
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.frontCanPlus" : "operator.gamepadDiagram.actions.armModeReserved",
+      active: driveMode && readActive(state.lb),
+      group: "shoulder",
+      id: "lb",
+      labelKey: "operator.gamepadDiagram.keys.lb",
+      shortLabel: "LB",
+      value: driveMode && readActive(state.lb) ? "1" : "0"
+    },
+    {
+      actionKey: armMode ? "operator.gamepadDiagram.actions.clawClose" : "operator.gamepadDiagram.actions.frontCanMinus",
+      active: readActive(state.lt),
+      group: "shoulder",
+      id: "lt",
+      labelKey: "operator.gamepadDiagram.keys.lt",
+      shortLabel: "LT",
+      value: readActive(state.lt) ? "1" : "0"
+    },
+    {
+      actionKey: driveMode ? "operator.gamepadDiagram.actions.rearCanPlus" : "operator.gamepadDiagram.actions.armModeReserved",
+      active: driveMode && readActive(state.rb),
+      group: "shoulder",
+      id: "rb",
+      labelKey: "operator.gamepadDiagram.keys.rb",
+      shortLabel: "RB",
+      value: driveMode && readActive(state.rb) ? "1" : "0"
+    },
+    {
+      actionKey: armMode ? "operator.gamepadDiagram.actions.clawOpen" : "operator.gamepadDiagram.actions.rearCanMinus",
+      active: readActive(state.rt),
+      group: "shoulder",
+      id: "rt",
+      labelKey: "operator.gamepadDiagram.keys.rt",
+      shortLabel: "RT",
+      value: readActive(state.rt) ? "1" : "0"
+    },
+    {
+      actionKey: armMode ? "operator.gamepadDiagram.actions.poseAdjust" : "operator.gamepadDiagram.actions.trackedDrive",
+      active: Math.abs(leftX) > 0 || Math.abs(leftY) > 0,
+      group: "stick",
+      id: "leftStick",
+      labelKey: "operator.gamepadDiagram.keys.leftStick",
+      shortLabel: "L",
+      value: canShowInput ? `${leftX.toFixed(2)} / ${leftY.toFixed(2)}` : "--",
+      x: leftX,
+      y: leftY
+    },
+    {
+      actionKey: armMode ? "operator.gamepadDiagram.actions.planeMove" : "operator.gamepadDiagram.actions.armModeStandby",
+      active: armMode && (Math.abs(rightX) > 0 || Math.abs(rightY) > 0),
+      group: "stick",
+      id: "rightStick",
+      labelKey: "operator.gamepadDiagram.keys.rightStick",
+      shortLabel: "R",
+      value: canShowInput ? `${rightX.toFixed(2)} / ${rightY.toFixed(2)}` : "--",
+      x: rightX,
+      y: rightY
+    },
+    {
+      actionKey: "operator.gamepadDiagram.actions.stopManual",
+      active: readActive(state.stop),
+      group: "face",
+      id: "a",
+      labelKey: "operator.gamepadDiagram.keys.a",
+      shortLabel: "A",
+      value: readActive(state.stop) ? "1" : "0"
+    },
+    {
+      actionKey: armMode ? "operator.gamepadDiagram.actions.exitArmMode" : "operator.gamepadDiagram.actions.enterArmMode",
+      active: canShowInput && (state.y || armMode),
+      group: "face",
+      id: "y",
+      labelKey: "operator.gamepadDiagram.keys.y",
+      shortLabel: "Y",
+      value: canShowInput && (state.y || armMode) ? "1" : "0"
+    }
+  ];
+  const activeCount = controls.filter((control) => control.active).length;
+  return {
+    active: activeCount > 0,
+    activeCount,
+    activityFresh,
+    connected,
+    controls,
+    enabled,
+    mode,
+    statusKey: connected
+      ? enabled
+        ? activityFresh
+          ? "operator.gamepadDiagram.statusActive"
+          : "operator.gamepadDiagram.statusReady"
+        : "operator.gamepadDiagram.statusDisabled"
+      : "operator.gamepadDiagram.statusNoGamepad",
+    tone: connected ? enabled ? activeCount > 0 || activityFresh ? "online" : "neutral" : "warning" : "warning"
+  };
+}
 
 export function liteGamepadStateFromGamepad(gamepad: Gamepad | null | undefined, deadzone = 0.12): LiteGamepadState {
   if (!gamepad) {
@@ -103,7 +308,8 @@ export function liteGamepadStateFromGamepad(gamepad: Gamepad | null | undefined,
     lt: gamepadButtonPressed(gamepad, 6) || gamepadAxisPressed(gamepad, 4),
     rb: gamepadButtonPressed(gamepad, 5),
     rt: gamepadButtonPressed(gamepad, 7) || gamepadAxisPressed(gamepad, 5),
-    stop: gamepadButtonPressed(gamepad, 0)
+    stop: gamepadButtonPressed(gamepad, 0),
+    y: gamepadButtonPressed(gamepad, 3)
   };
 }
 
@@ -119,11 +325,27 @@ export function snapshotFromLiteGamepad(state: LiteGamepadState): ManualControlS
     mecanum,
     tracked,
     arm: armInputFromRightStick(state.rightX, state.rightY),
+    armPose: fourAxisArmInputFromGamepad(state),
     canJog: {
       front: canJogDirectionFromButtons(state.lb, state.lt),
       rear: canJogDirectionFromButtons(state.rb, state.rt)
     },
+    modeToggle: state.y,
     stop: state.stop
+  };
+}
+
+export function stepLiteGamepadControlMode(
+  current: LiteGamepadControlMode,
+  state: Pick<LiteGamepadState, "y">,
+  previousYPressed: boolean
+): { mode: LiteGamepadControlMode; previousYPressed: boolean; toggled: boolean } {
+  const yPressed = Boolean(state.y);
+  const toggled = yPressed && !previousYPressed;
+  return {
+    mode: toggled ? current === "arm" ? "drive" : "arm" : current,
+    previousYPressed: yPressed,
+    toggled
   };
 }
 
@@ -150,6 +372,16 @@ export function armInputFromRightStick(rightX: number, rightY: number): LiteArmJ
   return {
     forward: clampUnit(rightY),
     lift: clampUnit(rightX)
+  };
+}
+
+export function fourAxisArmInputFromGamepad(state: Pick<LiteGamepadState, "leftX" | "leftY" | "lt" | "rightX" | "rightY" | "rt">): LiteFourAxisArmJoystickInput {
+  return {
+    claw: canJogDirectionFromButtons(state.rt, state.lt),
+    toolPitch: clampUnit(state.leftY),
+    wristRoll: clampUnit(state.leftX),
+    x: clampUnit(state.rightY),
+    z: clampUnit(state.rightX)
   };
 }
 

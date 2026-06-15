@@ -54,6 +54,12 @@ test("ESP32 Feetech firmware dispatches binary servo opcodes", () => {
   assert.match(main, /handleGroupMoveRaw\(seq, payload, payloadLength\)/);
 });
 
+test("ESP32 Feetech speed writes consume acceleration status before goal speed", () => {
+  assert.match(protocolSource, /StatusPacket accStatus/);
+  assert.match(protocolSource, /write\(id, kAccAddr, \{acc\}, &accStatus\)/);
+  assert.doesNotMatch(protocolSource, /write\(id, kAccAddr, \{acc\}, nullptr\)/);
+});
+
 test("ESP32 Feetech firmware supports safe physical ID writes", () => {
   assert.match(protocolHeader, /constexpr uint8_t kServoIdAddr = 5/);
   assert.match(protocolHeader, /constexpr uint8_t kEepromLockAddr = 55/);
