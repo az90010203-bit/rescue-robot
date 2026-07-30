@@ -68,10 +68,15 @@ export function CanPage(): React.JSX.Element {
       </section>
       <div className="leg-grid">
         {LEGS.map((leg, index) => (
-          <article className="leg-module" key={leg.group}>
+          <article className={`leg-module ${leg.group}`} key={leg.group}>
             <div>
               <span>LEG {String(index + 1).padStart(2, "0")}</span>
               <strong>{leg.label}</strong>
+            </div>
+            <div className="leg-visual" aria-hidden="true">
+              <i />
+              <b />
+              <span>{index < 2 ? "FRONT" : "REAR"}</span>
             </div>
             <div className="leg-actions">
               <button
@@ -100,6 +105,11 @@ export function CanPage(): React.JSX.Element {
                 读取状态
               </button>
             </div>
+            <footer>
+              <span>POSITION</span>
+              <strong>---- raw</strong>
+              <i>等待反馈</i>
+            </footer>
           </article>
         ))}
       </div>

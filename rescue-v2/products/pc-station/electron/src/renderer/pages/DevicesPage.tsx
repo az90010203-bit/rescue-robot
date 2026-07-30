@@ -52,31 +52,71 @@ export function DevicesPage({ health }: DevicesPageProps): React.JSX.Element {
           value={telemetry?.type ?? "等待数据"}
         />
       </div>
-      <div className="telemetry-actions">
-        <button
-          onClick={() =>
-            void window.rescue.invokeCapability({
-              name: "imu",
-              body: { action: "read" }
-            })
-          }
-          type="button"
-        >
-          读取 IMU
-        </button>
-        <button
-          onClick={() =>
-            void window.rescue.invokeCapability({
-              name: "feetech",
-              body: { action: "read" }
-            })
-          }
-          type="button"
-        >
-          读取飞特舵机
-        </button>
+      <div className="devices-layout">
+        <section className="system-topology">
+          <div className="topology-heading">
+            <span>PRODUCT TOPOLOGY</span>
+            <strong>控制链路拓扑</strong>
+          </div>
+          <div className="topology-flow">
+            <article className={health === null ? "bad" : "good"}>
+              <span>01 / LOCAL</span>
+              <strong>PC CONTROL AGENT</strong>
+              <small>127.0.0.1:18400</small>
+            </article>
+            <i />
+            <article className={pi?.ok ? "good" : "bad"}>
+              <span>02 / COORDINATOR</span>
+              <strong>RASPBERRY PI</strong>
+              <small>192.168.55.131</small>
+            </article>
+            <i />
+            <div className="topology-branches">
+              <article className={pi?.serialOpen ? "good" : "bad"}>
+                <span>03A / MOTION</span>
+                <strong>ROBOMASTER A</strong>
+                <small>CAN · IMU · MOTOR</small>
+              </article>
+              <article className={feetech?.serialOpen ? "good" : "bad"}>
+                <span>03B / SERVO</span>
+                <strong>FEETECH NODE</strong>
+                <small>ARM · GIMBAL</small>
+              </article>
+            </div>
+          </div>
+          <div className="telemetry-actions">
+            <button
+              onClick={() =>
+                void window.rescue.invokeCapability({
+                  name: "imu",
+                  body: { action: "read" }
+                })
+              }
+              type="button"
+            >
+              读取 IMU
+            </button>
+            <button
+              onClick={() =>
+                void window.rescue.invokeCapability({
+                  name: "feetech",
+                  body: { action: "read" }
+                })
+              }
+              type="button"
+            >
+              读取飞特舵机
+            </button>
+          </div>
+        </section>
+        <section className="raw-panel">
+          <div className="topology-heading">
+            <span>RAW TELEMETRY</span>
+            <strong>诊断数据</strong>
+          </div>
+          <pre className="telemetry-raw">{JSON.stringify(health, null, 2)}</pre>
+        </section>
       </div>
-      <pre className="telemetry-raw">{JSON.stringify(health, null, 2)}</pre>
     </div>
   );
 }

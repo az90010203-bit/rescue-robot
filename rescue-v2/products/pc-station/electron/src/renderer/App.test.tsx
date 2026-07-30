@@ -64,6 +64,8 @@ describe("App", () => {
   it("exposes every Qt-equivalent operator page", () => {
     render(<App />);
 
+    expect(screen.getByRole("banner")).toBeDefined();
+    expect(screen.getByRole("navigation", { name: "控制站页面" })).toBeDefined();
     for (const label of [
       "整机操作",
       "机械臂",
@@ -74,6 +76,15 @@ describe("App", () => {
     ]) {
       expect(screen.getByRole("button", { name: label })).toBeDefined();
     }
+  });
+
+  it("keeps safety state and emergency stop visible in the command deck", () => {
+    render(<App />);
+
+    expect(screen.getByText("SAFE / STANDBY")).toBeDefined();
+    expect(screen.getByRole("button", { name: "整机急停" })).toBeDefined();
+    expect(screen.getByText("CONTROL AGENT")).toBeDefined();
+    expect(screen.getByText("ROBOT LINK")).toBeDefined();
   });
 
   it("sends emergency stop through the dedicated bridge method", () => {

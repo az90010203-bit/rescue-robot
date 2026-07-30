@@ -77,4 +77,24 @@ describe("DrivePage", () => {
     expect(agentCard?.classList.contains("good")).toBe(true);
     expect(agentCard?.textContent).toContain("在线");
   });
+
+  it("presents an original chassis schematic and all three speed programs", () => {
+    render(<DrivePage health={piOfflineHealth} />);
+
+    expect(screen.getByRole("img", { name: "机器人底盘俯视状态图" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "CRUISE" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "TURBO" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "HYPER" })).toBeDefined();
+  });
+
+  it("applies the existing speed mapping from the new program selector", () => {
+    render(<DrivePage health={piOfflineHealth} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "HYPER" }));
+
+    expect(window.rescue.setSpeedLimits).toHaveBeenCalledWith({
+      mecanumPercent: 70,
+      trackedPercent: 100
+    });
+  });
 });

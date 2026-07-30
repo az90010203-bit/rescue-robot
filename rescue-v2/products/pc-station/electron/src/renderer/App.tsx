@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { AgentHealth } from "../shared/contracts";
 import type { OperationNotice } from "../shared/bridge";
+import { NavIcon } from "./components/NavIcon";
 import { CameraPage } from "./pages/CameraPage";
 import { CanPage } from "./pages/CanPage";
 import { DevicesPage } from "./pages/DevicesPage";
@@ -21,15 +22,16 @@ interface NavigationItem {
   readonly id: PageId;
   readonly label: string;
   readonly code: string;
+  readonly icon: "arm" | "camera" | "devices" | "drive" | "legs" | "settings";
 }
 
 const NAVIGATION: readonly NavigationItem[] = [
-  { id: "drive", label: "整机操作", code: "DRV" },
-  { id: "manipulator", label: "机械臂", code: "ARM" },
-  { id: "can", label: "CAN 四腿", code: "LEG" },
-  { id: "camera", label: "主摄像头", code: "CAM" },
-  { id: "devices", label: "设备遥测", code: "SYS" },
-  { id: "settings", label: "设置", code: "CFG" }
+  { id: "drive", label: "整机操作", code: "DRV", icon: "drive" },
+  { id: "manipulator", label: "机械臂", code: "ARM", icon: "arm" },
+  { id: "can", label: "CAN 四腿", code: "LEG", icon: "legs" },
+  { id: "camera", label: "主摄像头", code: "CAM", icon: "camera" },
+  { id: "devices", label: "设备遥测", code: "SYS", icon: "devices" },
+  { id: "settings", label: "设置", code: "CFG", icon: "settings" }
 ];
 
 /**
@@ -107,8 +109,11 @@ export function App(): React.JSX.Element {
     <div className="app-shell">
       <aside className="rail">
         <div className="brand-mark" aria-label="Rescue V2">
-          <span>R</span>
-          <strong>V2</strong>
+          <div className="brand-monogram">R2</div>
+          <div>
+            <strong>RESCUE V2</strong>
+            <span>OPERATOR CONTROL</span>
+          </div>
         </div>
         <nav aria-label="控制站页面">
           {NAVIGATION.map((item) => (
@@ -119,23 +124,36 @@ export function App(): React.JSX.Element {
               onClick={() => selectPage(item.id)}
               type="button"
             >
-              <span>{item.code}</span>
-              {item.label}
+              <NavIcon name={item.icon} />
+              <span className="nav-copy">
+                <strong>{item.label}</strong>
+                <small>{item.code} / 0{NAVIGATION.indexOf(item) + 1}</small>
+              </span>
             </button>
           ))}
         </nav>
-        <div className="rail-version">ELECTRON 0.1</div>
+        <div className="rail-footer">
+          <span>STATION</span>
+          <strong>ELECTRON 0.2</strong>
+          <small>LOCAL SAFETY CORE</small>
+        </div>
       </aside>
 
       <main className="workspace">
         <header className="command-bar">
-          <div>
-            <div className="eyebrow">RESCUE ROBOT / OPERATOR STATION</div>
+          <div className="command-title">
+            <div className="eyebrow">MISSION CONTROL / {page.toUpperCase()}</div>
             <h1>{pageLabel}</h1>
           </div>
-          <div className={`system-notice ${notice.level}`}>
-            <span className="pulse-dot" />
-            {notice.message}
+          <div className="link-overview">
+            <div className={health === null ? "link-metric bad" : "link-metric good"}>
+              <span>CONTROL AGENT</span>
+              <strong>{health === null ? "OFFLINE" : "ONLINE"}</strong>
+            </div>
+            <div className={health?.pi?.ok ? "link-metric good" : "link-metric bad"}>
+              <span>ROBOT LINK</span>
+              <strong>{health?.pi?.ok ? "ONLINE" : "OFFLINE"}</strong>
+            </div>
           </div>
           <div className="command-actions">
             <button
@@ -146,19 +164,27 @@ export function App(): React.JSX.Element {
               重启控制软件
             </button>
             <button
+              aria-label="整机急停"
               className="emergency-button"
               onClick={() => void window.rescue.stop("electron_emergency_stop")}
               type="button"
             >
-              整机急停
+              <span>EMERGENCY</span>
+              <strong>整机急停</strong>
             </button>
           </div>
         </header>
 
-        <div className="life-line" aria-hidden="true">
-          <i />
-          <span>{health?.armed ? "CONTROL CHANNEL ACTIVE" : "SAFE / STANDBY"}</span>
-          <i />
+        <div className={`safety-strip ${health?.armed ? "armed" : "safe"}`}>
+          <div className="safety-state">
+            <i />
+            <span>{health?.armed ? "CONTROL CHANNEL ACTIVE" : "SAFE / STANDBY"}</span>
+          </div>
+          <div className={`system-notice ${notice.level}`}>
+            <span className="pulse-dot" />
+            {notice.message}
+          </div>
+          <span className="safety-hint">SPACE / EMERGENCY STOP</span>
         </div>
 
         <section className="page-stage" data-page={page}>
