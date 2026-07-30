@@ -49,6 +49,13 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const removeHealth = window.rescue.onHealth((value) => {
       setHealth(value);
+      if (value === null) {
+        setNotice({
+          level: "error",
+          message: "控制 Agent 离线"
+        });
+        return;
+      }
       setNotice({
         level: value.ok ? "info" : "warning",
         message: value.ok ? "控制链路在线" : value.lastError ?? "树莓派暂时离线"

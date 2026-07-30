@@ -22,7 +22,7 @@ export function DevicesPage({ health }: DevicesPageProps): React.JSX.Element {
       <div className="status-grid three">
         <StatusCard
           label="PC AGENT"
-          state={health?.ok ? "good" : "bad"}
+          state={health === null ? "bad" : "good"}
           value={health?.service ?? "离线"}
         />
         <StatusCard

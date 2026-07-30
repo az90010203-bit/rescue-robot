@@ -114,6 +114,9 @@ async function pollHealth(): Promise<void> {
     }
   } catch (error) {
     latestHealth = null;
+    if (window !== null && !window.isDestroyed()) {
+      window.webContents.send(CHANNELS.healthChanged, null);
+    }
     report({
       level: "error",
       message: error instanceof Error ? error.message : "控制 Agent 离线"

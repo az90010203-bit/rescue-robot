@@ -182,8 +182,8 @@ export function DrivePage({ health }: DrivePageProps): React.JSX.Element {
       <div className="status-grid four">
         <StatusCard
           label="PC AGENT"
-          state={health?.ok ? "good" : "bad"}
-          value={health?.ok ? "在线" : "离线"}
+          state={health === null ? "bad" : "good"}
+          value={health === null ? "离线" : "在线"}
         />
         <StatusCard
           label="树莓派协调器"

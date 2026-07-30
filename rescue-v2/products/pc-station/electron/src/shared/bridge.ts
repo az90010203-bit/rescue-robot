@@ -32,8 +32,8 @@ export interface RescueBridge {
   /** Returns the most recent validated Agent health, if available. */
   getHealth(): Promise<AgentHealth | null>;
 
-  /** Subscribes to validated Agent health snapshots. */
-  onHealth(listener: (health: AgentHealth) => void): Unsubscribe;
+  /** Subscribes to validated Agent health snapshots and disconnects. */
+  onHealth(listener: (health: AgentHealth | null) => void): Unsubscribe;
 
   /** Subscribes to operator-facing command and connection notices. */
   onOperation(listener: (notice: OperationNotice) => void): Unsubscribe;

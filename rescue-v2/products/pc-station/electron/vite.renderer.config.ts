@@ -1,15 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { applyRendererCsp } from "./src/renderer/csp";
+
 export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     {
       name: "rescue-csp",
       transformIndexHtml(html) {
-        const developmentSources =
-          command === "serve" ? "ws://localhost:* http://localhost:*" : "";
-        return html.replace("__DEV_CONNECT_SOURCES__", developmentSources);
+        return applyRendererCsp(html, command);
       }
     }
   ],
