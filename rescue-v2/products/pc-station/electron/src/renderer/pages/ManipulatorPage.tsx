@@ -21,6 +21,20 @@ export function ManipulatorPage(): React.JSX.Element {
         title="机械臂与末端"
       />
       <div className="manipulator-layout">
+        <section className="arm-visual" aria-label="机械臂姿态示意">
+          <div className="arm-visual-grid" aria-hidden="true" />
+          <div className="arm-base" aria-hidden="true" />
+          <div className="arm-link link-one" aria-hidden="true"><i /></div>
+          <div className="arm-link link-two" aria-hidden="true"><i /></div>
+          <div className="arm-gripper" aria-hidden="true"><i /><i /></div>
+          <div className="arm-visual-copy">
+            <span>ARM KINEMATICS</span>
+            <strong>2-LINK / READY</strong>
+            <small>逻辑坐标控制 · 下层限位保护</small>
+          </div>
+          <div className="arm-coordinate x">X</div>
+          <div className="arm-coordinate z">Z</div>
+        </section>
         <section className="control-panel arm-panel">
           <div className="panel-title">
             <span>2-LINK ARM</span>
@@ -43,6 +57,7 @@ export function ManipulatorPage(): React.JSX.Element {
               下降
             </HoldButton>
           </div>
+          <div className="panel-footnote">按住移动 / 松开即停</div>
         </section>
         <section className="control-panel wrist-panel">
           <div className="panel-title">

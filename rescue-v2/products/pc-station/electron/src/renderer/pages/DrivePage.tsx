@@ -10,6 +10,7 @@ import {
 import type { AgentHealth } from "../../shared/contracts";
 import { HoldButton } from "../components/HoldButton";
 import { PageHeading } from "../components/PageHeading";
+import { RobotChassis } from "../components/RobotChassis";
 import { StatusCard } from "../components/StatusCard";
 
 interface DrivePageProps {
@@ -179,7 +180,7 @@ export function DrivePage({ health }: DrivePageProps): React.JSX.Element {
         kicker="DRIVE / 01"
         title="底盘与履带"
       />
-      <div className="status-grid four">
+      <div className="status-grid four drive-status">
         <StatusCard
           label="PC AGENT"
           state={health === null ? "bad" : "good"}
@@ -203,89 +204,185 @@ export function DrivePage({ health }: DrivePageProps): React.JSX.Element {
         />
       </div>
 
-      <section className="drive-command-strip">
-        <HoldButton
-          className={`mode-switch ${driveMode}`}
-          onHoldEnd={endL}
-          onHoldStart={beginL}
-        >
-          <span>L · {driveMode === "mecanum" ? "麦轮" : "履带"}</span>
-          <strong>{activeMode ?? "CUSTOM MODE"}</strong>
-          <small>短按切底盘 · 长按换挡</small>
-        </HoldButton>
-        <label>
-          麦轮 <b>{mecanumSpeed}%</b>
-          <input
-            max="70"
-            min="30"
-            onChange={(event) =>
-              updateCustomSpeed("mecanum", Number(event.currentTarget.value))
-            }
-            type="range"
-            value={mecanumSpeed}
-          />
-        </label>
-        <label>
-          履带 <b>{trackedSpeed}%</b>
-          <input
-            max="100"
-            min="30"
-            onChange={(event) =>
-              updateCustomSpeed("tracked", Number(event.currentTarget.value))
-            }
-            type="range"
-            value={trackedSpeed}
-          />
-        </label>
-      </section>
+      <div className="drive-deck">
+        <section className="control-panel motion-deck">
+          <div className="panel-title">
+            <span>MOTION VECTOR</span>
+            <h3>{driveMode === "mecanum" ? "麦克纳姆全向控制" : "双履带独立控制"}</h3>
+          </div>
+          {driveMode === "mecanum" ? (
+            <div className="chassis-control-grid">
+              <HoldButton
+                aria-label="左转 Q"
+                className={`motion-key turn-left ${controls.has("turn-left") ? "active" : ""}`}
+                onHoldEnd={() => setControl("turn-left", false)}
+                onHoldStart={() => setControl("turn-left", true)}
+              >
+                <kbd>Q</kbd><span>左转</span>
+              </HoldButton>
+              <HoldButton
+                aria-label="前进 W"
+                className={`motion-key forward ${controls.has("forward") ? "active" : ""}`}
+                onHoldEnd={() => setControl("forward", false)}
+                onHoldStart={() => setControl("forward", true)}
+              >
+                <kbd>W</kbd><span>前进</span>
+              </HoldButton>
+              <HoldButton
+                aria-label="右转 E"
+                className={`motion-key turn-right ${controls.has("turn-right") ? "active" : ""}`}
+                onHoldEnd={() => setControl("turn-right", false)}
+                onHoldStart={() => setControl("turn-right", true)}
+              >
+                <kbd>E</kbd><span>右转</span>
+              </HoldButton>
+              <HoldButton
+                aria-label="左移 A"
+                className={`motion-key left ${controls.has("left") ? "active" : ""}`}
+                onHoldEnd={() => setControl("left", false)}
+                onHoldStart={() => setControl("left", true)}
+              >
+                <kbd>A</kbd><span>左移</span>
+              </HoldButton>
+              <RobotChassis
+                controls={controls}
+                driveMode={driveMode}
+                speedName={activeMode ?? "CUSTOM MODE"}
+              />
+              <HoldButton
+                aria-label="右移 D"
+                className={`motion-key right ${controls.has("right") ? "active" : ""}`}
+                onHoldEnd={() => setControl("right", false)}
+                onHoldStart={() => setControl("right", true)}
+              >
+                <kbd>D</kbd><span>右移</span>
+              </HoldButton>
+              <div className="motion-spacer" />
+              <HoldButton
+                aria-label="后退 S"
+                className={`motion-key backward ${controls.has("backward") ? "active" : ""}`}
+                onHoldEnd={() => setControl("backward", false)}
+                onHoldStart={() => setControl("backward", true)}
+              >
+                <kbd>S</kbd><span>后退</span>
+              </HoldButton>
+              <div className="motion-spacer" />
+            </div>
+          ) : (
+            <div className="tracked-control-grid">
+              <RobotChassis
+                controls={controls}
+                driveMode={driveMode}
+                speedName={activeMode ?? "CUSTOM MODE"}
+              />
+              <div className="track-pair">
+                {[
+                  ["左履带前", "left-forward"],
+                  ["右履带前", "right-forward"],
+                  ["左履带后", "left-backward"],
+                  ["右履带后", "right-backward"]
+                ].map(([label, control]) => (
+                  <HoldButton
+                    aria-label={label}
+                    className={controls.has(control as MotionControl) ? "active" : ""}
+                    key={control}
+                    onHoldEnd={() => setControl(control as MotionControl, false)}
+                    onHoldStart={() => setControl(control as MotionControl, true)}
+                  >
+                    {label}
+                  </HoldButton>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
 
-      {driveMode === "mecanum" ? (
-        <section className="control-panel mecanum-panel">
-          <h3>麦克纳姆底盘</h3>
-          <div className="mecanum-grid">
-            {[
-              ["左转 Q", "turn-left"],
-              ["前进 W", "forward"],
-              ["右转 E", "turn-right"],
-              ["左移 A", "left"],
-              ["后退 S", "backward"],
-              ["右移 D", "right"]
-            ].map(([label, control]) => (
-              <HoldButton
-                aria-label={label}
-                className={controls.has(control as MotionControl) ? "active" : ""}
-                key={control}
-                onHoldEnd={() => setControl(control as MotionControl, false)}
-                onHoldStart={() => setControl(control as MotionControl, true)}
-              >
-                {label}
-              </HoldButton>
-            ))}
+        <aside className="drive-tuning">
+          <section className="tuning-module mode-module">
+            <div className="module-heading">
+              <span>DRIVE SELECT</span>
+              <strong>底盘模式</strong>
+            </div>
+            <HoldButton
+              className={`mode-switch ${driveMode}`}
+              onHoldEnd={endL}
+              onHoldStart={beginL}
+            >
+              <span>L / {driveMode === "mecanum" ? "MECANUM" : "TRACKED"}</span>
+              <strong>{driveMode === "mecanum" ? "麦轮底盘" : "履带底盘"}</strong>
+              <small>短按切底盘 · 长按循环换挡</small>
+            </HoldButton>
+          </section>
+
+          <section className="tuning-module speed-module">
+            <div className="module-heading">
+              <span>POWER PROGRAM</span>
+              <strong>{activeMode ?? "CUSTOM MODE"}</strong>
+            </div>
+            <div className="speed-programs" role="group" aria-label="速度档位">
+              {[
+                ["CRUISE", 0],
+                ["TURBO", 1],
+                ["HYPER", 2]
+              ].map(([label, level]) => (
+                <button
+                  aria-label={String(label)}
+                  className={speedLevel === level ? "active" : ""}
+                  key={label}
+                  onClick={() => applySpeedLevel(Number(level))}
+                  type="button"
+                >
+                  <small>L{Number(level) + 1}</small>
+                  <strong>{label}</strong>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="tuning-module limit-module">
+            <div className="module-heading">
+              <span>OUTPUT LIMIT</span>
+              <strong>动力限制</strong>
+            </div>
+            <label>
+              <span>麦轮</span>
+              <b>{mecanumSpeed}%</b>
+              <input
+                aria-label="麦轮速度限制"
+                max="70"
+                min="30"
+                onChange={(event) =>
+                  updateCustomSpeed("mecanum", Number(event.currentTarget.value))
+                }
+                type="range"
+                value={mecanumSpeed}
+              />
+              <small>30</small><small>70</small>
+            </label>
+            <label>
+              <span>履带</span>
+              <b>{trackedSpeed}%</b>
+              <input
+                aria-label="履带速度限制"
+                max="100"
+                min="30"
+                onChange={(event) =>
+                  updateCustomSpeed("tracked", Number(event.currentTarget.value))
+                }
+                type="range"
+                value={trackedSpeed}
+              />
+              <small>30</small><small>100</small>
+            </label>
+          </section>
+
+          <div className="keyboard-note">
+            <span>KEYBOARD</span>
+            <strong>WASD / QE</strong>
+            <small>松键、失焦或切页立即清除运动命令</small>
           </div>
-        </section>
-      ) : (
-        <section className="control-panel tracked-panel">
-          <h3>独立履带</h3>
-          <div className="tracked-grid">
-            {[
-              ["左履带向前", "left-forward"],
-              ["右履带向前", "right-forward"],
-              ["左履带向后", "left-backward"],
-              ["右履带向后", "right-backward"]
-            ].map(([label, control]) => (
-              <HoldButton
-                aria-label={label}
-                className={controls.has(control as MotionControl) ? "active" : ""}
-                key={control}
-                onHoldEnd={() => setControl(control as MotionControl, false)}
-                onHoldStart={() => setControl(control as MotionControl, true)}
-              >
-                {label}
-              </HoldButton>
-            ))}
-          </div>
-        </section>
-      )}
+        </aside>
+      </div>
     </div>
   );
 }

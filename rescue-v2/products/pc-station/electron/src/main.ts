@@ -229,7 +229,8 @@ async function createWindow(): Promise<void> {
     height: 920,
     minWidth: 1180,
     minHeight: 720,
-    backgroundColor: "#071014",
+    autoHideMenuBar: true,
+    backgroundColor: "#050607",
     show: false,
     title: "Rescue V2 Electron 控制站",
     webPreferences: {
@@ -240,6 +241,7 @@ async function createWindow(): Promise<void> {
       webSecurity: true
     }
   });
+  window.setMenuBarVisibility(false);
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
