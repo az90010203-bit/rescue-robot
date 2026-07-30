@@ -1,0 +1,25 @@
+{
+  "product_id": "pc-station",
+  "version": "0.1.0",
+  "deployment_artifact": "Windows bundle containing rescue-control-agent and rescue-console-ui",
+  "product_dependencies": [],
+  "shared_dependencies": [
+    "rescue.v2 protobuf contracts",
+    "R2 realtime transport",
+    "versioned local IPC"
+  ],
+  "owned_responsibilities": [
+    "operator input mapping",
+    "single control-agent process",
+    "Qt presentation process",
+    "parallel Electron presentation process",
+    "Pi session authentication",
+    "operator-facing diagnostics"
+  ],
+  "must_not_own": [
+    "motor channels",
+    "board pins",
+    "raw actuator identifiers",
+    "final arm limits"
+  ]
+}

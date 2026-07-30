@@ -1,0 +1,101 @@
+name: Electron control station
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/electron-control-station.yml"
+      - "rescue-v2/products/pc-station/**"
+      - "rescue-v2/tests/physical/test_control_agent.py"
+      - "rescue-v2/tests/physical/test_qt_console.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/electron-control-station.yml"
+      - "rescue-v2/products/pc-station/**"
+      - "rescue-v2/tests/physical/test_control_agent.py"
+      - "rescue-v2/tests/physical/test_qt_console.py"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: rescue-v2/products/pc-station/electron
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: rescue-v2/products/pc-station/electron/pnpm-lock.yaml
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            rescue-v2/products/pc-station/requirements-build.lock.txt
+            rescue-v2/products/pc-station/requirements.lock.txt
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Agent build dependencies
+        working-directory: rescue-v2/products/pc-station
+        run: python -m pip install -r requirements-build.lock.txt -r requirements.lock.txt
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test with coverage
+        run: pnpm test:coverage
+
+      - name: Audit dependencies
+        run: |
+          pnpm audit --prod
+          pnpm audit
+
+      - name: Test Python boundaries
+        working-directory: .
+        run: |
+          python -m unittest rescue-v2/tests/physical/test_control_agent.py
+          python -m unittest rescue-v2/tests/physical/test_qt_console.py
+          python -m py_compile rescue-v2/products/pc-station/agent/rescue_agent.py rescue-v2/products/pc-station/qt/rescue_console.py
+
+      - name: Package standalone Control Agent
+        working-directory: rescue-v2/products/pc-station
+        run: |
+          $python = (Get-Command python.exe).Source
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./build-electron-agent.ps1 -Python $python
+
+      - name: Package Electron UI
+        run: pnpm package:ui
+
+      - name: Verify packaged payload
+        run: |
+          $packageRoot = Get-ChildItem -LiteralPath out -Directory -Filter "*-win32-x64" | Select-Object -First 1
+          if ($null -eq $packageRoot) {
+            throw "Electron package directory was not created."
+          }
+          $required = @(
+            (Join-Path $packageRoot.FullName "resources\app.asar"),
+            (Join-Path $packageRoot.FullName "resources\restart-electron.ps1"),
+            (Join-Path $packageRoot.FullName "resources\agent\rescue-control-agent.exe")
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing packaged payload: $path"
+            }
+          }
