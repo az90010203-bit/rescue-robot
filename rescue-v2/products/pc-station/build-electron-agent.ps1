@@ -1,5 +1,5 @@
 param(
-    [string]$Python = "C:\Users\47459\.platformio\penv\Scripts\python.exe"
+    [string]$Python = $env:RESCUE_AGENT_PYTHON
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,13 +9,26 @@ $distRoot = [IO.Path]::GetFullPath((Join-Path $stationRoot "agent-dist"))
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $stationRoot ".build\pyinstaller"))
 $pyInstallerDist = [IO.Path]::GetFullPath((Join-Path $buildRoot "dist"))
 
+if ([string]::IsNullOrWhiteSpace($Python)) {
+    $platformIoPython = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".platformio\penv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $platformIoPython) {
+        $Python = $platformIoPython
+    }
+    else {
+        $pythonCommand = Get-Command "python.exe" -ErrorAction SilentlyContinue
+        if ($null -ne $pythonCommand) {
+            $Python = $pythonCommand.Source
+        }
+    }
+}
+
 foreach ($target in @($distRoot, $buildRoot, $pyInstallerDist)) {
     if (-not $target.StartsWith($stationRoot, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to clean a path outside the PC station: $target"
     }
 }
 
-if (-not (Test-Path -LiteralPath $Python)) {
+if ([string]::IsNullOrWhiteSpace($Python) -or -not (Test-Path -LiteralPath $Python)) {
     throw "Python runtime was not found: $Python"
 }
 if (-not (Test-Path -LiteralPath $agentScript)) {
