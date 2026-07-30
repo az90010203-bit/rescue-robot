@@ -1,0 +1,47 @@
+{
+  "name": "rescue-v2-electron-console",
+  "productName": "Rescue V2 Control Station",
+  "version": "0.1.0",
+  "author": "Rescue V2 Team",
+  "description": "Parallel React and Electron operator console for Rescue V2",
+  "main": ".vite/build/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron-forge start",
+    "build:agent": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../build-electron-agent.ps1",
+    "package:ui": "electron-forge package",
+    "package": "pnpm build:agent && electron-forge package",
+    "make": "pnpm build:agent && powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../make-electron.ps1",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/plugin-fuses": "7.11.2",
+    "@electron-forge/plugin-vite": "7.11.2",
+    "@electron-forge/shared-types": "7.11.2",
+    "@electron/fuses": "2.1.3",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "@vitest/coverage-v8": "4.1.10",
+    "electron": "43.2.0",
+    "jsdom": "30.0.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  }
+}
