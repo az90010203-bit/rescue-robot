@@ -37,9 +37,9 @@ const bridge: RescueBridge = {
     const raw: unknown = await ipcRenderer.invoke(CHANNELS.getHealth);
     return agentHealthSchema.nullable().parse(raw);
   },
-  onHealth(listener: (health: AgentHealth) => void): Unsubscribe {
+  onHealth(listener: (health: AgentHealth | null) => void): Unsubscribe {
     const handler = (_event: IpcRendererEvent, raw: unknown): void => {
-      listener(agentHealthSchema.parse(raw));
+      listener(agentHealthSchema.nullable().parse(raw));
     };
     ipcRenderer.on(CHANNELS.healthChanged, handler);
     return () => ipcRenderer.removeListener(CHANNELS.healthChanged, handler);

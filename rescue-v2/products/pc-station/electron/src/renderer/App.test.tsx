@@ -1,8 +1,26 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import type { RescueBridge } from "../shared/bridge";
+import type { AgentHealth } from "../shared/contracts";
+
+const piOfflineHealth: AgentHealth = {
+  ok: false,
+  service: "rescue-v2-control-agent",
+  version: "0.1.0",
+  armed: false,
+  qtHeartbeatFresh: true,
+  lastStopReason: null,
+  stopCount: 0,
+  speedLimits: {
+    mecanum: 50,
+    tracked: 60
+  },
+  lastError: "Pi unavailable",
+  controller: null,
+  pi: null
+};
 
 const bridge: RescueBridge = {
   getHealth: vi.fn<RescueBridge["getHealth"]>().mockResolvedValue(null),
@@ -23,6 +41,8 @@ const bridge: RescueBridge = {
   }
 };
 
+let healthListener: ((health: AgentHealth | null) => void) | undefined;
+
 describe("App", () => {
   afterEach(() => {
     cleanup();
@@ -34,6 +54,11 @@ describe("App", () => {
       value: bridge
     });
     vi.clearAllMocks();
+    healthListener = undefined;
+    vi.mocked(bridge.onHealth).mockImplementation((listener) => {
+      healthListener = listener;
+      return () => undefined;
+    });
   });
 
   it("exposes every Qt-equivalent operator page", () => {
@@ -57,5 +82,16 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "整机急停" }));
 
     expect(bridge.stop).toHaveBeenCalledWith("electron_emergency_stop");
+  });
+
+  it("clears stale Agent health when main publishes a disconnect", () => {
+    render(<App />);
+
+    act(() => healthListener?.(piOfflineHealth));
+    const agentCard = screen.getByText("PC AGENT").closest("article");
+    expect(agentCard?.classList.contains("good")).toBe(true);
+
+    act(() => healthListener?.(null));
+    expect(agentCard?.classList.contains("bad")).toBe(true);
   });
 });
